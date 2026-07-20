@@ -10,14 +10,12 @@ let mainWindow = null
 let notesPath = null
 
 function createWindow() {
-  mainWindow = new BrowserWindow({
+  const windowOptions = {
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
     frame: false,
-    transparent: true,
-    backgroundColor: '#00000000',
     titleBarStyle: 'hiddenInset',
     hasShadow: true,
     webPreferences: {
@@ -26,8 +24,21 @@ function createWindow() {
       nodeIntegration: false,
       sandbox: false
     },
-    show: true
-  })
+    show: false
+  }
+
+  if (process.platform === 'win32') {
+    windowOptions.backgroundMaterial = 'acrylic'
+  } else if (process.platform === 'darwin') {
+    windowOptions.vibrancy = 'under-window'
+    windowOptions.visualEffectState = 'active'
+    windowOptions.backgroundColor = 'rgba(255, 255, 255, 0.001)'
+  } else {
+    windowOptions.transparent = true
+    windowOptions.backgroundColor = '#00000000'
+  }
+
+  mainWindow = new BrowserWindow(windowOptions)
 
   if (isDev) {
     mainWindow.loadURL(DEV_SERVER_URL)
@@ -43,6 +54,10 @@ function createWindow() {
         mainWindow?.loadURL(DEV_SERVER_URL)
       }, 2000)
     }
+  })
+
+  mainWindow.once('ready-to-show', () => {
+    mainWindow.show()
   })
 
   mainWindow.on('closed', () => {

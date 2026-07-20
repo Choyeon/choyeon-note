@@ -53,7 +53,8 @@ interface Note {
     updatedAt: new Date('2024-03-22T16:30:00'),
     wordCount: 486,
     charCount: 2847,
-    lineCount: 42
+    lineCount: 42,
+    filePath: null
   },
   {
     id: 'note2',
@@ -65,7 +66,8 @@ interface Note {
     updatedAt: new Date('2024-03-22T14:15:00'),
     wordCount: 1200,
     charCount: 6000,
-    lineCount: 120
+    lineCount: 120,
+    filePath: null
   },
   {
     id: 'note3',
@@ -77,7 +79,8 @@ interface Note {
     updatedAt: new Date('2024-03-21T18:00:00'),
     wordCount: 350,
     charCount: 1800,
-    lineCount: 35
+    lineCount: 35,
+    filePath: null
   },
   {
     id: 'note4',
@@ -89,7 +92,8 @@ interface Note {
     updatedAt: new Date('2024-03-20T23:45:00'),
     wordCount: 500,
     charCount: 2500,
-    lineCount: 50
+    lineCount: 50,
+    filePath: null
   },
   {
     id: 'note5',
@@ -101,7 +105,8 @@ interface Note {
     updatedAt: new Date('2024-03-19T10:20:00'),
     wordCount: 800,
     charCount: 4000,
-    lineCount: 80
+    lineCount: 80,
+    filePath: null
   },
   {
     id: 'note6',
@@ -113,7 +118,8 @@ interface Note {
     updatedAt: new Date('2024-03-18T09:00:00'),
     wordCount: 600,
     charCount: 3000,
-    lineCount: 60
+    lineCount: 60,
+    filePath: null
   },
   {
     id: 'note7',
@@ -125,7 +131,8 @@ interface Note {
     updatedAt: new Date('2024-03-17T16:30:00'),
     wordCount: 900,
     charCount: 4500,
-    lineCount: 90
+    lineCount: 90,
+    filePath: null
   },
   {
     id: 'note8',
@@ -137,7 +144,8 @@ interface Note {
     updatedAt: new Date('2024-03-15T21:00:00'),
     wordCount: 700,
     charCount: 3500,
-    lineCount: 70
+    lineCount: 70,
+    filePath: null
   },
   {
     id: 'note9',
@@ -149,7 +157,8 @@ interface Note {
     updatedAt: new Date('2024-03-14T14:00:00'),
     wordCount: 100,
     charCount: 500,
-    lineCount: 10
+    lineCount: 10,
+    filePath: null
   }
 ]
 
@@ -161,13 +170,21 @@ export const useNoteStore = defineStore('note', () => {
   const searchQuery = ref('')
   const sortBy = ref('updated')
   const viewMode = ref('list')
+  const notesPath = ref(null)
+  const isLoading = ref(false)
 
-  const folders = ref([
-    { name: '工作笔记', count: 2, icon: 'folder' },
-    { name: '项目文档', count: 3, icon: 'folder' },
-    { name: '日记', count: 1, icon: 'folder' },
-    { name: '模板', count: 0, icon: 'folder' }
-  ])
+  const folders = computed(() => {
+    const folderMap = {}
+    notes.value.forEach(note => {
+      const folder = note.folder
+      if (!folder) return
+      if (!folderMap[folder]) {
+        folderMap[folder] = { name: folder, count: 0 }
+      }
+      folderMap[folder].count++
+    })
+    return Object.values(folderMap).sort((a, b) => a.name.localeCompare(b.name))
+  })
 
   const currentNote = computed(() => {
     return notes.value.find(n => n.id === currentNoteId.value) || null
@@ -198,7 +215,7 @@ export const useNoteStore = defineStore('note', () => {
   const notesByFolder = computed(() => {
     const map = {}
     notes.value.forEach(note => {
-      const folder = note.folder || '(root)'
+      const folder = note.folder || ''
       if (!map[folder]) map[folder] = []
       map[folder].push(note)
     })
@@ -228,7 +245,8 @@ export const useNoteStore = defineStore('note', () => {
       updatedAt: new Date(),
       wordCount: 0,
       charCount: title.length,
-      lineCount: 1
+      lineCount: 1,
+      filePath: null
     }
     notes.value.unshift(newNote)
     currentNoteId.value = newNote.id
@@ -248,12 +266,20 @@ export const useNoteStore = defineStore('note', () => {
       if (titleMatch) {
         note.title = titleMatch[1]
       }
+      
+      if (note.filePath && window.electronAPI) {
+        window.electronAPI.writeFile(note.filePath, content)
+      }
     }
   }
 
   function deleteNote(id) {
     const index = notes.value.findIndex(n => n.id === id)
     if (index > -1) {
+      const note = notes.value[index]
+      if (note.filePath && window.electronAPI) {
+        window.electronAPI.deleteFile(note.filePath)
+      }
       notes.value.splice(index, 1)
       if (currentNoteId.value === id) {
         currentNoteId.value = notes.value[0]?.id || null
@@ -289,6 +315,77 @@ export const useNoteStore = defineStore('note', () => {
     })
   }
 
+  async function loadNotesFromPath(path) {
+    isLoading.value = true
+    notesPath.value = path
+    
+    try {
+      const files = await window.electronAPI.readDirectoryRecursive(path)
+      
+      const loadedNotes = []
+      
+      for (const file of files) {
+        const content = await window.electronAPI.readFile(file.path)
+        if (content !== null) {
+          const titleMatch = content.match(/^#\s+(.+)$/m)
+          const title = titleMatch ? titleMatch[1] : file.name.replace('.md', '')
+          
+          const relativePathParts = file.relativePath.split('/')
+          relativePathParts.pop()
+          const folder = relativePathParts.join('/') || ''
+          
+          loadedNotes.push({
+            id: generateId(),
+            title,
+            content,
+            folder,
+            tags: [],
+            createdAt: new Date(file.ctime),
+            updatedAt: new Date(file.mtime),
+            wordCount: content.replace(/\s/g, '').length,
+            charCount: content.length,
+            lineCount: content.split('\n').length,
+            filePath: file.path
+          })
+        }
+      }
+      
+      notes.value = loadedNotes.length > 0 ? loadedNotes : sampleNotes
+      currentNoteId.value = notes.value[0]?.id || null
+      
+    } catch (error) {
+      console.error('Error loading notes:', error)
+      notes.value = sampleNotes
+      currentNoteId.value = notes.value[0]?.id || null
+    }
+    
+    isLoading.value = false
+  }
+
+  async function saveNoteToFile(note, folder = '') {
+    if (!notesPath.value || !window.electronAPI) return false
+    
+    let filePath = note.filePath
+    if (!filePath) {
+      const folderPath = folder ? `${notesPath.value}/${folder}` : notesPath.value
+      await window.electronAPI.createDirectory(folderPath)
+      const fileName = `${note.title}.md`.replace(/[\\/:*?"<>|]/g, '_')
+      filePath = `${folderPath}/${fileName}`
+    }
+    
+    const success = await window.electronAPI.writeFile(filePath, note.content)
+    if (success) {
+      note.filePath = filePath
+    }
+    return success
+  }
+
+  async function createNewNoteFile(folder = '', title = '无标题笔记') {
+    const newNote = createNote(folder, title)
+    await saveNoteToFile(newNote, folder)
+    return newNote
+  }
+
   return {
     notes,
     currentNoteId,
@@ -299,6 +396,8 @@ export const useNoteStore = defineStore('note', () => {
     searchQuery,
     sortBy,
     viewMode,
+    notesPath,
+    isLoading,
     filteredNotes,
     notesByFolder,
     allTags,
@@ -310,6 +409,9 @@ export const useNoteStore = defineStore('note', () => {
     setSearchQuery,
     setSortBy,
     setViewMode,
-    getNotesByDate
+    getNotesByDate,
+    loadNotesFromPath,
+    saveNoteToFile,
+    createNewNoteFile
   }
 })

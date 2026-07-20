@@ -76,11 +76,8 @@
       </div>
     </div>
 
-    <div 
-      class="status-bar-glass min-h-7 px-6 py-1 flex items-center border-t"
-      :style="{ borderColor: 'var(--color-border-light)' }"
-    >
-      <span class="text-[11px] whitespace-nowrap" :style="{ color: 'var(--color-text-primary)' }">
+    <div class="cho-statusbar">
+      <span class="cho-statusbar-meta">
         {{ allTags.length }} 个标签
       </span>
     </div>
@@ -141,12 +138,5 @@ function formatDate(date) {
 .tag-card:active {
   transform: translateY(0);
   box-shadow: var(--shadow-sm);
-}
-
-/* 底部状态栏 - 与标题栏一致的毛玻璃效果 */
-.status-bar-glass {
-  background: var(--titlebar-bg);
-  backdrop-filter: blur(var(--titlebar-blur)) saturate(var(--titlebar-saturate));
-  -webkit-backdrop-filter: blur(var(--titlebar-blur)) saturate(var(--titlebar-saturate));
 }
 </style>

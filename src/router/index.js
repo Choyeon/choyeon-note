@@ -54,4 +54,23 @@ const router = createRouter({
   routes
 })
 
+router.beforeEach(async (to, from, next) => {
+  const notesLocation = localStorage.getItem('choyeon-notes-location')
+  const mode = localStorage.getItem('choyeon-mode')
+  
+  if (to.name === 'welcome') {
+    if (notesLocation || mode === 'sample') {
+      next({ name: 'notes' })
+    } else {
+      next()
+    }
+  } else {
+    if (!notesLocation && mode !== 'sample' && to.name !== 'welcome') {
+      next({ name: 'welcome' })
+    } else {
+      next()
+    }
+  }
+})
+
 export default router

@@ -356,12 +356,9 @@
       </div>
     </div>
 
-    <div 
-      class="status-bar-glass min-h-7 px-8 py-2 flex items-center justify-between border-t"
-      :style="{ borderColor: 'var(--color-border)' }"
-    >
-      <span class="text-[11px] whitespace-nowrap font-medium" :style="{ color: 'var(--color-text-secondary)' }">Choyeon Notes</span>
-      <span class="text-[11px] whitespace-nowrap font-mono font-medium" :style="{ color: 'var(--color-text-secondary)' }">v1.0.0</span>
+    <div class="cho-statusbar justify-between">
+      <span class="cho-statusbar-hint">Choyeon Notes</span>
+      <span class="cho-statusbar-meta">v1.0.0</span>
     </div>
   </div>
 
@@ -554,13 +551,6 @@ function cancelReset() {
 .shortcut-search:focus {
   background: var(--color-surface);
   box-shadow: 0 0 0 3px var(--color-primary-ring);
-}
-
-/* 底部状态栏 - 与标题栏一致的毛玻璃效果 */
-.status-bar-glass {
-  background: var(--titlebar-bg);
-  backdrop-filter: blur(var(--titlebar-blur)) saturate(var(--titlebar-saturate));
-  -webkit-backdrop-filter: blur(var(--titlebar-blur)) saturate(var(--titlebar-saturate));
 }
 
 /* 快捷键按键 - 优化视觉层次，使用表面色与微妙立体感 */

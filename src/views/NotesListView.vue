@@ -4,15 +4,16 @@
       class="min-h-[52px] px-6 py-2.5 flex items-center border-b acrylic-content"
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
-      <span class="text-2xl font-bold" :style="{ color: 'var(--color-text-primary)' }">全部笔记</span>
+      <span class="text-[20px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">全部笔记</span>
       <div class="flex-1"></div>
       
+      <!-- 视图切换：列表/卡片 -->
       <div 
-        class="flex items-center gap-0.5 rounded-lg p-0.5 mr-3"
+        class="flex items-center gap-0.5 rounded-[var(--cho-radius-md)] p-0.5 mr-3"
         :style="{ background: 'var(--color-bg-tertiary)' }"
       >
         <button 
-          class="flex items-center gap-1 px-3 py-1 rounded-md cursor-pointer transition-colors"
+          class="flex items-center gap-1 px-3 py-1 rounded-[var(--cho-radius-sm)] cursor-pointer transition-colors"
           :style="viewMode === 'list' ? { background: 'var(--color-surface)', boxShadow: 'var(--shadow-xs)' } : {}"
           @click="setViewMode('list')"
         >
@@ -20,7 +21,7 @@
           <span class="text-[13px] font-medium" :style="{ color: viewMode === 'list' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">列表</span>
         </button>
         <button 
-          class="flex items-center gap-1 px-3 py-1 rounded-md cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          class="flex items-center gap-1 px-3 py-1 rounded-[var(--cho-radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
           @click="setViewMode('card')"
         >
           <LayoutGrid class="w-3.5 h-3.5" :style="{ color: viewMode === 'card' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
@@ -28,9 +29,10 @@
         </button>
       </div>
 
+      <!-- 排序选择器：移除深色边框，使用 border-light -->
       <div 
-        class="flex items-center gap-1.5 h-8 px-3 border rounded-lg cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-        :style="{ borderColor: 'var(--color-border)' }"
+        class="flex items-center gap-1.5 h-8 px-3 rounded-[var(--cho-radius-md)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+        :style="{ border: '1px solid var(--color-border-light)' }"
       >
         <span class="text-[13px] whitespace-nowrap" :style="{ color: 'var(--color-text-secondary)' }">
           {{ sortLabel }}
@@ -39,16 +41,17 @@
       </div>
     </div>
 
-    <div class="flex-1 min-h-0 overflow-y-auto no-scrollbar acrylic-content">
+    <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar acrylic-content">
       <template v-if="viewMode === 'list'">
+        <!-- 列表表头 -->
         <div 
           class="flex items-center h-10 px-6 border-b"
           :style="{ background: 'var(--color-bg-tertiary)', borderColor: 'var(--color-border-light)' }"
         >
           <div class="w-10 flex items-center justify-center">
             <div 
-              class="w-5 h-5 rounded-full cursor-pointer flex items-center justify-center"
-              :style="{ border: '2px solid var(--color-text-tertiary)' }"
+              class="w-5 h-5 rounded-full"
+              :style="{ border: '2px solid var(--color-border)' }"
             ></div>
           </div>
           <div class="flex-1 flex items-center pl-3">
@@ -65,11 +68,12 @@
           </div>
         </div>
 
+        <!-- 笔记列表项：hover 仅改变背景色，无移动或缩放 -->
         <div 
           v-for="note in filteredNotes" 
           :key="note.id"
           class="flex items-center h-[52px] px-6 border-b cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-          :style="{ borderColor: 'var(--color-border-light)' }"
+          :style="{ borderColor: 'var(--color-border-light)', transitionProperty: 'background-color' }"
           @click="openNote(note.id)"
         >
           <div class="w-10 flex items-center justify-center">
@@ -106,11 +110,14 @@
       </template>
 
       <template v-else>
+        <!-- 卡片视图：使用统一栅格和间距 -->
         <div class="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <!-- 笔记卡片：hover 仅改变背景色，无位移或缩放 -->
           <div 
             v-for="note in filteredNotes" 
             :key="note.id"
-            class="acrylic-card p-4 cursor-pointer transition-all hover:shadow-md"
+            class="acrylic-card p-4 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            :style="{ boxShadow: 'var(--shadow-xs)', transitionProperty: 'background-color' }"
             @click="openNote(note.id)"
           >
             <div class="flex items-start gap-3 mb-2">
@@ -126,8 +133,8 @@
               </div>
             </div>
             <p 
-              class="text-[13px] line-clamp-2 mt-2"
-              :style="{ color: 'var(--color-text-secondary)', lineHeight: '1.6' }"
+              class="text-[13px] line-clamp-2 mt-2 leading-relaxed"
+              :style="{ color: 'var(--color-text-secondary)' }"
             >{{ getPreview(note.content) }}</p>
             <div class="flex items-center justify-between mt-3 pt-3 border-t" :style="{ borderColor: 'var(--color-border-light)' }">
               <div class="flex items-center gap-1">
@@ -156,14 +163,9 @@
       </span>
     </div>
 
-    <div 
-      class="min-h-7 px-6 py-1 flex items-center border-t"
-      :style="{ 
-        borderColor: 'var(--color-border-light)', 
-        background: 'rgba(240,242,245,0.65)' 
-      }"
-    >
-      <span class="text-[11px] whitespace-nowrap" :style="{ color: 'var(--color-text-primary)' }">
+    <!-- 底部状态栏：统一毛玻璃效果 -->
+    <div class="cho-statusbar">
+      <span class="cho-statusbar-meta">
         {{ filteredNotes.length }} 篇笔记 · {{ folders.length }} 个文件夹
       </span>
     </div>

@@ -1,95 +1,154 @@
 <template>
   <div class="h-full flex flex-col overflow-hidden">
-    <div 
-      class="min-h-[52px] px-6 py-2.5 flex items-center gap-3 border-b acrylic-content"
+    <!-- 顶部搜索框：胶囊式容器，聚焦时显示光环 -->
+    <div
+      class="px-6 pt-4 pb-3 acrylic-content border-b"
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
-      <Search class="w-5 h-5" :style="{ color: 'var(--color-text-tertiary)' }" />
-      <input
-        v-model="searchQuery"
-        type="text"
-        placeholder="搜索笔记..."
-        class="flex-1 bg-transparent outline-none text-[15px]"
-        :style="{ color: 'var(--color-text-primary)' }"
-        @input="onSearch"
-        autofocus
-      />
-      <button 
-        v-if="searchQuery"
-        class="text-[12px] px-2 py-1 rounded cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-        :style="{ color: 'var(--color-text-tertiary)' }"
-        @click="clearSearch"
-      >清除</button>
+      <div
+        class="flex items-center gap-2.5 h-10 px-3.5 rounded-full transition-all duration-200"
+        :style="{
+          background: 'var(--color-bg-tertiary)',
+          boxShadow: isFocused ? '0 0 0 3px var(--color-primary-ring)' : 'none'
+        }"
+      >
+        <Search class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
+        <input
+          v-model="searchQuery"
+          type="text"
+          placeholder="搜索笔记..."
+          class="flex-1 bg-transparent outline-none text-[14px] min-w-0"
+          :style="{ color: 'var(--color-text-primary)' }"
+          @input="onSearch"
+          @focus="isFocused = true"
+          @blur="isFocused = false"
+          autofocus
+        />
+        <button
+          v-if="searchQuery"
+          class="flex items-center justify-center w-5 h-5 rounded-full cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          :style="{ color: 'var(--color-text-tertiary)' }"
+          title="清除搜索"
+          @click="clearSearch"
+        >
+          <X class="w-3.5 h-3.5" />
+        </button>
+      </div>
     </div>
 
-    <div class="flex-1 min-h-0 overflow-y-auto no-scrollbar acrylic-content">
-      <div v-if="searchQuery && filteredNotes.length > 0" class="py-2">
-        <div class="px-6 py-2">
-          <span class="text-[12px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">
-            找到 {{ filteredNotes.length }} 个结果
+    <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar acrylic-content">
+      <!-- 搜索结果列表 -->
+      <div v-if="searchQuery && filteredNotes.length > 0" class="py-2 search-fade-in">
+        <div class="px-6 py-2 flex items-center justify-between">
+          <span class="text-[11px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">
+            搜索结果
+          </span>
+          <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">
+            {{ filteredNotes.length }} 个
           </span>
         </div>
-        <div 
-          v-for="note in filteredNotes" 
+        <div
+          v-for="note in filteredNotes"
           :key="note.id"
-          class="flex items-center gap-3 h-12 px-6 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          class="flex items-center gap-3 mx-4 my-0.5 px-3 h-12 rounded-[10px] cursor-pointer transition-colors duration-150 hover:bg-[var(--color-surface-hover)]"
           @click="openNote(note.id)"
         >
-          <FileText class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
-          <div class="flex-1 min-w-0">
-            <div class="text-[14px] font-medium truncate" :style="{ color: 'var(--color-text-primary)' }">
-              {{ note.title }}
-            </div>
-            <div class="text-[12px] truncate" :style="{ color: 'var(--color-text-tertiary)' }">
-              {{ getPreview(note.content) }}
-            </div>
+          <div
+            class="w-7 h-7 rounded-[8px] flex items-center justify-center flex-shrink-0"
+            :style="{ background: 'var(--color-primary-lightest)' }"
+          >
+            <FileText class="w-3.5 h-3.5" :style="{ color: 'var(--color-primary)' }" />
           </div>
-          <span class="text-[11px] flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }">
+          <div class="flex-1 min-w-0">
+            <div
+              class="text-[13.5px] font-medium truncate"
+              :style="{ color: 'var(--color-text-primary)' }"
+              v-html="highlightMatch(note.title)"
+            ></div>
+            <div
+              class="text-[12px] truncate mt-0.5"
+              :style="{ color: 'var(--color-text-tertiary)' }"
+              v-html="highlightMatch(getPreview(note.content))"
+            ></div>
+          </div>
+          <span
+            class="text-[11px] flex-shrink-0 px-2 py-0.5 rounded-full"
+            :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }"
+          >
             {{ note.folder || '根目录' }}
           </span>
         </div>
       </div>
 
-      <div v-else-if="searchQuery" class="flex flex-col items-center justify-center h-full py-16">
-        <SearchX class="w-12 h-12 mb-4" :style="{ color: 'var(--color-text-tertiary)' }" />
-        <span class="text-[14px]" :style="{ color: 'var(--color-text-tertiary)' }">未找到相关笔记</span>
+      <!-- 空状态：未找到结果 -->
+      <div v-else-if="searchQuery" class="flex flex-col items-center justify-center h-full py-16 search-fade-in">
+        <div
+          class="w-14 h-14 rounded-full flex items-center justify-center mb-3"
+          :style="{ background: 'var(--color-bg-tertiary)' }"
+        >
+          <SearchX class="w-6 h-6" :style="{ color: 'var(--color-text-tertiary)' }" />
+        </div>
+        <span class="text-[14px] font-medium" :style="{ color: 'var(--color-text-secondary)' }">未找到相关笔记</span>
+        <span class="text-[12px] mt-1" :style="{ color: 'var(--color-text-tertiary)' }">尝试使用其他关键词</span>
       </div>
 
-      <div v-else class="py-4">
-        <div class="px-6 py-2">
-          <span class="text-[12px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">
+      <!-- 默认状态：最近搜索 + 快捷操作 -->
+      <div v-else class="py-4 search-fade-in">
+        <div class="px-6 py-2 flex items-center justify-between">
+          <span class="text-[11px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">
             最近搜索
           </span>
+          <span v-if="recentSearches.length" class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">
+            {{ recentSearches.length }}
+          </span>
         </div>
-        <div 
-          v-for="item in recentSearches" 
+        <div
+          v-for="item in recentSearches"
           :key="item"
-          class="flex items-center gap-3 h-11 px-6 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          class="flex items-center gap-3 mx-4 my-0.5 px-3 h-11 rounded-[10px] cursor-pointer transition-colors duration-150 hover:bg-[var(--color-surface-hover)]"
           @click="searchQuery = item; onSearch()"
         >
           <Clock class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
-          <span class="text-[14px] flex-1" :style="{ color: 'var(--color-text-secondary)' }">{{ item }}</span>
-          <X class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+          <span class="text-[13.5px] flex-1" :style="{ color: 'var(--color-text-secondary)' }">{{ item }}</span>
+          <span class="text-[11px] font-mono" :style="{ color: 'var(--color-text-tertiary)' }">↵</span>
         </div>
 
-        <div class="px-6 py-2 mt-4">
-          <span class="text-[12px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">
+        <div class="px-6 py-2 mt-3">
+          <span class="text-[11px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">
             快捷操作
           </span>
         </div>
-        <div 
-          v-for="action in quickActions" 
+        <div
+          v-for="action in quickActions"
           :key="action.label"
-          class="flex items-center gap-3 h-11 px-6 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          class="flex items-center gap-3 mx-4 my-0.5 px-3 h-11 rounded-[10px] cursor-pointer transition-colors duration-150 hover:bg-[var(--color-surface-hover)]"
           @click="action.action"
         >
-          <component :is="action.icon" class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-primary)' }" />
-          <span class="text-[14px] flex-1" :style="{ color: 'var(--color-text-primary)' }">{{ action.label }}</span>
-          <span class="text-[11px] font-mono px-2 py-0.5 rounded" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }">
+          <div
+            class="w-7 h-7 rounded-[8px] flex items-center justify-center flex-shrink-0"
+            :style="{ background: 'var(--color-primary-lightest)' }"
+          >
+            <component :is="action.icon" class="w-3.5 h-3.5" :style="{ color: 'var(--color-primary)' }" />
+          </div>
+          <span class="text-[13.5px] flex-1" :style="{ color: 'var(--color-text-primary)' }">{{ action.label }}</span>
+          <span
+            class="text-[11px] font-mono px-2 py-0.5 rounded"
+            :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }"
+          >
             {{ action.shortcut }}
           </span>
         </div>
       </div>
+    </div>
+
+    <!-- 底部状态栏 -->
+    <div class="cho-statusbar justify-between">
+      <span class="cho-statusbar-hint">
+        {{ searchQuery ? `搜索: "${searchQuery}"` : '就绪' }}
+      </span>
+      <span class="cho-statusbar-meta">
+        {{ searchQuery ? `${filteredNotes.length} 个结果` : 'Choyeon Note' }}
+      </span>
     </div>
   </div>
 </template>
@@ -104,6 +163,7 @@ const router = useRouter()
 const noteStore = useNoteStore()
 
 const searchQuery = ref('')
+const isFocused = ref(false)
 const recentSearches = ['周报', 'API', 'Vue学习']
 
 const filteredNotes = computed(() => {
@@ -140,4 +200,56 @@ function createNote() {
   const note = noteStore.createNote('', '新笔记')
   router.push(`/editor/${note.id}`)
 }
+
+// 转义 HTML，防止 XSS
+function escapeHtml(text) {
+  return String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// 高亮匹配的搜索关键词
+function highlightMatch(text) {
+  const safeText = escapeHtml(text || '')
+  if (!searchQuery.value) return safeText
+  // 转义正则特殊字符
+  const safeQuery = escapeHtml(searchQuery.value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!safeQuery) return safeText
+  const regex = new RegExp(`(${safeQuery})`, 'gi')
+  return safeText.replace(regex, '<mark class="search-mark">$1</mark>')
+}
 </script>
+
+<style scoped>
+/* 高亮匹配文字：使用主色调背景，避免突兀 */
+:deep(.search-mark) {
+  background: var(--color-primary-lighter);
+  color: var(--color-primary-dark);
+  border-radius: 3px;
+  padding: 1px 2px;
+  font-weight: 600;
+}
+
+.dark :deep(.search-mark) {
+  color: var(--color-primary-light);
+}
+
+/* 内容切换时的微妙淡入动画 */
+.search-fade-in {
+  animation: searchFadeIn 0.22s var(--ease-out-quart);
+}
+
+@keyframes searchFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+</style>

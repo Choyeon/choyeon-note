@@ -29,6 +29,7 @@ export const useAppStore = defineStore('app', () => {
     const savedTheme = localStorage.getItem('choyeon-theme')
     const savedAccent = localStorage.getItem('choyeon-accent')
     const savedFontSize = localStorage.getItem('choyeon-font-size')
+    const savedGlassEffect = localStorage.getItem('choyeon-glass-effect')
     const savedNotesLocation = localStorage.getItem('choyeon-notes-location')
     const savedIgnoredWords = localStorage.getItem('choyeon-ignored-words')
     const savedCustomDictionary = localStorage.getItem('choyeon-custom-dictionary')
@@ -45,6 +46,10 @@ export const useAppStore = defineStore('app', () => {
 
     if (savedFontSize) {
       fontSize.value = savedFontSize
+    }
+
+    if (savedGlassEffect !== null) {
+      glassEffect.value = savedGlassEffect === 'true'
     }
 
     if (savedNotesLocation) {
@@ -69,6 +74,8 @@ export const useAppStore = defineStore('app', () => {
 
     applyTheme()
     applyAccentColor()
+    applyGlassEffect()
+    applyFontSize()
     initialized.value = true
   }
 
@@ -82,6 +89,7 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-theme')
     localStorage.removeItem('choyeon-accent')
     localStorage.removeItem('choyeon-font-size')
+    localStorage.removeItem('choyeon-glass-effect')
     localStorage.removeItem('choyeon-notes-location')
     localStorage.removeItem('choyeon-ignored-words')
     localStorage.removeItem('choyeon-custom-dictionary')
@@ -90,12 +98,15 @@ export const useAppStore = defineStore('app', () => {
     theme.value = 'light'
     accentColor.value = '#4A90D9'
     fontSize.value = 'medium'
+    glassEffect.value = true
     notesLocation.value = ''
     ignoredWords.value = new Set()
     customDictionary.value = new Set()
     
     applyTheme()
     applyAccentColor()
+    applyGlassEffect()
+    applyFontSize()
   }
 
   function initTheme() {
@@ -115,11 +126,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function applyTheme() {
-    if (theme.value === 'dark') {
-      document.documentElement.classList.add('dark')
-    } else {
-      document.documentElement.classList.remove('dark')
-    }
+    document.documentElement.setAttribute('data-theme', theme.value)
   }
 
   function setAccentColor(color) {
@@ -133,13 +140,24 @@ export const useAppStore = defineStore('app', () => {
     document.documentElement.style.setProperty('--color-primary', accentColor.value)
   }
 
+  function applyGlassEffect() {
+    document.documentElement.setAttribute('data-glass', glassEffect.value ? 'true' : 'false')
+  }
+
+  function applyFontSize() {
+    document.documentElement.setAttribute('data-font-size', fontSize.value)
+  }
+
   function setFontSize(size) {
     fontSize.value = size
     localStorage.setItem('choyeon-font-size', size)
+    applyFontSize()
   }
 
   function toggleGlassEffect() {
     glassEffect.value = !glassEffect.value
+    localStorage.setItem('choyeon-glass-effect', glassEffect.value)
+    applyGlassEffect()
   }
 
   function toggleAutoSave() {

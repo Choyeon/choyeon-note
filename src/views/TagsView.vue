@@ -7,7 +7,7 @@
       <span class="text-2xl font-bold" :style="{ color: 'var(--color-text-primary)' }">标签</span>
       <div class="flex-1"></div>
       <button 
-        class="px-3 py-1.5 rounded-lg cursor-pointer transition-colors hover:opacity-90 text-[13px] font-medium text-white"
+        class="px-3 py-1.5 rounded-lg cursor-pointer transition-all duration-200 hover:opacity-90 active:scale-95 text-[13px] font-medium text-white"
         :style="{ background: 'var(--color-primary)' }"
         @click="showCreateTag = true"
       >
@@ -15,12 +15,21 @@
       </button>
     </div>
 
-    <div class="flex-1 min-h-0 overflow-y-auto no-scrollbar acrylic-content p-6">
-      <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
+    <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar acrylic-content p-6">
+      <!-- 空状态提示 -->
+      <div v-if="allTags.length === 0" class="flex flex-col items-center justify-center py-24">
+        <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" :style="{ background: 'var(--color-primary-lighter)' }">
+          <Tag class="w-7 h-7" :style="{ color: 'var(--color-primary)' }" />
+        </div>
+        <p class="text-[14px] font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">还没有标签</p>
+        <p class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">在笔记中添加 #标签 即可在此查看</p>
+      </div>
+
+      <div v-else class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
         <div 
           v-for="tag in allTags" 
           :key="tag"
-          class="acrylic-card p-4 cursor-pointer transition-all hover:shadow-md"
+          class="tag-card acrylic-card p-4 cursor-pointer"
           @click="filterByTag(tag)"
         >
           <div class="flex items-center gap-2 mb-2">
@@ -36,7 +45,7 @@
       <div v-if="selectedTag" class="mt-8">
         <div class="flex items-center gap-2 mb-4">
           <button 
-            class="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            class="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] active:scale-95"
             @click="selectedTag = null"
           >
             <ArrowLeft class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
@@ -44,32 +53,32 @@
           <span class="text-xl font-semibold" :style="{ color: 'var(--color-text-primary)' }">
             #{{ selectedTag }}
           </span>
+          <span class="text-[12px] ml-1" :style="{ color: 'var(--color-text-tertiary)' }">{{ filteredByTag.length }} 篇笔记</span>
         </div>
 
-        <div 
-          v-for="note in filteredByTag" 
-          :key="note.id"
-          class="flex items-center gap-3 h-12 px-4 border-b cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-          :style="{ borderColor: 'var(--color-border-light)' }"
-          @click="openNote(note.id)"
-        >
-          <FileText class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
-          <span class="text-[14px] font-medium flex-1" :style="{ color: 'var(--color-text-primary)' }">
-            {{ note.title }}
-          </span>
-          <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">
-            {{ formatDate(note.updatedAt) }}
-          </span>
+        <div class="acrylic-card overflow-hidden">
+          <div 
+            v-for="(note, idx) in filteredByTag" 
+            :key="note.id"
+            class="flex items-center gap-3 px-4 py-3 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            :style="idx < filteredByTag.length - 1 ? { borderBottom: '1px solid var(--color-border-light)' } : {}"
+            @click="openNote(note.id)"
+          >
+            <FileText class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
+            <span class="text-[14px] font-medium flex-1" :style="{ color: 'var(--color-text-primary)' }">
+              {{ note.title }}
+            </span>
+            <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">
+              {{ formatDate(note.updatedAt) }}
+            </span>
+          </div>
         </div>
       </div>
     </div>
 
     <div 
-      class="min-h-7 px-6 py-1 flex items-center border-t"
-      :style="{ 
-        borderColor: 'var(--color-border-light)', 
-        background: 'rgba(240,242,245,0.65)' 
-      }"
+      class="status-bar-glass min-h-7 px-6 py-1 flex items-center border-t"
+      :style="{ borderColor: 'var(--color-border-light)' }"
     >
       <span class="text-[11px] whitespace-nowrap" :style="{ color: 'var(--color-text-primary)' }">
         {{ allTags.length }} 个标签
@@ -116,3 +125,28 @@ function formatDate(date) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 </script>
+
+<style scoped>
+/* 标签卡片 - 统一阴影与微妙的悬停抬起动画 */
+.tag-card {
+  box-shadow: var(--shadow-xs);
+  transition: transform var(--transition-smooth), box-shadow var(--transition-smooth);
+}
+
+.tag-card:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-md);
+}
+
+.tag-card:active {
+  transform: translateY(0);
+  box-shadow: var(--shadow-sm);
+}
+
+/* 底部状态栏 - 与标题栏一致的毛玻璃效果 */
+.status-bar-glass {
+  background: var(--titlebar-bg);
+  backdrop-filter: blur(var(--titlebar-blur)) saturate(var(--titlebar-saturate));
+  -webkit-backdrop-filter: blur(var(--titlebar-blur)) saturate(var(--titlebar-saturate));
+}
+</style>

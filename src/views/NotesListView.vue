@@ -5,6 +5,7 @@
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
       <span class="text-[20px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">全部笔记</span>
+      <span class="cho-pill ml-2">{{ filteredNotes.length }} 篇笔记</span>
       <div class="flex-1"></div>
       
       <!-- 视图切换：列表/卡片 -->
@@ -152,15 +153,6 @@
           </div>
         </div>
       </template>
-    </div>
-
-    <div 
-      class="min-h-10 flex items-center justify-center border-t"
-      :style="{ borderColor: 'var(--color-border-light)' }"
-    >
-      <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">
-        显示 1-{{ filteredNotes.length }} / {{ filteredNotes.length }} 条
-      </span>
     </div>
 
     <!-- 底部状态栏：统一毛玻璃效果 -->

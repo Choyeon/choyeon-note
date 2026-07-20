@@ -1,5 +1,11 @@
 <template>
-  <div class="app-container h-full w-full" :class="{ dark: isDark, 'electron-mode': isElectron }">
+  <div 
+    class="app-container h-full w-full" 
+    :data-theme="currentTheme"
+    :data-glass="glassEffect ? 'true' : 'false'"
+    :data-font-size="appStore.fontSize"
+    :class="{ 'electron-mode': isElectron }"
+  >
     <div 
       class="window-frame h-full w-full flex flex-col overflow-hidden relative"
       :style="{
@@ -88,15 +94,17 @@ import Sidebar from './components/Sidebar.vue'
 const appStore = useAppStore()
 const route = useRoute()
 
-const isDark = computed(() => appStore.theme === 'dark')
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 const showSidebar = computed(() => route.meta?.showSidebar !== false)
+const glassEffect = computed(() => appStore.glassEffect)
+
+const currentTheme = computed(() => appStore.theme)
 
 const wallpaperUrl = 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1920&q=80'
 
 const appBgStyle = computed(() => {
   if (isElectron.value) {
-    return 'var(--color-bg)'
+    return 'transparent'
   }
   return `url('${wallpaperUrl}') center/cover no-repeat`
 })
@@ -121,7 +129,21 @@ function closeWindow() {
 
 onMounted(() => {
   appStore.initTheme()
+  detectPlatform()
 })
+
+function detectPlatform() {
+  const platform = navigator.platform.toLowerCase()
+  const html = document.documentElement
+  
+  if (platform.includes('win')) {
+    html.classList.add('platform-win32')
+  } else if (platform.includes('mac')) {
+    html.classList.add('platform-darwin')
+  } else if (platform.includes('linux')) {
+    html.classList.add('platform-linux')
+  }
+}
 </script>
 
 <style scoped>

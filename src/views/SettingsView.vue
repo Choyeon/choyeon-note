@@ -31,22 +31,22 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">选择您喜欢的界面主题</div>
                 </div>
               </div>
-              <div class="cho-segmented">
-                <div 
-                  class="seg-pill"
+              <div class="segmented-control">
+                <button 
+                  class="segment-btn"
                   :class="{ active: appStore.theme === 'light' }"
                   @click="appStore.setTheme('light')"
-                >浅色</div>
-                <div 
-                  class="seg-pill"
+                >浅色</button>
+                <button 
+                  class="segment-btn"
                   :class="{ active: appStore.theme === 'dark' }"
                   @click="appStore.setTheme('dark')"
-                >深色</div>
-                <div 
-                  class="seg-pill"
+                >深色</button>
+                <button 
+                  class="segment-btn"
                   :class="{ active: appStore.theme === 'system' }"
                   @click="appStore.setTheme('system')"
-                >系统</div>
+                >系统</button>
               </div>
             </div>
 
@@ -82,22 +82,22 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">调整编辑器文字大小</div>
                 </div>
               </div>
-              <div class="cho-segmented">
-                <div 
-                  class="seg-pill"
+              <div class="segmented-control">
+                <button 
+                  class="segment-btn"
                   :class="{ active: appStore.fontSize === 'small' }"
                   @click="appStore.setFontSize('small')"
-                >小</div>
-                <div 
-                  class="seg-pill"
+                >小</button>
+                <button 
+                  class="segment-btn"
                   :class="{ active: appStore.fontSize === 'medium' }"
                   @click="appStore.setFontSize('medium')"
-                >中</div>
-                <div 
-                  class="seg-pill"
+                >中</button>
+                <button 
+                  class="segment-btn"
                   :class="{ active: appStore.fontSize === 'large' }"
                   @click="appStore.setFontSize('large')"
-                >大</div>
+                >大</button>
               </div>
             </div>
 
@@ -109,13 +109,14 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">启用半透明背景模糊</div>
                 </div>
               </div>
-              <div 
-                class="cho-toggle"
-                :class="{ active: appStore.glassEffect }"
+              <button 
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.glassEffect"
                 @click="appStore.toggleGlassEffect()"
               >
-                <div class="knob"></div>
-              </div>
+                <span class="toggle-knob"></span>
+              </button>
             </div>
           </div>
         </div>
@@ -147,13 +148,14 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">检测并标记英文拼写错误</div>
                 </div>
               </div>
-              <div 
-                class="cho-toggle"
-                :class="{ active: appStore.spellCheck }"
+              <button 
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.spellCheck"
                 @click="appStore.toggleSpellCheck()"
               >
-                <div class="knob"></div>
-              </div>
+                <span class="toggle-knob"></span>
+              </button>
             </div>
 
             <div class="settings-row">
@@ -164,13 +166,14 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">编辑时自动保存更改</div>
                 </div>
               </div>
-              <div 
-                class="cho-toggle"
-                :class="{ active: appStore.autoSave }"
+              <button 
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.autoSave"
                 @click="appStore.toggleAutoSave()"
               >
-                <div class="knob"></div>
-              </div>
+                <span class="toggle-knob"></span>
+              </button>
             </div>
 
             <div class="settings-row">
@@ -181,13 +184,14 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">在编辑模式显示行号</div>
                 </div>
               </div>
-              <div 
-                class="cho-toggle"
-                :class="{ active: appStore.showLineNumbers }"
+              <button 
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.showLineNumbers"
                 @click="appStore.toggleLineNumbers()"
               >
-                <div class="knob"></div>
-              </div>
+                <span class="toggle-knob"></span>
+              </button>
             </div>
 
             <div class="settings-row">
@@ -198,13 +202,14 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">长文本自动换行显示</div>
                 </div>
               </div>
-              <div 
-                class="cho-toggle"
-                :class="{ active: appStore.wordWrap }"
+              <button 
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.wordWrap"
                 @click="appStore.toggleWordWrap()"
               >
-                <div class="knob"></div>
-              </div>
+                <span class="toggle-knob"></span>
+              </button>
             </div>
           </div>
         </div>
@@ -243,13 +248,14 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">检测文件变化并自动刷新</div>
                 </div>
               </div>
-              <div 
-                class="cho-toggle"
-                :class="{ active: appStore.autoSync }"
+              <button 
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.autoSync"
                 @click="appStore.toggleAutoSync()"
               >
-                <div class="knob"></div>
-              </div>
+                <span class="toggle-knob"></span>
+              </button>
             </div>
 
             <div class="settings-row">

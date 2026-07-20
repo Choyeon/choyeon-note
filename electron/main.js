@@ -1,7 +1,13 @@
-const { app, BrowserWindow, Menu, ipcMain } = require('electron')
+const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron')
 const path = require('path')
+const fs = require('fs')
+const os = require('os')
+
+const isDev = !app.isPackaged
+const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5176'
 
 let mainWindow = null
+let notesPath = null
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -13,23 +19,30 @@ function createWindow() {
     transparent: true,
     backgroundColor: '#00000000',
     titleBarStyle: 'hiddenInset',
+    hasShadow: true,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
       sandbox: false
     },
-    show: false
+    show: true
   })
 
-  if (process.env.VITE_DEV_SERVER_URL) {
-    mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL)
+  if (isDev) {
+    mainWindow.loadURL(DEV_SERVER_URL)
+    mainWindow.webContents.openDevTools({ mode: 'detach' })
   } else {
     mainWindow.loadFile(path.join(__dirname, '../dist/index.html'))
   }
 
-  mainWindow.once('ready-to-show', () => {
-    mainWindow.show()
+  mainWindow.webContents.on('did-fail-load', (event, errorCode, errorDescription) => {
+    console.error('Failed to load:', errorCode, errorDescription)
+    if (isDev) {
+      setTimeout(() => {
+        mainWindow?.loadURL(DEV_SERVER_URL)
+      }, 2000)
+    }
   })
 
   mainWindow.on('closed', () => {
@@ -50,7 +63,7 @@ function createMenu() {
           }
         },
         {
-          label: '打开',
+          label: '打开文件夹',
           accelerator: 'CmdOrCtrl+O',
           click: () => {
             mainWindow?.webContents.send('menu:open')
@@ -174,6 +187,147 @@ ipcMain.handle('window:is-maximized', () => {
 
 ipcMain.handle('app:get-version', () => {
   return app.getVersion()
+})
+
+ipcMain.handle('app:select-notes-path', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    properties: ['openDirectory'],
+    title: '选择笔记存储文件夹',
+    defaultPath: path.join(os.homedir(), 'Documents')
+  })
+  
+  if (!result.canceled && result.filePaths.length > 0) {
+    notesPath = result.filePaths[0]
+    return notesPath
+  }
+  return null
+})
+
+ipcMain.handle('app:get-notes-path', () => {
+  return notesPath
+})
+
+ipcMain.handle('app:set-notes-path', (_, path) => {
+  notesPath = path
+  return true
+})
+
+ipcMain.handle('fs:read-directory', async (_, dirPath) => {
+  try {
+    const files = fs.readdirSync(dirPath, { withFileTypes: true })
+    const result = []
+    
+    for (const file of files) {
+      if (file.name.startsWith('.')) continue
+      
+      const filePath = path.join(dirPath, file.name)
+      const stats = fs.statSync(filePath)
+      
+      result.push({
+        name: file.name,
+        path: filePath,
+        isDirectory: file.isDirectory(),
+        isFile: file.isFile(),
+        extension: file.isFile() ? path.extname(file.name).toLowerCase() : '',
+        size: stats.size,
+        mtime: stats.mtime.getTime(),
+        ctime: stats.ctime.getTime()
+      })
+    }
+    
+    return result
+  } catch (error) {
+    console.error('Error reading directory:', error)
+    return []
+  }
+})
+
+ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
+  try {
+    const result = []
+    
+    function readDir(currentPath, relativePath = '') {
+      const files = fs.readdirSync(currentPath, { withFileTypes: true })
+      
+      for (const file of files) {
+        if (file.name.startsWith('.')) continue
+        
+        const filePath = path.join(currentPath, file.name)
+        const stats = fs.statSync(filePath)
+        const fileRelativePath = relativePath ? `${relativePath}/${file.name}` : file.name
+        
+        if (file.isDirectory()) {
+          readDir(filePath, fileRelativePath)
+        } else if (file.isFile() && path.extname(file.name).toLowerCase() === '.md') {
+          result.push({
+            name: file.name,
+            path: filePath,
+            relativePath: fileRelativePath,
+            isDirectory: false,
+            isFile: true,
+            extension: '.md',
+            size: stats.size,
+            mtime: stats.mtime.getTime(),
+            ctime: stats.ctime.getTime()
+          })
+        }
+      }
+    }
+    
+    readDir(dirPath)
+    return result
+  } catch (error) {
+    console.error('Error reading directory recursively:', error)
+    return []
+  }
+})
+
+ipcMain.handle('fs:read-file', async (_, filePath) => {
+  try {
+    const content = fs.readFileSync(filePath, 'utf-8')
+    return content
+  } catch (error) {
+    console.error('Error reading file:', error)
+    return null
+  }
+})
+
+ipcMain.handle('fs:write-file', async (_, filePath, content) => {
+  try {
+    fs.writeFileSync(filePath, content, 'utf-8')
+    return true
+  } catch (error) {
+    console.error('Error writing file:', error)
+    return false
+  }
+})
+
+ipcMain.handle('fs:create-directory', async (_, dirPath) => {
+  try {
+    fs.mkdirSync(dirPath, { recursive: true })
+    return true
+  } catch (error) {
+    console.error('Error creating directory:', error)
+    return false
+  }
+})
+
+ipcMain.handle('fs:delete-file', async (_, filePath) => {
+  try {
+    fs.unlinkSync(filePath)
+    return true
+  } catch (error) {
+    console.error('Error deleting file:', error)
+    return false
+  }
+})
+
+ipcMain.handle('fs:file-exists', async (_, filePath) => {
+  try {
+    return fs.existsSync(filePath)
+  } catch (error) {
+    return false
+  }
 })
 
 app.whenReady().then(() => {

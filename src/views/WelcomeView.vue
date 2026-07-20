@@ -1,82 +1,129 @@
 <template>
   <div class="h-full flex flex-col overflow-hidden">
     <div class="flex-1 flex items-center justify-center p-10 acrylic-content">
-      <div class="max-w-[560px] w-full">
-        <div class="flex justify-center mb-4">
-          <PenLine class="w-12 h-12 text-primary" />
+      <div class="max-w-[600px] w-full welcome-enter">
+        <!-- 顶部图标 -->
+        <div class="flex justify-center mb-5">
+          <div 
+            class="w-14 h-14 rounded-[var(--cho-radius-lg)] flex items-center justify-center"
+            :style="{ background: 'var(--color-primary-lighter)' }"
+          >
+            <PenLine class="w-7 h-7" :style="{ color: 'var(--color-primary)' }" />
+          </div>
         </div>
 
-        <h1 class="text-2xl font-bold text-center" :style="{ color: 'var(--color-text-primary)' }">
+        <!-- 主标题 -->
+        <h1 class="text-[26px] font-semibold text-center tracking-tight" :style="{ color: 'var(--color-text-primary)' }">
           欢迎使用 Choyeon Notes
         </h1>
 
-        <p class="text-[14px] text-center mt-2" :style="{ color: 'var(--color-text-tertiary)' }">
+        <!-- 副标题 -->
+        <p class="text-[14px] text-center mt-2 leading-relaxed" :style="{ color: 'var(--color-text-tertiary)' }">
           你的个人知识管理工作空间
         </p>
 
-        <div class="w-10 h-0.5 mx-auto my-7 rounded-full" :style="{ background: 'var(--color-primary)' }"></div>
+        <!-- 分隔线 -->
+        <div class="w-8 h-1 mx-auto my-7 rounded-full" :style="{ background: 'var(--color-primary)', opacity: 0.7 }"></div>
 
-        <div class="grid grid-cols-2 gap-4 mt-2">
+        <div v-if="!selectedPath" class="space-y-3">
+          <!-- 选择笔记文件夹卡片 -->
           <div 
-            class="acrylic-card p-5 cursor-pointer transition-all hover:shadow-sm hover:-translate-y-px"
-            @click="createNote"
+            v-if="isElectron"
+            class="acrylic-card p-5 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            :style="{ boxShadow: 'var(--shadow-xs)', transition: 'background-color var(--transition-micro), box-shadow var(--transition-smooth)' }"
+            @click="selectNotesFolder"
           >
-            <FilePlus class="w-6 h-6 text-primary mb-2.5" />
-            <span class="text-[14px] font-medium block mb-1" :style="{ color: 'var(--color-text-primary)' }">新建笔记</span>
-            <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">创建你的第一篇笔记</span>
+            <div class="flex items-start gap-4">
+              <div class="w-10 h-10 rounded-[var(--cho-radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+                <FolderOpen class="w-5 h-5" :style="{ color: 'var(--color-primary)' }" />
+              </div>
+              <div class="min-w-0">
+                <span class="text-[14px] font-medium block mb-1" :style="{ color: 'var(--color-text-primary)' }">选择笔记文件夹</span>
+                <span class="text-[12px] leading-relaxed" :style="{ color: 'var(--color-text-tertiary)' }">选择一个存放 Markdown 笔记的文件夹，支持标准 .md 文件格式</span>
+              </div>
+            </div>
           </div>
 
+          <!-- 新建笔记文件夹卡片 -->
           <div 
-            class="acrylic-card p-5 cursor-pointer transition-all hover:shadow-sm hover:-translate-y-px"
-            @click="openNotes"
+            v-if="isElectron"
+            class="acrylic-card p-5 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            :style="{ boxShadow: 'var(--shadow-xs)', transition: 'background-color var(--transition-micro), box-shadow var(--transition-smooth)' }"
+            @click="createNewNotesFolder"
           >
-            <FolderOpen class="w-6 h-6 mb-2.5" :style="{ color: 'var(--color-text-tertiary)' }" />
-            <span class="text-[14px] font-medium block mb-1" :style="{ color: 'var(--color-text-primary)' }">打开文件夹</span>
-            <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">选择笔记库存储位置</span>
+            <div class="flex items-start gap-4">
+              <div class="w-10 h-10 rounded-[var(--cho-radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+                <FolderPlus class="w-5 h-5" :style="{ color: 'var(--color-primary)' }" />
+              </div>
+              <div class="min-w-0">
+                <span class="text-[14px] font-medium block mb-1" :style="{ color: 'var(--color-text-primary)' }">新建笔记文件夹</span>
+                <span class="text-[12px] leading-relaxed" :style="{ color: 'var(--color-text-tertiary)' }">创建一个新的文件夹来开始记录你的笔记</span>
+              </div>
+            </div>
           </div>
 
+          <!-- 使用示例笔记卡片 -->
           <div 
-            class="acrylic-card p-5 cursor-pointer transition-all hover:shadow-sm hover:-translate-y-px"
-            @click="openNotes"
+            class="acrylic-card p-5 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            :style="{ boxShadow: 'var(--shadow-xs)', transition: 'background-color var(--transition-micro), box-shadow var(--transition-smooth)' }"
+            @click="useSampleNotes"
           >
-            <Download class="w-6 h-6 mb-2.5" :style="{ color: 'var(--color-text-tertiary)' }" />
-            <span class="text-[14px] font-medium block mb-1" :style="{ color: 'var(--color-text-primary)' }">导入笔记</span>
-            <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">从其他应用导入 Markdown 文件</span>
-          </div>
-
-          <div 
-            class="acrylic-card p-5 cursor-pointer transition-all hover:shadow-sm hover:-translate-y-px"
-            @click="$router.push('/settings')"
-          >
-            <Palette class="w-6 h-6 mb-2.5" :style="{ color: 'var(--color-text-tertiary)' }" />
-            <span class="text-[14px] font-medium block mb-1" :style="{ color: 'var(--color-text-primary)' }">外观设置</span>
-            <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">切换主题和自定义样式</span>
+            <div class="flex items-start gap-4">
+              <div class="w-10 h-10 rounded-[var(--cho-radius-md)] flex items-center justify-center" :style="{ background: isElectron ? 'var(--color-bg-tertiary)' : 'var(--color-primary-lighter)' }">
+                <FileText class="w-5 h-5" :style="{ color: isElectron ? 'var(--color-text-tertiary)' : 'var(--color-primary)' }" />
+              </div>
+              <div class="min-w-0">
+                <span class="text-[14px] font-medium block mb-1" :style="{ color: 'var(--color-text-primary)' }">{{ isElectron ? '使用示例笔记' : '开始体验' }}</span>
+                <span class="text-[12px] leading-relaxed" :style="{ color: 'var(--color-text-tertiary)' }">{{ isElectron ? '浏览示例笔记来体验应用功能（不保存到文件系统）' : '浏览示例笔记来体验应用的所有功能' }}</span>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="flex flex-col items-center gap-2 mt-8">
+        <div v-else class="space-y-4">
+          <!-- 已选择文件夹信息卡片 -->
+          <div class="acrylic-card p-5" :style="{ boxShadow: 'var(--shadow-xs)' }">
+            <div class="flex items-center gap-3 mb-3">
+              <CheckCircle class="w-5 h-5" :style="{ color: 'var(--state-success)' }" />
+              <span class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">已选择笔记文件夹</span>
+            </div>
+            <div class="text-[13px] font-mono break-all px-3 py-2 rounded-[var(--cho-radius-sm)]" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
+              {{ selectedPath }}
+            </div>
+            <!-- 次要按钮：文本样式 -->
+            <button 
+              class="mt-3 text-[12px] px-3 py-1.5 rounded-[var(--cho-radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+              :style="{ color: 'var(--color-text-tertiary)' }"
+              @click="selectedPath = null"
+            >重新选择</button>
+          </div>
+
+          <!-- 主按钮：填充样式 -->
           <button 
-            class="px-9 py-2.5 rounded-full cursor-pointer transition-opacity hover:opacity-90 text-[14px] font-medium text-white"
-            :style="{ background: 'var(--color-primary)' }"
-            @click="startUsing"
-          >开始使用</button>
-          <span 
-            class="text-[13px] cursor-pointer transition-opacity hover:opacity-80"
-            :style="{ color: 'var(--color-primary)' }"
-            @click="openNotes"
-          >或浏览现有笔记库</span>
+            class="w-full py-3 rounded-[var(--cho-radius-md)] cursor-pointer transition-opacity hover:opacity-90 active:opacity-95 text-[14px] font-medium text-white"
+            :style="{ background: 'var(--color-primary)', boxShadow: 'var(--shadow-xs)', transition: 'opacity var(--transition-micro)' }"
+            :disabled="isLoading"
+            @click="confirmPath"
+          >
+            <span v-if="isLoading" class="flex items-center justify-center gap-2">
+              <Loader2 class="w-4 h-4 animate-spin" />
+              加载笔记中...
+            </span>
+            <span v-else>开始使用</span>
+          </button>
+        </div>
+
+        <div class="mt-8 text-center">
+          <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">
+            支持 .md 文件 · 本地文件存储 · 数据安全
+          </span>
         </div>
       </div>
     </div>
 
-    <div 
-      class="min-h-7 px-6 py-1 flex items-center border-t"
-      :style="{ 
-        borderColor: 'var(--color-border-light)', 
-        background: 'rgba(240,242,245,0.65)' 
-      }"
-    >
-      <span class="text-[11px] whitespace-nowrap" :style="{ color: 'var(--color-text-primary)' }">
+    <!-- 底部状态栏：统一毛玻璃效果 -->
+    <div class="cho-statusbar">
+      <span class="cho-statusbar-meta">
         Choyeon Notes v1.0.0 · 欢迎页面
       </span>
     </div>
@@ -84,23 +131,100 @@
 </template>
 
 <script setup>
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
-import { PenLine, FilePlus, FolderOpen, Download, Palette } from 'lucide-vue-next'
+import { useAppStore } from '@/stores/app'
+import { PenLine, FolderOpen, FolderPlus, FileText, CheckCircle, Loader2 } from 'lucide-vue-next'
 
 const router = useRouter()
 const noteStore = useNoteStore()
+const appStore = useAppStore()
 
-function createNote() {
-  const note = noteStore.createNote('', '新笔记')
-  router.push(`/editor/${note.id}`)
+const selectedPath = ref(null)
+const isLoading = ref(false)
+const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
+
+onMounted(() => {
+  const savedPath = localStorage.getItem('choyeon-notes-location')
+  if (savedPath) {
+    loadNotes(savedPath)
+  }
+})
+
+async function selectNotesFolder() {
+  if (!window.electronAPI) {
+    alert('请在 Electron 环境中使用此功能')
+    return
+  }
+  
+  const path = await window.electronAPI.selectNotesPath()
+  if (path) {
+    selectedPath.value = path
+  }
 }
 
-function openNotes() {
+async function createNewNotesFolder() {
+  if (!window.electronAPI) {
+    alert('请在 Electron 环境中使用此功能')
+    return
+  }
+  
+  const path = await window.electronAPI.selectNotesPath()
+  if (path) {
+    await window.electronAPI.createDirectory(path)
+    selectedPath.value = path
+  }
+}
+
+function useSampleNotes() {
+  localStorage.setItem('choyeon-mode', 'sample')
   router.push('/notes')
 }
 
-function startUsing() {
+async function confirmPath() {
+  if (!selectedPath.value) return
+  
+  isLoading.value = true
+  
+  try {
+    await loadNotes(selectedPath.value)
+  } catch (error) {
+    console.error('Failed to load notes:', error)
+    alert('加载笔记失败，请检查文件夹权限')
+  } finally {
+    isLoading.value = false
+  }
+}
+
+async function loadNotes(path) {
+  appStore.saveNotesLocation(path)
+  await noteStore.loadNotesFromPath(path)
   router.push('/notes')
 }
 </script>
+
+<style scoped>
+/* 微妙的入场动画：淡入 + 轻微上移，避免分散注意力 */
+.welcome-enter {
+  animation: welcomeFadeUp 0.5s var(--ease-out-expo, cubic-bezier(0.16, 1, 0.3, 1)) both;
+}
+
+@keyframes welcomeFadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 尊重用户的减少动画偏好 */
+@media (prefers-reduced-motion: reduce) {
+  .welcome-enter {
+    animation: none;
+  }
+}
+</style>

@@ -1,5 +1,5 @@
 <template>
-  <div class="app-container h-full w-full" :class="{ dark: isDark }">
+  <div class="app-container h-full w-full" :class="{ dark: isDark, 'electron-mode': isElectron }">
     <div 
       class="window-frame h-full w-full flex flex-col overflow-hidden relative"
       :style="{

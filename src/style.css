@@ -737,6 +737,58 @@ body {
   margin: 8px 0;
 }
 
+/* ============================================================
+   Electron 原生亚克力模式（Windows Acrylic / macOS Vibrancy）
+   窗口背景由系统级材质提供，CSS 层只需半透明透出底层效果
+   ============================================================ */
+
+.electron-mode html,
+.electron-mode body,
+.electron-mode #app {
+  background: transparent !important;
+}
+
+.electron-mode .window-frame {
+  background: transparent !important;
+  border: none !important;
+}
+
+.electron-mode .app-container {
+  background: transparent;
+}
+
+.electron-mode {
+  --color-bg: rgba(250, 251, 252, 0.55);
+  --color-bg-secondary: rgba(240, 242, 245, 0.45);
+  --color-bg-tertiary: rgba(232, 234, 240, 0.35);
+  --color-surface: rgba(255, 255, 255, 0.6);
+  --sidebar-bg: rgba(240, 242, 245, 0.45);
+  --content-bg: rgba(250, 251, 252, 0.55);
+  --titlebar-bg: rgba(240, 242, 245, 0.35);
+  --card-bg: rgba(255, 255, 255, 0.65);
+  --color-border: rgba(0, 0, 0, 0.05);
+  --color-border-light: rgba(0, 0, 0, 0.03);
+  --sidebar-border: rgba(0, 0, 0, 0.05);
+  --titlebar-border: rgba(0, 0, 0, 0.05);
+  --card-border: rgba(0, 0, 0, 0.05);
+}
+
+.electron-mode.dark {
+  --color-bg: rgba(26, 26, 46, 0.55);
+  --color-bg-secondary: rgba(26, 26, 46, 0.5);
+  --color-bg-tertiary: rgba(54, 57, 80, 0.4);
+  --color-surface: rgba(42, 45, 62, 0.6);
+  --sidebar-bg: rgba(26, 26, 46, 0.5);
+  --content-bg: rgba(30, 30, 50, 0.55);
+  --titlebar-bg: rgba(26, 26, 46, 0.4);
+  --card-bg: rgba(42, 45, 62, 0.65);
+  --color-border: rgba(255, 255, 255, 0.04);
+  --color-border-light: rgba(255, 255, 255, 0.02);
+  --sidebar-border: rgba(255, 255, 255, 0.04);
+  --titlebar-border: rgba(255, 255, 255, 0.04);
+  --card-border: rgba(255, 255, 255, 0.04);
+}
+
 /* 统一标签 - pill 样式 */
 .cho-pill {
   display: inline-flex;

@@ -14,9 +14,9 @@
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar acrylic-content">
-      <div class="max-w-[720px] mx-auto px-8 py-8 pb-20">
+      <div class="max-w-[720px] mx-auto px-6 py-8 pb-20">
         <div class="mb-8">
-          <div class="flex items-center gap-3 mb-2">
+          <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <SunMoon class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
@@ -118,11 +118,29 @@
                 <span class="toggle-knob"></span>
               </button>
             </div>
+
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Image class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">Bing 每日壁纸</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">使用 Bing 每日壁纸作为背景</div>
+                </div>
+              </div>
+              <button 
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.bingWallpaper"
+                @click="appStore.toggleBingWallpaper()"
+              >
+                <span class="toggle-knob"></span>
+              </button>
+            </div>
           </div>
         </div>
 
         <div class="mb-8">
-          <div class="flex items-center gap-3 mb-2">
+          <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <FileCode class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
@@ -211,11 +229,38 @@
                 <span class="toggle-knob"></span>
               </button>
             </div>
+
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Palette class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">代码高亮主题</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">选择代码块的配色方案</div>
+                </div>
+              </div>
+              <select 
+                class="px-3 py-1.5 rounded-lg text-[13px] cursor-pointer border outline-none transition-all duration-200 focus:ring-2 focus:ring-[var(--color-primary-ring)]"
+                :style="{ 
+                  background: 'var(--color-bg-tertiary)', 
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border)'
+                }"
+                :value="appStore.codeTheme"
+                @change="appStore.setCodeTheme($event.target.value)"
+              >
+                <option value="github">GitHub</option>
+                <option value="monokai">Monokai</option>
+                <option value="dracula">Dracula</option>
+                <option value="atom-one-dark">Atom One Dark</option>
+                <option value="vs2015">VS 2015</option>
+                <option value="gradient-dark">Gradient Dark</option>
+              </select>
+            </div>
           </div>
         </div>
 
         <div class="mb-8" v-if="isElectron">
-          <div class="flex items-center gap-3 mb-2">
+          <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <FolderOpen class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
@@ -272,7 +317,7 @@
         </div>
 
         <div class="mb-8">
-          <div class="flex items-center gap-3 mb-2">
+          <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <Keyboard class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
@@ -334,61 +379,7 @@
         </div>
 
         <div class="mb-8">
-          <div class="flex items-center gap-3 mb-2">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
-              <FileCode class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
-            </div>
-            <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">编辑器</h2>
-          </div>
-          <div class="settings-card">
-            <div class="settings-row">
-              <div class="flex items-center gap-3">
-                <Palette class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
-                <div>
-                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">代码高亮主题</div>
-                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">选择代码块的配色方案</div>
-                </div>
-              </div>
-              <select 
-                class="px-3 py-1.5 rounded-lg text-[13px] cursor-pointer border outline-none transition-all duration-200 focus:ring-2 focus:ring-[var(--color-primary-ring)]"
-                :style="{ 
-                  background: 'var(--color-bg-tertiary)', 
-                  color: 'var(--color-text-primary)',
-                  borderColor: 'var(--color-border)'
-                }"
-                :value="appStore.codeTheme"
-                @change="appStore.setCodeTheme($event.target.value)"
-              >
-                <option value="github">GitHub</option>
-                <option value="monokai">Monokai</option>
-                <option value="dracula">Dracula</option>
-                <option value="atom-one-dark">Atom One Dark</option>
-                <option value="vs2015">VS 2015</option>
-                <option value="gradient-dark">Gradient Dark</option>
-              </select>
-            </div>
-
-            <div class="settings-row">
-              <div class="flex items-center gap-3">
-                <Image class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
-                <div>
-                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">Bing 每日壁纸</div>
-                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">使用 Bing 每日壁纸作为背景</div>
-                </div>
-              </div>
-              <button 
-                class="toggle-btn"
-                :class="{ active: appStore.bingWallpaper }"
-                @click="appStore.toggleBingWallpaper()"
-              >
-                <span class="toggle-thumb"></span>
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div class="mb-8">
-          <div class="flex items-center gap-3 mb-2">
+          <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <RefreshCw class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
@@ -404,11 +395,12 @@
                 </div>
               </div>
               <button 
-                class="toggle-btn"
-                :class="{ active: appStore.autoCheckUpdates }"
+                class="toggle-switch"
+                role="switch"
+                :aria-checked="appStore.autoCheckUpdates"
                 @click="appStore.toggleAutoCheckUpdates()"
               >
-                <span class="toggle-thumb"></span>
+                <span class="toggle-knob"></span>
               </button>
             </div>
 
@@ -451,7 +443,7 @@
         </div>
 
         <div class="mb-8">
-          <div class="flex items-center gap-3 mb-2">
+          <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <MessageCircle class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
@@ -478,7 +470,7 @@
         </div>
 
         <div class="mb-8">
-          <div class="flex items-center gap-3 mb-2">
+          <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'rgba(255,112,67,0.1)' }">
               <RotateCcw class="w-4 h-4" :style="{ color: 'var(--state-warning)' }" />
             </div>

@@ -12,7 +12,8 @@
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5176 && electron .\"",
     "electron:build": "vite build && electron-builder",
     "electron:build:win": "vite build && electron-builder --win",
-    "generate:icons": "node scripts/generate-icons.js"
+    "generate:icons": "node scripts/generate-icons.js",
+    "build:c": "node scripts/build-c.js"
   },
   "dependencies": {
     "electron-updater": "^6.8.9",

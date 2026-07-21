@@ -52,7 +52,7 @@
             </div>
           </header>
 
-          <div class="markdown-body" v-html="renderedContent"></div>
+          <div ref="contentRef" class="markdown-body" v-html="renderedContent"></div>
         </article>
       </div>
     </div>
@@ -70,26 +70,29 @@
 </template>
 
 <script setup>
-import { computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
-import { marked } from 'marked'
+import { renderMarkdown, renderMermaidInContainer } from '@/utils/markdown'
 import { ArrowLeft, Edit3 } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const noteStore = useNoteStore()
-
-marked.setOptions({
-  breaks: true,
-  gfm: true
-})
+const contentRef = ref(null)
 
 const currentNote = computed(() => noteStore.currentNote)
 
 const renderedContent = computed(() => {
-  return marked.parse(currentNote.value?.content || '')
+  return renderMarkdown(currentNote.value?.content || '')
 })
+
+async function updateMermaid() {
+  await nextTick()
+  if (contentRef.value) {
+    renderMermaidInContainer(contentRef.value)
+  }
+}
 
 const readingTime = computed(() => {
   const words = currentNote.value?.wordCount || 0
@@ -120,6 +123,14 @@ watch(() => route.params.id, (newId) => {
     noteStore.selectNote(newId)
   }
 }, { immediate: true })
+
+watch(renderedContent, () => {
+  updateMermaid()
+})
+
+onMounted(() => {
+  updateMermaid()
+})
 </script>
 
 <style scoped>

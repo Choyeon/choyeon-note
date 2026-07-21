@@ -40,5 +40,31 @@ contextBridge.exposeInMainWorld('electronAPI', {
         ipcRenderer.removeListener(event, listener)
       })
     }
+  },
+
+  checkForUpdates: () => ipcRenderer.invoke('updater:check-for-updates'),
+  downloadUpdate: () => ipcRenderer.invoke('updater:download-update'),
+  quitAndInstall: () => ipcRenderer.invoke('updater:quit-and-install'),
+
+  onUpdaterEvent: (callback) => {
+    const events = [
+      'updater:checking',
+      'updater:update-available',
+      'updater:update-not-available',
+      'updater:error',
+      'updater:download-progress',
+      'updater:update-downloaded'
+    ]
+    const listeners = []
+    events.forEach(event => {
+      const listener = (_, data) => callback(event, data)
+      ipcRenderer.on(event, listener)
+      listeners.push({ event, listener })
+    })
+    return () => {
+      listeners.forEach(({ event, listener }) => {
+        ipcRenderer.removeListener(event, listener)
+      })
+    }
   }
 })

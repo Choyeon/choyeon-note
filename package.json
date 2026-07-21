@@ -1,6 +1,6 @@
 {
   "name": "choyeon-note",
-  "version": "1.0.0",
+  "version": "2.0.0",
   "description": "Choyeon Note - A beautiful acrylic design note-taking application",
   "main": "electron/main.js",
   "author": "Choyeon",

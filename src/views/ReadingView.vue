@@ -200,7 +200,7 @@ onMounted(() => {
   padding: 1rem 1.25rem;
   border-left: 3px solid var(--color-primary);
   background: var(--color-primary-surface);
-  border-radius: 0 var(--cho-radius-sm) var(--cho-radius-sm) 0;
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
 .prose-custom :deep(blockquote p) {
@@ -224,7 +224,7 @@ onMounted(() => {
   margin: 1.5rem 0;
   padding: 1rem 1.25rem;
   background: var(--color-bg-tertiary);
-  border-radius: var(--cho-radius-md);
+  border-radius: var(--radius-md);
   overflow-x: auto;
 }
 
@@ -251,7 +251,7 @@ onMounted(() => {
 /* 图片：圆角 */
 .prose-custom :deep(img) {
   max-width: 100%;
-  border-radius: var(--cho-radius-md);
+  border-radius: var(--radius-md);
   margin: 1.5rem 0;
 }
 

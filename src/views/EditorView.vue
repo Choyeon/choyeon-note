@@ -34,22 +34,22 @@
         </template>
       </div>
 
-      <div class="cho-segmented">
-        <div 
-          class="seg-pill"
+      <div class="segmented-control">
+        <button 
+          class="segment-btn"
           :class="{ active: editorMode === 'edit' }"
           @click="setMode('edit')"
-        >编辑</div>
-        <div 
-          class="seg-pill"
+        >编辑</button>
+        <button 
+          class="segment-btn"
           :class="{ active: editorMode === 'live' }"
           @click="setMode('live')"
-        >实时</div>
-        <div 
-          class="seg-pill"
+        >实时</button>
+        <button 
+          class="segment-btn"
           :class="{ active: editorMode === 'preview' }"
           @click="setMode('preview')"
-        >预览</div>
+        >预览</button>
       </div>
     </div>
 
@@ -1605,7 +1605,7 @@ function handleMouseUp(e) {
 
 .live-editor :deep(pre) {
   background: var(--color-bg-tertiary);
-  border-radius: var(--cho-radius-sm);
+  border-radius: var(--radius-sm);
   padding: 16px;
   margin-bottom: 16px;
   overflow-x: auto;
@@ -1673,7 +1673,7 @@ function handleMouseUp(e) {
 
 .live-editor :deep(img) {
   max-width: 100%;
-  border-radius: var(--cho-radius-sm);
+  border-radius: var(--radius-sm);
 }
 
 .live-editor :deep(table) {
@@ -2136,11 +2136,11 @@ function handleMouseUp(e) {
 }
 
 /* 暗色模式调整 */
-:deep(.dark) .live-editor.notion-editor :deep(pre) {
+[data-theme='dark'] .live-editor.notion-editor pre {
   background: rgba(30, 30, 45, 0.6);
 }
 
-:deep(.dark) .notion-preview pre {
+[data-theme='dark'] .notion-preview pre {
   background: rgba(30, 30, 45, 0.6);
 }
 </style>

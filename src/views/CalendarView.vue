@@ -25,7 +25,7 @@
 
       <button 
         class="px-3 py-1.5 rounded-lg cursor-pointer transition-all duration-200 hover:bg-[var(--color-surface-hover)] active:scale-95"
-        :style="{ background: 'var(--color-primary-lighter)' }"
+        :style="{ background: 'var(--color-primary-surface)' }"
         @click="goToToday"
       >
         <span class="text-[12px] font-semibold" :style="{ color: 'var(--color-primary)' }">今天</span>
@@ -142,7 +142,7 @@
     >
       <div class="px-6 py-3">
         <div class="flex items-center gap-3 mb-3">
-          <div class="w-7 h-7 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+          <div class="w-7 h-7 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
             <CalendarDays class="w-3.5 h-3.5" :style="{ color: 'var(--color-primary)' }" />
           </div>
           <div>
@@ -434,7 +434,7 @@ async function createNoteForDate() {
 }
 
 .day-selected {
-  background: var(--color-primary-lighter);
+  background: var(--color-primary-surface);
   border: 1px solid var(--color-primary);
 }
 

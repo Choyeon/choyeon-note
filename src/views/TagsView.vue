@@ -18,7 +18,7 @@
     <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar acrylic-content p-6">
       <!-- 空状态提示 -->
       <div v-if="allTags.length === 0" class="flex flex-col items-center justify-center py-24">
-        <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" :style="{ background: 'var(--color-primary-lighter)' }">
+        <div class="w-14 h-14 rounded-2xl flex items-center justify-center mb-4" :style="{ background: 'var(--color-primary-surface)' }">
           <Tag class="w-7 h-7" :style="{ color: 'var(--color-primary)' }" />
         </div>
         <p class="text-[14px] font-medium mb-1" :style="{ color: 'var(--color-text-secondary)' }">还没有标签</p>

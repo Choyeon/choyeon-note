@@ -1,8 +1,9 @@
 import { defineStore } from 'pinia'
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 
 export const useAppStore = defineStore('app', () => {
-  const theme = ref('light')
+  const theme = ref('system')
+  const systemTheme = ref('light')
   const accentColor = ref('#4A90D9')
   const fontSize = ref('medium')
   const glassEffect = ref(true)
@@ -12,9 +13,18 @@ export const useAppStore = defineStore('app', () => {
   const wordWrap = ref(true)
   const notesLocation = ref('')
   const autoSync = ref(false)
+  const sidebar = ref(true)
   const initialized = ref(false)
   const ignoredWords = ref(new Set())
   const customDictionary = ref(new Set())
+  let mediaQueryListener = null
+
+  const effectiveTheme = computed(() => {
+    if (theme.value === 'system') {
+      return systemTheme.value
+    }
+    return theme.value
+  })
 
   const accentColors = [
     '#4A90D9',
@@ -25,6 +35,26 @@ export const useAppStore = defineStore('app', () => {
     '#26A69A'
   ]
 
+  function setupSystemThemeListener() {
+    if (typeof window === 'undefined' || !window.matchMedia) return
+    
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+    systemTheme.value = mediaQuery.matches ? 'dark' : 'light'
+    
+    mediaQueryListener = (e) => {
+      systemTheme.value = e.matches ? 'dark' : 'light'
+      if (theme.value === 'system') {
+        applyTheme()
+      }
+    }
+    
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', mediaQueryListener)
+    } else if (mediaQuery.addListener) {
+      mediaQuery.addListener(mediaQueryListener)
+    }
+  }
+
   function loadConfig() {
     const savedTheme = localStorage.getItem('choyeon-theme')
     const savedAccent = localStorage.getItem('choyeon-accent')
@@ -33,11 +63,17 @@ export const useAppStore = defineStore('app', () => {
     const savedNotesLocation = localStorage.getItem('choyeon-notes-location')
     const savedIgnoredWords = localStorage.getItem('choyeon-ignored-words')
     const savedCustomDictionary = localStorage.getItem('choyeon-custom-dictionary')
+    const savedAutoSave = localStorage.getItem('choyeon-auto-save')
+    const savedSpellCheck = localStorage.getItem('choyeon-spell-check')
+    const savedLineNumbers = localStorage.getItem('choyeon-line-numbers')
+    const savedWordWrap = localStorage.getItem('choyeon-word-wrap')
+    const savedAutoSync = localStorage.getItem('choyeon-auto-sync')
+    const savedSidebar = localStorage.getItem('choyeon-sidebar')
+    
+    setupSystemThemeListener()
     
     if (savedTheme) {
       theme.value = savedTheme
-    } else if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
-      theme.value = 'dark'
     }
 
     if (savedAccent) {
@@ -72,6 +108,30 @@ export const useAppStore = defineStore('app', () => {
       }
     }
 
+    if (savedAutoSave !== null) {
+      autoSave.value = savedAutoSave === 'true'
+    }
+
+    if (savedSpellCheck !== null) {
+      spellCheck.value = savedSpellCheck === 'true'
+    }
+
+    if (savedLineNumbers !== null) {
+      showLineNumbers.value = savedLineNumbers === 'true'
+    }
+
+    if (savedWordWrap !== null) {
+      wordWrap.value = savedWordWrap === 'true'
+    }
+
+    if (savedAutoSync !== null) {
+      autoSync.value = savedAutoSync === 'true'
+    }
+
+    if (savedSidebar !== null) {
+      sidebar.value = savedSidebar === 'true'
+    }
+
     applyTheme()
     applyAccentColor()
     applyGlassEffect()
@@ -93,13 +153,25 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-notes-location')
     localStorage.removeItem('choyeon-ignored-words')
     localStorage.removeItem('choyeon-custom-dictionary')
+    localStorage.removeItem('choyeon-auto-save')
+    localStorage.removeItem('choyeon-spell-check')
+    localStorage.removeItem('choyeon-line-numbers')
+    localStorage.removeItem('choyeon-word-wrap')
+    localStorage.removeItem('choyeon-auto-sync')
+    localStorage.removeItem('choyeon-sidebar')
     localStorage.removeItem('choyeon-mode')
     
-    theme.value = 'light'
+    theme.value = 'system'
     accentColor.value = '#4A90D9'
     fontSize.value = 'medium'
     glassEffect.value = true
+    autoSave.value = true
+    spellCheck.value = true
+    showLineNumbers.value = false
+    wordWrap.value = true
     notesLocation.value = ''
+    autoSync.value = false
+    sidebar.value = true
     ignoredWords.value = new Set()
     customDictionary.value = new Set()
     
@@ -126,7 +198,7 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function applyTheme() {
-    document.documentElement.setAttribute('data-theme', theme.value)
+    document.documentElement.setAttribute('data-theme', effectiveTheme.value)
   }
 
   function setAccentColor(color) {
@@ -162,22 +234,32 @@ export const useAppStore = defineStore('app', () => {
 
   function toggleAutoSave() {
     autoSave.value = !autoSave.value
+    localStorage.setItem('choyeon-auto-save', autoSave.value)
   }
 
   function toggleSpellCheck() {
     spellCheck.value = !spellCheck.value
+    localStorage.setItem('choyeon-spell-check', spellCheck.value)
   }
 
   function toggleLineNumbers() {
     showLineNumbers.value = !showLineNumbers.value
+    localStorage.setItem('choyeon-line-numbers', showLineNumbers.value)
   }
 
   function toggleWordWrap() {
     wordWrap.value = !wordWrap.value
+    localStorage.setItem('choyeon-word-wrap', wordWrap.value)
   }
 
   function toggleAutoSync() {
     autoSync.value = !autoSync.value
+    localStorage.setItem('choyeon-auto-sync', autoSync.value)
+  }
+
+  function toggleSidebar() {
+    sidebar.value = !sidebar.value
+    localStorage.setItem('choyeon-sidebar', sidebar.value)
   }
 
   function ignoreWord(word) {
@@ -203,11 +285,7 @@ export const useAppStore = defineStore('app', () => {
     if (ignoredWords.value.has(lowerWord)) return true
     if (customDictionary.value.has(lowerWord)) return true
     
-    if (typeof window !== 'undefined' && 'spellcheck' in document.body && document.body.spellcheck) {
-      return undefined
-    }
-    
-    return undefined
+    return isCommonEnglishWord(word)
   }
 
   function getSpellErrors(text) {
@@ -297,6 +375,8 @@ export const useAppStore = defineStore('app', () => {
 
   return {
     theme,
+    systemTheme,
+    effectiveTheme,
     accentColor,
     accentColors,
     fontSize,
@@ -307,6 +387,7 @@ export const useAppStore = defineStore('app', () => {
     wordWrap,
     notesLocation,
     autoSync,
+    sidebar,
     initialized,
     ignoredWords,
     customDictionary,
@@ -321,6 +402,7 @@ export const useAppStore = defineStore('app', () => {
     toggleLineNumbers,
     toggleWordWrap,
     toggleAutoSync,
+    toggleSidebar,
     saveNotesLocation,
     resetConfig,
     loadConfig,

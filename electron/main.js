@@ -1,6 +1,7 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron')
 const path = require('path')
-const fs = require('fs')
+const fs = require('fs/promises')
+const fsConstants = require('fs')
 const os = require('os')
 
 const isDev = !app.isPackaged
@@ -8,6 +9,46 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5176
 
 let mainWindow = null
 let notesPath = null
+
+const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
+
+async function loadSettings() {
+  try {
+    const data = await fs.readFile(settingsFile(), 'utf-8')
+    const settings = JSON.parse(data)
+    if (settings.notesPath) {
+      notesPath = settings.notesPath
+    }
+  } catch (error) {
+    // Settings file doesn't exist yet
+  }
+}
+
+async function saveSettings() {
+  try {
+    const settings = { notesPath }
+    await fs.writeFile(settingsFile(), JSON.stringify(settings, null, 2), 'utf-8')
+  } catch (error) {
+    console.error('Error saving settings:', error.message)
+  }
+}
+
+function validatePath(targetPath) {
+  if (!notesPath) {
+    throw new Error('Notes path not set')
+  }
+  const normalizedTarget = path.normalize(targetPath)
+  const normalizedBase = path.normalize(notesPath)
+  if (!normalizedTarget.startsWith(normalizedBase)) {
+    throw new Error('Access denied: path outside notes directory')
+  }
+  return normalizedTarget
+}
+
+function safeJoin(...parts) {
+  const joined = path.join(...parts)
+  return validatePath(joined)
+}
 
 function createWindow() {
   const windowOptions = {
@@ -213,6 +254,7 @@ ipcMain.handle('app:select-notes-path', async () => {
   
   if (!result.canceled && result.filePaths.length > 0) {
     notesPath = result.filePaths[0]
+    await saveSettings()
     return notesPath
   }
   return null
@@ -222,21 +264,23 @@ ipcMain.handle('app:get-notes-path', () => {
   return notesPath
 })
 
-ipcMain.handle('app:set-notes-path', (_, path) => {
+ipcMain.handle('app:set-notes-path', async (_, path) => {
   notesPath = path
+  await saveSettings()
   return true
 })
 
 ipcMain.handle('fs:read-directory', async (_, dirPath) => {
   try {
-    const files = fs.readdirSync(dirPath, { withFileTypes: true })
+    const safePath = validatePath(dirPath)
+    const files = await fs.readdir(safePath, { withFileTypes: true })
     const result = []
     
     for (const file of files) {
       if (file.name.startsWith('.')) continue
       
-      const filePath = path.join(dirPath, file.name)
-      const stats = fs.statSync(filePath)
+      const filePath = path.join(safePath, file.name)
+      const stats = await fs.stat(filePath)
       
       result.push({
         name: file.name,
@@ -252,27 +296,28 @@ ipcMain.handle('fs:read-directory', async (_, dirPath) => {
     
     return result
   } catch (error) {
-    console.error('Error reading directory:', error)
+    console.error('Error reading directory:', error.message)
     return []
   }
 })
 
 ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
   try {
+    const safePath = validatePath(dirPath)
     const result = []
     
-    function readDir(currentPath, relativePath = '') {
-      const files = fs.readdirSync(currentPath, { withFileTypes: true })
+    async function readDir(currentPath, relativePath = '') {
+      const files = await fs.readdir(currentPath, { withFileTypes: true })
       
       for (const file of files) {
         if (file.name.startsWith('.')) continue
         
         const filePath = path.join(currentPath, file.name)
-        const stats = fs.statSync(filePath)
+        const stats = await fs.stat(filePath)
         const fileRelativePath = relativePath ? `${relativePath}/${file.name}` : file.name
         
         if (file.isDirectory()) {
-          readDir(filePath, fileRelativePath)
+          await readDir(filePath, fileRelativePath)
         } else if (file.isFile() && path.extname(file.name).toLowerCase() === '.md') {
           result.push({
             name: file.name,
@@ -289,63 +334,72 @@ ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
       }
     }
     
-    readDir(dirPath)
+    await readDir(safePath)
     return result
   } catch (error) {
-    console.error('Error reading directory recursively:', error)
+    console.error('Error reading directory recursively:', error.message)
     return []
   }
 })
 
 ipcMain.handle('fs:read-file', async (_, filePath) => {
   try {
-    const content = fs.readFileSync(filePath, 'utf-8')
+    const safePath = validatePath(filePath)
+    const content = await fs.readFile(safePath, 'utf-8')
     return content
   } catch (error) {
-    console.error('Error reading file:', error)
+    console.error('Error reading file:', error.message)
     return null
   }
 })
 
 ipcMain.handle('fs:write-file', async (_, filePath, content) => {
   try {
-    fs.writeFileSync(filePath, content, 'utf-8')
+    const safePath = validatePath(filePath)
+    const dir = path.dirname(safePath)
+    await fs.mkdir(dir, { recursive: true })
+    await fs.writeFile(safePath, content, 'utf-8')
     return true
   } catch (error) {
-    console.error('Error writing file:', error)
+    console.error('Error writing file:', error.message)
     return false
   }
 })
 
 ipcMain.handle('fs:create-directory', async (_, dirPath) => {
   try {
-    fs.mkdirSync(dirPath, { recursive: true })
+    const safePath = validatePath(dirPath)
+    await fs.mkdir(safePath, { recursive: true })
     return true
   } catch (error) {
-    console.error('Error creating directory:', error)
+    console.error('Error creating directory:', error.message)
     return false
   }
 })
 
 ipcMain.handle('fs:delete-file', async (_, filePath) => {
   try {
-    fs.unlinkSync(filePath)
+    const safePath = validatePath(filePath)
+    await fs.unlink(safePath)
     return true
   } catch (error) {
-    console.error('Error deleting file:', error)
+    console.error('Error deleting file:', error.message)
     return false
   }
 })
 
 ipcMain.handle('fs:file-exists', async (_, filePath) => {
   try {
-    return fs.existsSync(filePath)
+    const safePath = validatePath(filePath)
+    await fs.access(safePath, fsConstants.constants.F_OK)
+    return true
   } catch (error) {
     return false
   }
 })
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
+  await loadSettings()
   createWindow()
   createMenu()
 

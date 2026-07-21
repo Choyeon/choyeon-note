@@ -70,7 +70,7 @@
 </template>
 
 <script setup>
-import { computed, watch, onMounted } from 'vue'
+import { computed, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { marked } from 'marked'
@@ -120,12 +120,6 @@ watch(() => route.params.id, (newId) => {
     noteStore.selectNote(newId)
   }
 }, { immediate: true })
-
-onMounted(() => {
-  if (route.params.id) {
-    noteStore.selectNote(route.params.id)
-  }
-})
 </script>
 
 <style scoped>

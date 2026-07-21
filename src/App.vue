@@ -71,9 +71,23 @@
       </div>
 
       <div class="flex-1 min-h-0 flex overflow-hidden">
-        <Sidebar v-if="showSidebar" @toggle-sidebar="appStore.toggleSidebar" />
+        <div 
+          class="sidebar-wrapper h-full flex-shrink-0 overflow-hidden transition-all duration-300 ease-in-out"
+          :class="{ 'sidebar-open': showSidebar && appStore.sidebar, 'sidebar-closed': !(showSidebar && appStore.sidebar) }"
+        >
+          <Sidebar @toggle-sidebar="appStore.toggleSidebar" />
+        </div>
         
         <main class="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
+          <button
+            v-if="showSidebar && !appStore.sidebar"
+            class="absolute left-3 top-3 z-40 w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200 shadow-md hover:shadow-lg"
+            :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }"
+            title="展开侧边栏"
+            @click="appStore.toggleSidebar"
+          >
+            <PanelRight class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
+          </button>
           <router-view v-slot="{ Component }">
             <transition name="page" mode="out-in">
               <div :key="route.name" class="page-wrapper h-full flex flex-col">
@@ -100,6 +114,7 @@
 import { computed, onMounted, watch, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from './stores/app'
+import { PanelRight } from 'lucide-vue-next'
 import Sidebar from './components/Sidebar.vue'
 
 const appStore = useAppStore()
@@ -168,6 +183,20 @@ function detectPlatform() {
 <style scoped>
 .app-container {
   font-family: var(--font-body);
+}
+
+.sidebar-wrapper {
+  width: 260px;
+}
+
+.sidebar-closed {
+  width: 0;
+  opacity: 0;
+}
+
+.sidebar-open {
+  width: 260px;
+  opacity: 1;
 }
 
 .titlebar-electron {

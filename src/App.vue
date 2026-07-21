@@ -75,7 +75,7 @@
         
         <main class="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
           <router-view v-slot="{ Component }">
-            <transition name="fade" mode="out-in">
+            <transition name="page" mode="out-in">
               <component :is="Component" />
             </transition>
           </router-view>
@@ -170,5 +170,23 @@ function detectPlatform() {
 .win-ctrl-close:hover {
   background: #E53935;
   color: #ffffff;
+}
+
+/* 页面切换过渡 - 优雅的淡入上滑 */
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity var(--duration-normal) var(--ease-out-quart),
+    transform var(--duration-normal) var(--ease-out-quart);
+}
+
+.page-enter-from {
+  opacity: 0;
+  transform: translateY(8px);
+}
+
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(-4px);
 }
 </style>

@@ -6,7 +6,7 @@
         <div class="flex justify-center mb-5">
           <div 
             class="w-14 h-14 rounded-[var(--radius-lg)] flex items-center justify-center"
-            :style="{ background: 'var(--color-primary-lighter)' }"
+            :style="{ background: 'var(--color-primary-surface)' }"
           >
             <PenLine class="w-7 h-7" :style="{ color: 'var(--color-primary)' }" />
           </div>
@@ -34,7 +34,7 @@
             @click="selectNotesFolder"
           >
             <div class="flex items-start gap-4">
-              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
                 <FolderOpen class="w-5 h-5" :style="{ color: 'var(--color-primary)' }" />
               </div>
               <div class="min-w-0">
@@ -52,7 +52,7 @@
             @click="createNewNotesFolder"
           >
             <div class="flex items-start gap-4">
-              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
                 <FolderPlus class="w-5 h-5" :style="{ color: 'var(--color-primary)' }" />
               </div>
               <div class="min-w-0">

@@ -3,6 +3,14 @@
     <div class="h-12 min-h-12 flex items-center gap-2 px-4">
       <PenLine class="w-5 h-5 text-primary flex-shrink-0" />
       <span class="font-semibold text-[15px]" :style="{ color: 'var(--color-text-primary)' }">Choyeon Notes</span>
+      <div class="flex-1"></div>
+      <button 
+        class="w-8 h-8 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+        title="收起侧边栏"
+        @click="$emit('toggle-sidebar')"
+      >
+        <PanelLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
+      </button>
     </div>
 
     <div class="px-3 pb-2">
@@ -133,8 +141,10 @@ import { useNoteStore } from '@/stores/note'
 import { 
   PenLine, Search, CalendarDays, GitBranch, Tag, 
   ChevronDown, ChevronRight, Folder, FolderOpen, FileText, 
-  Plus, Settings 
+  Plus, Settings, PanelLeft 
 } from 'lucide-vue-next'
+
+const emit = defineEmits(['toggle-sidebar'])
 
 const route = useRoute()
 const router = useRouter()
@@ -216,11 +226,7 @@ const allExpanded = computed(() => {
 })
 
 function toggleAllFolders() {
-  if (allExpanded.value) {
-    noteStore.expandedFolders = []
-  } else {
-    noteStore.expandedFolders = [...allFolderPaths.value]
-  }
+  noteStore.toggleAllFolders(allFolderPaths.value)
 }
 
 function isActiveRoute(routePath) {
@@ -233,11 +239,11 @@ function isFolderExpanded(folderName) {
 
 function toggleFolder(folderName) {
   noteStore.toggleFolder(folderName)
-  noteStore.selectedFolder = noteStore.selectedFolder === folderName ? '' : folderName
+  noteStore.setSelectedFolder(noteStore.selectedFolder === folderName ? '' : folderName)
 }
 
 function selectRootFolder() {
-  noteStore.selectedFolder = ''
+  noteStore.setSelectedFolder('')
 }
 
 function getFolderNotes(folderName) {

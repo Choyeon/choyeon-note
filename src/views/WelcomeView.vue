@@ -131,7 +131,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
@@ -144,13 +144,6 @@ const appStore = useAppStore()
 const selectedPath = ref(null)
 const isLoading = ref(false)
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
-
-onMounted(() => {
-  const savedPath = localStorage.getItem('choyeon-notes-location')
-  if (savedPath) {
-    loadNotes(savedPath)
-  }
-})
 
 async function selectNotesFolder() {
   if (!window.electronAPI) {

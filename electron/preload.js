@@ -29,12 +29,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'menu:command-palette',
       'menu:toggle-theme'
     ]
+    const listeners = []
     events.forEach(event => {
-      ipcRenderer.on(event, () => callback(event))
+      const listener = () => callback(event)
+      ipcRenderer.on(event, listener)
+      listeners.push({ event, listener })
     })
     return () => {
-      events.forEach(event => {
-        ipcRenderer.removeAllListeners(event)
+      listeners.forEach(({ event, listener }) => {
+        ipcRenderer.removeListener(event, listener)
       })
     }
   }

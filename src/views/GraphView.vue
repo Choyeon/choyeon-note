@@ -96,8 +96,8 @@
                 :y1="link.source.y" 
                 :x2="link.target.x" 
                 :y2="link.target.y"
-                :stroke="link.opacity > 0.5 ? 'var(--color-primary)' : 'var(--color-text-tertiary)'"
-                :stroke-width="link.opacity > 0.5 ? 1.5 : 1"
+                :stroke="link.strength > 2 ? 'var(--color-primary)' : (link.strength > 1 ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)')"
+                :stroke-width="link.strength > 2 ? 2.5 : (link.strength > 1 ? 1.5 : 1)"
                 :opacity="link.opacity"
                 stroke-linecap="round"
                 class="transition-opacity duration-300"
@@ -315,6 +315,86 @@ const visibleLinks = computed(() => {
   })
 })
 
+function extractTags(content) {
+  if (!content) return []
+  const tagRegex = /#(\S+?)(?=\s|#|$)/g
+  const tags = []
+  let match
+  while ((match = tagRegex.exec(content)) !== null) {
+    const tag = match[1].replace(/[，。、！？；：""''（）【】《》,.!?;:\'\"()\[\]<>]/g, '')
+    if (tag.length > 0) {
+      tags.push(tag)
+    }
+  }
+  return [...new Set(tags)]
+}
+
+function extractTitleKeywords(title) {
+  if (!title) return []
+  const words = title.split(/[\s，。、！？；：""''（）【】《》,.!?;:\'\"()\[\]<>]+/).filter(w => w.length >= 2)
+  return [...new Set(words)]
+}
+
+function extractContentKeywords(content) {
+  if (!content) return []
+  const cleaned = content.replace(/[#*`\[\]\-]/g, ' ').replace(/\n/g, ' ')
+  const words = cleaned.split(/[\s，。、！？；：""''（）【】《》,.!?;:\'\"()\[\]<>]+/).filter(w => w.length >= 2)
+  
+  const wordCount = {}
+  words.forEach(word => {
+    const lower = word.toLowerCase()
+    if (!wordCount[lower]) {
+      wordCount[lower] = { word, count: 0 }
+    }
+    wordCount[lower].count++
+  })
+  
+  const stopWords = new Set(['the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i',
+    'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
+    'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she',
+    'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what',
+    'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me',
+    'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take',
+    'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other',
+    'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also',
+    'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way',
+    'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us',
+    'is', 'are', 'was', 'were', 'been', 'being', 'am', 'has', 'had', 'does',
+    'did', 'done', 'doing', 'having', 'where', 'why', 'here', 'very', 'more',
+    'much', 'many', 'such', 'same', 'own', 'both', 'few', 'most', 'some', 'no',
+    'nor', 'not', 'only', 'too', 'very', 'don', 'should', 'yes', 'test', 'hello',
+    'world', 'code', 'note', 'notes', 'app', 'markdown', 'electron', 'vue', 'javascript',
+    'html', 'css', 'json', 'api', 'url', 'http', 'https', 'www', 'com', 'org',
+    'net', 'io', 'github', 'git', 'npm', 'yarn', 'node', 'python', 'java', 'cpp',
+    'file', 'files', 'folder', 'folders', 'path', 'dir', 'directory', 'open', 'save',
+    'close', 'edit', 'view', 'new', 'old', 'left', 'right', 'top', 'bottom', 'center',
+    'font', 'size', 'color', 'theme', 'light', 'dark', 'mode', 'text', 'title', 'content',
+    'word', 'char', 'line', 'count', 'date', 'time', 'week', 'month', 'year', 'day',
+    'today', 'tomorrow', 'yesterday', 'setting', 'settings', 'config', 'configuration',
+    'type', 'types', 'typed', 'typing', 'function', 'return', 'const', 'let', 'var', 'class',
+    'import', 'export', 'default', 'async', 'await', 'promise', 'resolve', 'reject', 'error',
+    'warning', 'info', 'debug', 'log', 'message', 'data', 'value', 'key', 'object', 'array',
+    'string', 'number', 'boolean', 'true', 'false', 'null', 'undefined', 'void', 'never', 'any',
+    '的', '了', '和', '是', '就', '都', '而', '及', '与', '着',
+    '或', '一个', '没有', '我们', '你们', '他们', '它们', '这', '那', '个',
+    '在', '有', '不', '人', '上', '也', '很', '到', '说', '要',
+    '去', '你', '会', '着', '没有', '看', '好', '自己', '这', '那',
+    '什么', '怎么', '这样', '那样', '因为', '所以', '但是', '然后', '还是', '可以',
+    '能', '能够', '应该', '必须', '需要', '可能', '大概', '大约', '左右', '一下',
+    '一些', '很多', '非常', '比较', '更', '最', '太', '真', '假', '对',
+    '错', '大', '小', '多', '少', '长', '短', '高', '低', '快',
+    '慢', '早', '晚', '前', '后', '里', '外', '中', '间', '旁',
+    '以上', '以下', '之前', '之后', '现在', '过去', '将来', '已经', '正在', '即将'
+  ])
+  
+  const filtered = Object.values(wordCount)
+    .filter(item => !stopWords.has(item.word.toLowerCase()) && item.count >= 2)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 10)
+  
+  return filtered.map(item => item.word)
+}
+
 const sortedNodes = computed(() => {
   return [...nodes.value].sort((a, b) => {
     if (selectedNode.value === a.id) return -1
@@ -333,10 +413,18 @@ function generateGraph() {
   const centerX = width / 2
   const centerY = height / 2
 
-  nodes.value = notes.map((note, index) => {
-    const angle = (index / notes.length) * 2 * Math.PI + Math.random() * 0.3
+  const noteData = notes.map(note => ({
+    ...note,
+    extractedTags: extractTags(note.content),
+    titleKeywords: extractTitleKeywords(note.title),
+    contentKeywords: extractContentKeywords(note.content)
+  }))
+
+  nodes.value = noteData.map((note, index) => {
+    const angle = (index / noteData.length) * 2 * Math.PI + Math.random() * 0.3
     const radius = 120 + Math.random() * 80
-    const size = 8 + Math.min(note.content.length / 300, 12)
+    const charCount = note.content.length
+    const size = 6 + Math.min(charCount / 200, 16)
     
     return {
       id: note.id,
@@ -345,21 +433,57 @@ function generateGraph() {
       y: centerY + Math.sin(angle) * radius,
       vx: 0,
       vy: 0,
-      size
+      size,
+      tags: note.extractedTags,
+      titleKeywords: note.titleKeywords,
+      contentKeywords: note.contentKeywords,
+      charCount
     }
   })
 
   links.value = []
+  const linkMap = new Map()
+
   for (let i = 0; i < nodes.value.length; i++) {
     for (let j = i + 1; j < nodes.value.length; j++) {
-      if (Math.random() > 0.75) {
-        links.value.push({
-          source: nodes.value[i],
-          target: nodes.value[j]
+      const nodeA = nodes.value[i]
+      const nodeB = nodes.value[j]
+      let strength = 0
+
+      const commonTags = nodeA.tags.filter(tag => nodeB.tags.includes(tag))
+      if (commonTags.length > 0) {
+        strength += commonTags.length * 2
+      }
+
+      const commonTitleKeywords = nodeA.titleKeywords.filter(kw => 
+        nodeB.titleKeywords.some(bkw => bkw.toLowerCase() === kw.toLowerCase())
+      )
+      if (commonTitleKeywords.length > 0) {
+        strength += commonTitleKeywords.length * 1.5
+      }
+
+      const commonContentKeywords = nodeA.contentKeywords.filter(kw => 
+        nodeB.contentKeywords.some(bkw => bkw.toLowerCase() === kw.toLowerCase())
+      )
+      if (commonContentKeywords.length > 0) {
+        strength += commonContentKeywords.length * 0.5
+      }
+
+      if (strength > 0) {
+        const linkKey = `${nodeA.id}-${nodeB.id}`
+        linkMap.set(linkKey, {
+          source: nodeA,
+          target: nodeB,
+          strength,
+          commonTags,
+          commonTitleKeywords,
+          commonContentKeywords
         })
       }
     }
   }
+
+  links.value = Array.from(linkMap.values())
 
   offsetX.value = rect.width / 2 - centerX * scale.value
   offsetY.value = rect.height / 2 - centerY * scale.value

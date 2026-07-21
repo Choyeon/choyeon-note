@@ -337,10 +337,7 @@ const totalNotesThisMonth = computed(() => {
 
 function getNotesForDate(year, month, date) {
   const targetDate = new Date(year, month, date)
-  return noteStore.notes.filter(note => {
-    const noteDate = new Date(note.updatedAt)
-    return noteDate.toDateString() === targetDate.toDateString()
-  })
+  return noteStore.getNotesByDate(targetDate)
 }
 
 function getDayNotes(day) {

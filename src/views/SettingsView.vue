@@ -527,9 +527,7 @@ function resetApp() {
 
 function confirmReset() {
   appStore.resetConfig()
-  noteStore.notes = []
-  noteStore.currentNoteId = null
-  noteStore.notesPath = null
+  noteStore.resetConfig()
   showResetConfirm.value = false
   router.push('/')
 }

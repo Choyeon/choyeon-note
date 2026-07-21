@@ -3,6 +3,9 @@ import { ref, computed } from 'vue'
 
 const generateId = () => Math.random().toString(36).substr(2, 9)
 
+const SAVE_DEBOUNCE_MS = 500
+const saveTimers = new Map()
+
 const sampleNotes = [
   {
     id: 'note1',
@@ -268,8 +271,25 @@ export const useNoteStore = defineStore('note', () => {
       }
       
       if (note.filePath && window.electronAPI) {
-        window.electronAPI.writeFile(note.filePath, content)
+        if (saveTimers.has(id)) {
+          clearTimeout(saveTimers.get(id))
+        }
+        saveTimers.set(id, setTimeout(() => {
+          window.electronAPI.writeFile(note.filePath, content)
+          saveTimers.delete(id)
+        }, SAVE_DEBOUNCE_MS))
       }
+    }
+  }
+
+  function flushSave(id) {
+    if (saveTimers.has(id)) {
+      clearTimeout(saveTimers.get(id))
+      const note = notes.value.find(n => n.id === id)
+      if (note && note.filePath && window.electronAPI) {
+        window.electronAPI.writeFile(note.filePath, note.content)
+      }
+      saveTimers.delete(id)
     }
   }
 
@@ -296,6 +316,23 @@ export const useNoteStore = defineStore('note', () => {
     }
   }
 
+  function toggleAllFolders(allFolderPaths) {
+    const allExpanded = allFolderPaths.every(p => expandedFolders.value.includes(p))
+    if (allExpanded) {
+      expandedFolders.value = []
+    } else {
+      expandedFolders.value = [...allFolderPaths]
+    }
+  }
+
+  function setExpandedFolders(folders) {
+    expandedFolders.value = folders
+  }
+
+  function setSelectedFolder(folder) {
+    selectedFolder.value = folder
+  }
+
   function setSearchQuery(query) {
     searchQuery.value = query
   }
@@ -308,11 +345,21 @@ export const useNoteStore = defineStore('note', () => {
     viewMode.value = mode
   }
 
-  function getNotesByDate(date) {
-    return notes.value.filter(note => {
-      const noteDate = new Date(note.updatedAt)
-      return noteDate.toDateString() === date.toDateString()
+  const notesByDate = computed(() => {
+    const map = new Map()
+    notes.value.forEach(note => {
+      const dateKey = new Date(note.updatedAt).toDateString()
+      if (!map.has(dateKey)) {
+        map.set(dateKey, [])
+      }
+      map.get(dateKey).push(note)
     })
+    return map
+  })
+
+  function getNotesByDate(date) {
+    const dateKey = new Date(date).toDateString()
+    return notesByDate.value.get(dateKey) || []
   }
 
   async function loadNotesFromPath(path) {
@@ -419,8 +466,12 @@ export const useNoteStore = defineStore('note', () => {
     selectNote,
     createNote,
     updateNoteContent,
+    flushSave,
     deleteNote,
     toggleFolder,
+    toggleAllFolders,
+    setExpandedFolders,
+    setSelectedFolder,
     setSearchQuery,
     setSortBy,
     setViewMode,

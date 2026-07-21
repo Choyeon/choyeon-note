@@ -46,6 +46,11 @@ const routes = [
     path: '/reading/:id',
     name: 'reading',
     component: () => import('@/views/ReadingView.vue')
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'not-found',
+    component: () => import('@/views/NotFound.vue')
   }
 ]
 
@@ -54,22 +59,20 @@ const router = createRouter({
   routes
 })
 
-router.beforeEach(async (to, from, next) => {
+router.beforeEach((to, from, next) => {
   const notesLocation = localStorage.getItem('choyeon-notes-location')
-  
+
   if (to.name === 'welcome') {
-    if (notesLocation) {
-      next({ name: 'notes' })
-    } else {
-      next()
-    }
-  } else {
-    if (!notesLocation && to.name !== 'welcome') {
-      next({ name: 'welcome' })
-    } else {
-      next()
-    }
+    notesLocation ? next({ name: 'notes' }) : next()
+    return
   }
+
+  if (!notesLocation) {
+    next({ name: 'welcome' })
+    return
+  }
+
+  next()
 })
 
 export default router

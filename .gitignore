@@ -17,6 +17,7 @@ out
 release
 build
 dist-electron
+dist-electron-new
 
 # Logs
 logs

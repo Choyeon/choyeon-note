@@ -1286,13 +1286,14 @@ a:focus-visible,
   -webkit-backdrop-filter: blur(var(--card-blur)) saturate(var(--card-saturate));
   border-radius: var(--radius-xl);
   border: 1px solid var(--card-border);
-  padding: 8px 0;
+  padding: 6px 0;
   margin-bottom: 16px;
   box-shadow: var(--card-shadow);
   transition:
     box-shadow var(--transition-smooth),
     border-color var(--transition-smooth);
   animation: cardEnter var(--duration-moderate) var(--ease-out-quart) backwards;
+  overflow: hidden;
 }
 
 [data-glass='false'] .settings-card {
@@ -1464,6 +1465,52 @@ a:focus-visible,
 .setting-row:hover .chevron {
   color: var(--color-text-secondary);
   transform: translateX(2px);
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 20px;
+  transition: background var(--transition-smooth);
+  min-height: 56px;
+  position: relative;
+}
+
+.settings-row + .settings-row {
+  border-top: 1px solid var(--color-border-light);
+}
+
+.settings-row:hover {
+  background: var(--color-surface-hover);
+}
+
+.shortcut-search {
+  border: 1px solid var(--color-border);
+}
+
+.shortcut-search:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 3px var(--color-primary-ring);
+}
+
+.kbd-key {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  height: 26px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 500;
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace);
+  color: var(--color-text-secondary);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: 6px;
+  line-height: 1;
 }
 
 /* ============================================================

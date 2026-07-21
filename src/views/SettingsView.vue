@@ -17,7 +17,7 @@
       <div class="max-w-[720px] mx-auto px-8 py-8 pb-20">
         <div class="mb-8">
           <div class="flex items-center gap-3 mb-2">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <SunMoon class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
             <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">外观</h2>
@@ -123,7 +123,7 @@
 
         <div class="mb-8">
           <div class="flex items-center gap-3 mb-2">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <FileCode class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
             <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">编辑器</h2>
@@ -216,7 +216,7 @@
 
         <div class="mb-8" v-if="isElectron">
           <div class="flex items-center gap-3 mb-2">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <FolderOpen class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
             <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">文件与同步</h2>
@@ -273,7 +273,7 @@
 
         <div class="mb-8">
           <div class="flex items-center gap-3 mb-2">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
               <Keyboard class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
             <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">快捷键</h2>
@@ -550,16 +550,19 @@ function cancelReset() {
   transition: background-color var(--transition-micro);
 }
 
-/* 搜索框 - 移除黑色边框，聚焦时使用主色光环 */
+/* 搜索框 - 毛玻璃效果，聚焦时使用主色光环 */
 .shortcut-search {
-  border: 1px solid transparent;
+  border: 1px solid var(--color-border-light);
+  backdrop-filter: blur(12px) saturate(160%);
+  -webkit-backdrop-filter: blur(12px) saturate(160%);
 }
 .shortcut-search:focus {
-  background: var(--color-surface);
+  background: var(--color-bg-tertiary);
   box-shadow: 0 0 0 3px var(--color-primary-ring);
+  border-color: transparent;
 }
 
-/* 快捷键按键 - 优化视觉层次，使用表面色与微妙立体感 */
+/* 快捷键按键 - 毛玻璃表面效果，微妙层次感 */
 .kbd-key {
   display: inline-flex;
   align-items: center;
@@ -571,10 +574,9 @@ function cancelReset() {
   font-weight: 600;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   color: var(--color-text-secondary);
-  background: var(--color-surface);
+  background: var(--color-bg-tertiary);
   border-radius: 6px;
   border: 1px solid var(--color-border-light);
-  box-shadow: 0 1px 2px rgba(0,0,0,0.04), inset 0 -1px 0 rgba(0,0,0,0.03);
 }
 
 .fade-enter-active,

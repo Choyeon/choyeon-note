@@ -16,6 +16,7 @@ dist-ssr
 out
 release
 build
+dist-electron
 
 # Logs
 logs

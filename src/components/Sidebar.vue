@@ -398,7 +398,7 @@ const FolderNode = defineComponent({
 }
 
 /* 暗色模式下进一步淡化缩进线，避免视觉干扰 */
-.dark .tree-indent-line {
+[data-theme='dark'] .tree-indent-line {
   background: rgba(255, 255, 255, 0.03);
 }
 

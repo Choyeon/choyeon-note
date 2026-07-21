@@ -10,11 +10,11 @@
       
       <!-- 视图切换：列表/卡片 -->
       <div 
-        class="flex items-center gap-0.5 rounded-[var(--cho-radius-md)] p-0.5 mr-3"
+        class="flex items-center gap-0.5 rounded-[var(--radius-md)] p-0.5 mr-3"
         :style="{ background: 'var(--color-bg-tertiary)' }"
       >
         <button 
-          class="flex items-center gap-1 px-3 py-1 rounded-[var(--cho-radius-sm)] cursor-pointer transition-colors"
+          class="flex items-center gap-1 px-3 py-1 rounded-[var(--radius-sm)] cursor-pointer transition-colors"
           :style="viewMode === 'list' ? { background: 'var(--color-surface)', boxShadow: 'var(--shadow-xs)' } : {}"
           @click="setViewMode('list')"
         >
@@ -22,7 +22,7 @@
           <span class="text-[13px] font-medium" :style="{ color: viewMode === 'list' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">列表</span>
         </button>
         <button 
-          class="flex items-center gap-1 px-3 py-1 rounded-[var(--cho-radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          class="flex items-center gap-1 px-3 py-1 rounded-[var(--radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
           @click="setViewMode('card')"
         >
           <LayoutGrid class="w-3.5 h-3.5" :style="{ color: viewMode === 'card' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
@@ -32,7 +32,7 @@
 
       <!-- 排序选择器：移除深色边框，使用 border-light -->
       <div 
-        class="flex items-center gap-1.5 h-8 px-3 rounded-[var(--cho-radius-md)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+        class="flex items-center gap-1.5 h-8 px-3 rounded-[var(--radius-md)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
         :style="{ border: '1px solid var(--color-border-light)' }"
       >
         <span class="text-[13px] whitespace-nowrap" :style="{ color: 'var(--color-text-secondary)' }">

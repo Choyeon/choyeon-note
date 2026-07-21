@@ -123,11 +123,11 @@
   --sidebar-count-bg: rgba(0, 0, 0, 0.05);
   --sidebar-count-color: var(--color-text-secondary);
 
-  --content-bg: rgba(255, 255, 255, 0.5);
+  --content-bg: rgba(255, 255, 255, 0.72);
   --content-blur: 24px;
   --content-saturate: 160%;
 
-  --card-bg: rgba(255, 255, 255, 0.7);
+  --card-bg: rgba(255, 255, 255, 0.8);
   --card-border: rgba(0, 0, 0, 0.06);
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.03);
 
@@ -286,11 +286,11 @@
   --sidebar-count-bg: rgba(255, 255, 255, 0.08);
   --sidebar-count-color: var(--color-text-secondary);
 
-  --content-bg: rgba(32, 33, 36, 0.55);
+  --content-bg: rgba(32, 33, 36, 0.72);
   --content-blur: 24px;
   --content-saturate: 140%;
 
-  --card-bg: rgba(41, 42, 45, 0.75);
+  --card-bg: rgba(41, 42, 45, 0.82);
   --card-border: rgba(255, 255, 255, 0.06);
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
 }
@@ -534,11 +534,11 @@ html.platform-win32 #app {
     --sidebar-blur: 28px;
     --sidebar-saturate: 150%;
 
-    --content-bg: rgba(32, 33, 36, 0.55);
+    --content-bg: rgba(32, 33, 36, 0.72);
     --content-blur: 24px;
     --content-saturate: 140%;
 
-    --card-bg: rgba(41, 42, 45, 0.75);
+    --card-bg: rgba(41, 42, 45, 0.82);
     --card-border: rgba(255, 255, 255, 0.06);
     --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
   }
@@ -620,6 +620,52 @@ a:focus-visible,
   backdrop-filter: blur(var(--acrylic-blur)) saturate(180%);
   -webkit-backdrop-filter: blur(var(--acrylic-blur)) saturate(180%);
   border: 1px solid var(--acrylic-border);
+}
+
+/* 侧边栏毛玻璃容器 */
+.acrylic-sidebar {
+  background: var(--sidebar-bg);
+  backdrop-filter: blur(var(--sidebar-blur)) saturate(var(--sidebar-saturate));
+  -webkit-backdrop-filter: blur(var(--sidebar-blur)) saturate(var(--sidebar-saturate));
+}
+
+/* 内容区域毛玻璃容器 */
+.acrylic-content {
+  background: var(--content-bg);
+  backdrop-filter: blur(var(--content-blur)) saturate(var(--content-saturate));
+  -webkit-backdrop-filter: blur(var(--content-blur)) saturate(var(--content-saturate));
+}
+
+/* 卡片毛玻璃容器 */
+.acrylic-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(var(--sidebar-search-blur)) saturate(var(--sidebar-search-saturate));
+  -webkit-backdrop-filter: blur(var(--sidebar-search-blur)) saturate(var(--sidebar-search-saturate));
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--card-shadow);
+}
+
+/* 关闭毛玻璃时覆盖 */
+[data-glass='false'] .acrylic-sidebar,
+[data-glass='false'] .acrylic-content,
+[data-glass='false'] .acrylic-card {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+[data-glass='false'] .acrylic-sidebar {
+  background: var(--color-surface);
+}
+
+[data-glass='false'] .acrylic-content {
+  background: var(--color-bg);
+}
+
+[data-glass='false'] .acrylic-card {
+  background: var(--color-surface);
+  border-color: var(--color-border-light);
+  box-shadow: var(--shadow-xs);
 }
 
 .card-base {
@@ -1427,34 +1473,36 @@ a:focus-visible,
 
 .electron-mode {
   --color-bg: rgba(250, 251, 252, 0.55);
-  --color-bg-secondary: rgba(240, 242, 245, 0.45);
-  --color-bg-tertiary: rgba(232, 234, 240, 0.35);
-  --color-surface: rgba(255, 255, 255, 0.6);
-  --sidebar-bg: rgba(248, 249, 250, 0.45);
-  --content-bg: rgba(255, 255, 255, 0.5);
-  --titlebar-bg: rgba(255, 255, 255, 0.35);
-  --card-bg: rgba(255, 255, 255, 0.65);
-  --color-border: rgba(0, 0, 0, 0.05);
-  --color-border-light: rgba(0, 0, 0, 0.03);
-  --sidebar-border: rgba(0, 0, 0, 0.05);
-  --titlebar-border: rgba(0, 0, 0, 0.05);
-  --card-border: rgba(0, 0, 0, 0.05);
+  --color-bg-secondary: rgba(240, 242, 245, 0.75);
+  --color-bg-tertiary: rgba(232, 234, 240, 0.68);
+  --color-surface: rgba(255, 255, 255, 0.72);
+  --color-surface-hover: rgba(232, 234, 240, 0.68);
+  --sidebar-bg: rgba(248, 249, 250, 0.6);
+  --content-bg: rgba(255, 255, 255, 0.55);
+  --titlebar-bg: rgba(255, 255, 255, 0.45);
+  --card-bg: rgba(255, 255, 255, 0.72);
+  --color-border: rgba(0, 0, 0, 0.06);
+  --color-border-light: rgba(0, 0, 0, 0.04);
+  --sidebar-border: rgba(0, 0, 0, 0.06);
+  --titlebar-border: rgba(0, 0, 0, 0.06);
+  --card-border: rgba(0, 0, 0, 0.06);
 }
 
 .electron-mode[data-theme='dark'] {
   --color-bg: rgba(32, 33, 36, 0.55);
-  --color-bg-secondary: rgba(28, 29, 32, 0.5);
-  --color-bg-tertiary: rgba(60, 64, 67, 0.4);
-  --color-surface: rgba(48, 49, 52, 0.6);
-  --sidebar-bg: rgba(28, 29, 32, 0.5);
-  --content-bg: rgba(32, 33, 36, 0.55);
-  --titlebar-bg: rgba(28, 29, 32, 0.4);
-  --card-bg: rgba(41, 42, 45, 0.65);
-  --color-border: rgba(255, 255, 255, 0.06);
-  --color-border-light: rgba(255, 255, 255, 0.03);
-  --sidebar-border: rgba(255, 255, 255, 0.06);
-  --titlebar-border: rgba(255, 255, 255, 0.06);
-  --card-border: rgba(255, 255, 255, 0.06);
+  --color-bg-secondary: rgba(28, 29, 32, 0.75);
+  --color-bg-tertiary: rgba(60, 64, 67, 0.68);
+  --color-surface: rgba(48, 49, 52, 0.72);
+  --color-surface-hover: rgba(60, 64, 67, 0.68);
+  --sidebar-bg: rgba(28, 29, 32, 0.6);
+  --content-bg: rgba(32, 33, 36, 0.6);
+  --titlebar-bg: rgba(28, 29, 32, 0.5);
+  --card-bg: rgba(41, 42, 45, 0.72);
+  --color-border: rgba(255, 255, 255, 0.08);
+  --color-border-light: rgba(255, 255, 255, 0.04);
+  --sidebar-border: rgba(255, 255, 255, 0.08);
+  --titlebar-border: rgba(255, 255, 255, 0.08);
+  --card-border: rgba(255, 255, 255, 0.08);
 }
 
 /* ============================================================

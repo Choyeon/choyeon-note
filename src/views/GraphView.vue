@@ -141,7 +141,7 @@
                   font-weight="600"
                   :fill="selectedNode === node.id ? 'var(--color-primary)' : 'var(--color-text-primary)'"
                   class="pointer-events-none select-none"
-                  style="paint-order: stroke; stroke: var(--color-bg-primary); stroke-width: 3px; stroke-linejoin: round;"
+                  style="paint-order: stroke; stroke: var(--color-bg); stroke-width: 3px; stroke-linejoin: round;"
                 >
                   {{ node.label.length > 14 ? node.label.substring(0, 14) + '...' : node.label }}
                 </text>

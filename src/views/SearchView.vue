@@ -233,7 +233,7 @@ function highlightMatch(text) {
   font-weight: 600;
 }
 
-.dark :deep(.search-mark) {
+[data-theme='dark'] :deep(.search-mark) {
   color: var(--color-primary-light);
 }
 

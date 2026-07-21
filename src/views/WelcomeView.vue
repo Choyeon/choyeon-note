@@ -5,7 +5,7 @@
         <!-- 顶部图标 -->
         <div class="flex justify-center mb-5">
           <div 
-            class="w-14 h-14 rounded-[var(--cho-radius-lg)] flex items-center justify-center"
+            class="w-14 h-14 rounded-[var(--radius-lg)] flex items-center justify-center"
             :style="{ background: 'var(--color-primary-lighter)' }"
           >
             <PenLine class="w-7 h-7" :style="{ color: 'var(--color-primary)' }" />
@@ -34,7 +34,7 @@
             @click="selectNotesFolder"
           >
             <div class="flex items-start gap-4">
-              <div class="w-10 h-10 rounded-[var(--cho-radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
                 <FolderOpen class="w-5 h-5" :style="{ color: 'var(--color-primary)' }" />
               </div>
               <div class="min-w-0">
@@ -52,7 +52,7 @@
             @click="createNewNotesFolder"
           >
             <div class="flex items-start gap-4">
-              <div class="w-10 h-10 rounded-[var(--cho-radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
+              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: 'var(--color-primary-lighter)' }">
                 <FolderPlus class="w-5 h-5" :style="{ color: 'var(--color-primary)' }" />
               </div>
               <div class="min-w-0">
@@ -69,7 +69,7 @@
             @click="useSampleNotes"
           >
             <div class="flex items-start gap-4">
-              <div class="w-10 h-10 rounded-[var(--cho-radius-md)] flex items-center justify-center" :style="{ background: isElectron ? 'var(--color-bg-tertiary)' : 'var(--color-primary-lighter)' }">
+              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: isElectron ? 'var(--color-bg-tertiary)' : 'var(--color-primary-lighter)' }">
                 <FileText class="w-5 h-5" :style="{ color: isElectron ? 'var(--color-text-tertiary)' : 'var(--color-primary)' }" />
               </div>
               <div class="min-w-0">
@@ -87,12 +87,12 @@
               <CheckCircle class="w-5 h-5" :style="{ color: 'var(--state-success)' }" />
               <span class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">已选择笔记文件夹</span>
             </div>
-            <div class="text-[13px] font-mono break-all px-3 py-2 rounded-[var(--cho-radius-sm)]" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
+            <div class="text-[13px] font-mono break-all px-3 py-2 rounded-[var(--radius-sm)]" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
               {{ selectedPath }}
             </div>
             <!-- 次要按钮：文本样式 -->
             <button 
-              class="mt-3 text-[12px] px-3 py-1.5 rounded-[var(--cho-radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+              class="mt-3 text-[12px] px-3 py-1.5 rounded-[var(--radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
               :style="{ color: 'var(--color-text-tertiary)' }"
               @click="selectedPath = null"
             >重新选择</button>
@@ -100,7 +100,7 @@
 
           <!-- 主按钮：填充样式 -->
           <button 
-            class="w-full py-3 rounded-[var(--cho-radius-md)] cursor-pointer transition-opacity hover:opacity-90 active:opacity-95 text-[14px] font-medium text-white"
+            class="w-full py-3 rounded-[var(--radius-md)] cursor-pointer transition-opacity hover:opacity-90 active:opacity-95 text-[14px] font-medium text-white"
             :style="{ background: 'var(--color-primary)', boxShadow: 'var(--shadow-xs)', transition: 'opacity var(--transition-micro)' }"
             :disabled="isLoading"
             @click="confirmPath"

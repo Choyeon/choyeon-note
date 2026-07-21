@@ -1916,7 +1916,7 @@ function handleMouseUp(e) {
 }
 
 .slash-menu-item.active .slash-menu-icon {
-  background: var(--color-primary-lighter);
+  background: var(--color-primary-surface);
   color: var(--color-primary);
 }
 

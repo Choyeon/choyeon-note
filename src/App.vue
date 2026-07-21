@@ -73,10 +73,21 @@
       <div class="flex-1 min-h-0 flex overflow-hidden">
         <Sidebar v-if="showSidebar" @toggle-sidebar="appStore.toggleSidebar" />
         
-        <main class="flex-1 min-w-0 h-full flex flex-col overflow-hidden">
+        <main class="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
           <router-view v-slot="{ Component }">
             <transition name="page" mode="out-in">
-              <component :is="Component" />
+              <div :key="route.name" class="page-wrapper h-full flex flex-col">
+                <component :is="Component" />
+                <div 
+                  v-if="isLoading" 
+                  class="page-loading-overlay"
+                >
+                  <div class="loading-spinner">
+                    <div class="spinner-ring"></div>
+                    <div class="spinner-ring spinner-ring-delay"></div>
+                  </div>
+                </div>
+              </div>
             </transition>
           </router-view>
         </main>
@@ -86,13 +97,14 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, watch, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from './stores/app'
 import Sidebar from './components/Sidebar.vue'
 
 const appStore = useAppStore()
 const route = useRoute()
+const isLoading = ref(false)
 
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 const showSidebar = computed(() => route.meta?.showSidebar !== false)
@@ -127,6 +139,13 @@ function closeWindow() {
   }
 }
 
+watch(() => route.name, () => {
+  isLoading.value = true
+  setTimeout(() => {
+    isLoading.value = false
+  }, 300)
+}, { immediate: false })
+
 onMounted(() => {
   appStore.initTheme()
   detectPlatform()
@@ -156,7 +175,6 @@ function detectPlatform() {
   app-region: drag;
 }
 
-/* 窗口控制按钮 - 默认使用次要文字色，hover 时背景柔化 */
 .win-ctrl {
   color: var(--color-text-secondary);
   border-radius: 6px;
@@ -166,13 +184,54 @@ function detectPlatform() {
   background: var(--color-bg-tertiary);
 }
 
-/* 关闭按钮 hover 使用标准红色，文字变白以保持对比 */
 .win-ctrl-close:hover {
   background: #E53935;
   color: #ffffff;
 }
 
-/* 页面切换过渡 - 优雅的淡入上滑 */
+.page-wrapper {
+  position: relative;
+}
+
+.page-loading-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--color-bg-secondary);
+  opacity: 0.8;
+  z-index: 100;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+.loading-spinner {
+  position: relative;
+  width: 36px;
+  height: 36px;
+}
+
+.spinner-ring {
+  position: absolute;
+  inset: 0;
+  border: 2px solid var(--color-border);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.spinner-ring-delay {
+  animation-delay: 0.4s;
+  border-top-color: var(--color-accent);
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .page-enter-active,
 .page-leave-active {
   transition:
@@ -182,11 +241,11 @@ function detectPlatform() {
 
 .page-enter-from {
   opacity: 0;
-  transform: translateY(8px);
+  transform: translateY(8px) scale(0.99);
 }
 
 .page-leave-to {
   opacity: 0;
-  transform: translateY(-4px);
+  transform: translateY(-4px) scale(0.99);
 }
 </style>

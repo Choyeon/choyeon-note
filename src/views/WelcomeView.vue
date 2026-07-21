@@ -69,7 +69,7 @@
             @click="useSampleNotes"
           >
             <div class="flex items-start gap-4">
-              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: isElectron ? 'var(--color-bg-tertiary)' : 'var(--color-primary-lighter)' }">
+              <div class="w-10 h-10 rounded-[var(--radius-md)] flex items-center justify-center" :style="{ background: isElectron ? 'var(--color-bg-tertiary)' : 'var(--color-primary-surface)' }">
                 <FileText class="w-5 h-5" :style="{ color: isElectron ? 'var(--color-text-tertiary)' : 'var(--color-primary)' }" />
               </div>
               <div class="min-w-0">

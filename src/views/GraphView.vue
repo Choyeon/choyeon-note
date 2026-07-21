@@ -604,7 +604,7 @@ onUnmounted(() => {
 }
 
 .node-list-selected {
-  background: var(--color-primary-lighter);
+  background: var(--color-primary-surface);
 }
 
 .line-clamp-3 {

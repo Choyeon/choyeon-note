@@ -226,7 +226,7 @@ function highlightMatch(text) {
 <style scoped>
 /* 高亮匹配文字：使用主色调背景，避免突兀 */
 :deep(.search-mark) {
-  background: var(--color-primary-lighter);
+  background: var(--color-primary-surface);
   color: var(--color-primary-dark);
   border-radius: 3px;
   padding: 1px 2px;

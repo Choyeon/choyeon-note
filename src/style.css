@@ -647,8 +647,8 @@ a:focus-visible,
 /* 卡片毛玻璃容器 */
 .acrylic-card {
   background: var(--card-bg);
-  backdrop-filter: blur(var(--sidebar-search-blur)) saturate(var(--sidebar-search-saturate));
-  -webkit-backdrop-filter: blur(var(--sidebar-search-blur)) saturate(var(--sidebar-search-saturate));
+  backdrop-filter: blur(var(--card-blur)) saturate(var(--card-saturate));
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(var(--card-saturate));
   border: 1px solid var(--card-border);
   border-radius: var(--radius-lg);
   box-shadow: var(--card-shadow);
@@ -987,8 +987,8 @@ a:focus-visible,
 
 .cho-card {
   background: var(--card-bg);
-  backdrop-filter: blur(var(--sidebar-search-blur)) saturate(var(--sidebar-search-saturate));
-  -webkit-backdrop-filter: blur(var(--sidebar-search-blur)) saturate(var(--sidebar-search-saturate));
+  backdrop-filter: blur(var(--card-blur)) saturate(var(--card-saturate));
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(var(--card-saturate));
   border: 1px solid var(--card-border);
   border-radius: var(--radius-xl);
   box-shadow: var(--card-shadow);

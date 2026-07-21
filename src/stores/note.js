@@ -350,15 +350,30 @@ export const useNoteStore = defineStore('note', () => {
         }
       }
       
-      notes.value = loadedNotes.length > 0 ? loadedNotes : sampleNotes
+      notes.value.length = 0
+      notes.value.push(...(loadedNotes.length > 0 ? loadedNotes : sampleNotes))
       currentNoteId.value = notes.value[0]?.id || null
       
     } catch (error) {
       console.error('Error loading notes:', error)
-      notes.value = sampleNotes
+      notes.value.length = 0
+      notes.value.push(...sampleNotes)
       currentNoteId.value = notes.value[0]?.id || null
     }
     
+    isLoading.value = false
+  }
+
+  function resetConfig() {
+    notes.value.length = 0
+    notes.value.push(...sampleNotes)
+    currentNoteId.value = notes.value[0]?.id || null
+    selectedFolder.value = '工作笔记'
+    expandedFolders.value = ['工作笔记', '项目文档']
+    searchQuery.value = ''
+    sortBy.value = 'updated'
+    viewMode.value = 'list'
+    notesPath.value = null
     isLoading.value = false
   }
 
@@ -412,6 +427,7 @@ export const useNoteStore = defineStore('note', () => {
     getNotesByDate,
     loadNotesFromPath,
     saveNoteToFile,
-    createNewNoteFile
+    createNewNoteFile,
+    resetConfig
   }
 })

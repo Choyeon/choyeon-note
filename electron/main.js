@@ -1,4 +1,5 @@
 const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron')
+const { autoUpdater } = require('electron-updater')
 const path = require('path')
 const fs = require('fs/promises')
 const fsConstants = require('fs')
@@ -398,10 +399,66 @@ ipcMain.handle('fs:file-exists', async (_, filePath) => {
   }
 })
 
+function setupAutoUpdater() {
+  if (isDev) {
+    autoUpdater.updateConfigPath = path.join(__dirname, '..', 'dev-app-update.yml')
+  }
+
+  autoUpdater.autoDownload = false
+  autoUpdater.autoInstallOnAppQuit = true
+
+  autoUpdater.on('checking-for-update', () => {
+    mainWindow?.webContents.send('updater:checking')
+  })
+
+  autoUpdater.on('update-available', (info) => {
+    mainWindow?.webContents.send('updater:update-available', info)
+  })
+
+  autoUpdater.on('update-not-available', (info) => {
+    mainWindow?.webContents.send('updater:update-not-available', info)
+  })
+
+  autoUpdater.on('error', (err) => {
+    mainWindow?.webContents.send('updater:error', err.message)
+  })
+
+  autoUpdater.on('download-progress', (progressObj) => {
+    mainWindow?.webContents.send('updater:download-progress', progressObj)
+  })
+
+  autoUpdater.on('update-downloaded', (info) => {
+    mainWindow?.webContents.send('updater:update-downloaded', info)
+  })
+}
+
+ipcMain.handle('updater:check-for-updates', async () => {
+  try {
+    await autoUpdater.checkForUpdates()
+    return true
+  } catch (err) {
+    return { error: err.message }
+  }
+})
+
+ipcMain.handle('updater:download-update', async () => {
+  try {
+    await autoUpdater.downloadUpdate()
+    return true
+  } catch (err) {
+    return { error: err.message }
+  }
+})
+
+ipcMain.handle('updater:quit-and-install', () => {
+  autoUpdater.quitAndInstall(false, true)
+})
+
 app.whenReady().then(async () => {
   await loadSettings()
   createWindow()
   createMenu()
+  setupAutoUpdater()
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

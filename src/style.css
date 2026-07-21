@@ -1858,3 +1858,61 @@ a:focus-visible,
     inset 0 -1.5px 0 rgba(0, 0, 0, 0.06);
   transition: transform var(--transition-micro);
 }
+
+
+/* 代码高亮样式 */
+.code-block {
+  position: relative;
+  margin: 16px 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #f6f8fa;
+}
+
+.code-block[data-lang]::before {
+  content: attr(data-lang);
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  font-size: 12px;
+  color: #6a737d;
+  text-transform: uppercase;
+  font-family: var(--font-mono, var(--font-body));
+  opacity: 0.7;
+}
+
+.code-block code {
+  display: block;
+  padding: 16px;
+  overflow-x: auto;
+  font-family: var(--font-mono, var(--font-body));
+  font-size: 14px;
+  line-height: 1.6;
+  background: #f6f8fa;
+}
+
+/* Mermaid 图表样式 */
+.mermaid-chart {
+  margin: 20px 0;
+  padding: 16px;
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-md);
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+
+.mermaid-chart svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.mermaid-error {
+  color: var(--state-error);
+  padding: 16px;
+  background: var(--color-error-surface);
+  border-radius: var(--radius-md);
+  font-family: var(--font-mono, var(--font-body));
+  font-size: 14px;
+}
+

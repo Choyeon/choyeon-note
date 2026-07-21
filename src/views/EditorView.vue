@@ -337,6 +337,8 @@
             pointerEvents: 'auto'
           }"
           @click.stop
+          @mouseenter="onSpellTooltipEnter"
+          @mouseleave="onSpellTooltipLeave"
         >
           <div 
             class="spell-tooltip rounded-lg overflow-hidden shadow-lg"
@@ -354,11 +356,11 @@
               <span class="text-[13px] font-medium" :style="{ color: 'var(--color-text-primary)' }">{{ spellTooltip.word }}</span>
             </div>
             <div class="context-menu-divider"></div>
-            <button class="context-menu-item" @click="ignoreWord(spellTooltip.word)">
+            <button class="context-menu-item" @click="handleIgnoreWord">
               <EyeOff class="w-3.5 h-3.5" />
               <span>忽略此单词</span>
             </button>
-            <button class="context-menu-item" @click="addToDictionary(spellTooltip.word)">
+            <button class="context-menu-item" @click="handleAddToDictionary">
               <BookPlus class="w-3.5 h-3.5" />
               <span>添加到词典</span>
             </button>
@@ -485,14 +487,15 @@ import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
-import { marked } from 'marked'
+import { renderMarkdown, renderMermaidInContainer } from '@/utils/markdown'
 import { 
   Bold, Italic, Code, Link, List, CheckSquare, ArrowLeft, 
   Heading1, Heading2, Heading3, Quote, Minus, Highlighter, 
   Strikethrough, Copy, Scissors, ClipboardPaste, Check,
   EyeOff, BookPlus, Underline, FileText, Search,
   Type, Pilcrow, ListOrdered, ListTodo, Table as TableIcon,
-  Image as ImageIcon, Code2, Square, Heading, Hash
+  Image as ImageIcon, Code2, Square, Heading, Hash,
+  PieChart, GitBranch, Clock, BarChart3
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -511,6 +514,7 @@ const spellOverlayRef = ref(null)
 const isLiveEditing = ref(false)
 let liveInputTimeout = null
 let spellUpdateTimeout = null
+let spellTooltipHideTimeout = null
 let canvasMeasureCtx = null
 
 const contextMenu = ref({
@@ -524,7 +528,8 @@ const spellTooltip = ref({
   show: false,
   x: 0,
   y: 0,
-  word: ''
+  word: '',
+  placement: 'bottom'
 })
 
 const floatingToolbar = ref({
@@ -579,11 +584,6 @@ const editorPlaceholder = computed(() => {
   return content.value ? '' : "按 / 输入命令，或直接开始书写你的想法..."
 })
 
-marked.setOptions({
-  breaks: true,
-  gfm: true
-})
-
 const modeLabel = computed(() => {
   const labels = {
     edit: '纯文本编辑模式',
@@ -623,13 +623,18 @@ const formatTools = [
   { id: 'list', icon: List, title: '列表' },
   { id: 'todo', icon: CheckSquare, title: '待办' },
   { id: 'link', icon: Link, title: '链接' },
-  { id: 'hr', icon: Minus, title: '分隔线' }
+  { id: 'hr', icon: Minus, title: '分隔线' },
+  { type: 'divider' },
+  { id: 'codeblock', icon: Code2, title: '代码块' },
+  { id: 'mermaid-flow', icon: GitBranch, title: '流程图' },
+  { id: 'mermaid-pie', icon: PieChart, title: '饼图' },
+  { id: 'mermaid-gantt', icon: BarChart3, title: '甘特图' }
 ]
 
 const currentNote = computed(() => noteStore.currentNote)
 
 const renderedContent = computed(() => {
-  return marked.parse(content.value || '')
+  return renderMarkdown(content.value || '')
 })
 
 const outlineItems = computed(() => {
@@ -657,11 +662,16 @@ function setMode(mode) {
   editorMode.value = mode
   if (mode === 'live' && previousMode !== 'live') {
     nextTick(() => {
-      if (liveEditorRef.value) {
-        liveEditorRef.value.innerHTML = renderedContent.value
-      }
+      updateLiveEditor()
     })
   }
+}
+
+async function updateLiveEditor() {
+  if (!liveEditorRef.value) return
+  liveEditorRef.value.innerHTML = renderedContent.value
+  await nextTick()
+  renderMermaidInContainer(liveEditorRef.value)
 }
 
 function onContentChange() {
@@ -1002,14 +1012,14 @@ function contextMenuAction(action) {
 }
 
 function onMouseMove(e) {
-  if (!spellCheckEnabled.value || editorMode.value !== 'edit') {
-    if (spellTooltip.value.show) spellTooltip.value.show = false
+  if (!spellCheckEnabled.value || (editorMode.value !== 'edit' && editorMode.value !== 'live')) {
+    scheduleHideSpellTooltip()
     return
   }
   
   if (contextMenu.value.show) return
   
-  const textarea = editorRef.value
+  const textarea = editorMode.value === 'edit' ? editorRef.value : liveEditorRef.value
   if (!textarea) return
   
   const rect = textarea.getBoundingClientRect()
@@ -1023,35 +1033,86 @@ function onMouseMove(e) {
   const relY = e.clientY - rect.top - paddingTop - borderWidth
   
   if (relX < 0 || relY < 0 || relX > rect.width || relY > rect.height) {
-    if (spellTooltip.value.show) spellTooltip.value.show = false
+    scheduleHideSpellTooltip()
     return
   }
   
   const errors = appStore.getSpellErrors(content.value)
   if (errors.length === 0) {
-    if (spellTooltip.value.show) spellTooltip.value.show = false
+    scheduleHideSpellTooltip()
     return
   }
   
   const offset = getOffsetFromPoint(textarea, relX, relY)
   if (offset < 0) {
-    if (spellTooltip.value.show) spellTooltip.value.show = false
+    scheduleHideSpellTooltip()
     return
   }
   
   for (const error of errors) {
     if (offset >= error.start && offset <= error.end) {
-      spellTooltip.value = {
-        show: true,
-        x: e.clientX,
-        y: e.clientY + 16,
-        word: error.word
-      }
+      showSpellTooltip(error.word, e.clientX, e.clientY)
       return
     }
   }
   
-  if (spellTooltip.value.show) spellTooltip.value.show = false
+  scheduleHideSpellTooltip()
+}
+
+function showSpellTooltip(word, clientX, clientY) {
+  if (spellTooltipHideTimeout) {
+    clearTimeout(spellTooltipHideTimeout)
+    spellTooltipHideTimeout = null
+  }
+  
+  const tooltipWidth = 200
+  const tooltipHeight = 120
+  const margin = 8
+  
+  let x = clientX - tooltipWidth / 2
+  let y = clientY + 16
+  let placement = 'bottom'
+  
+  if (x < margin) x = margin
+  if (x + tooltipWidth > window.innerWidth - margin) {
+    x = window.innerWidth - tooltipWidth - margin
+  }
+  
+  if (y + tooltipHeight > window.innerHeight - margin) {
+    y = clientY - tooltipHeight - 16
+    placement = 'top'
+  }
+  
+  if (y < margin) {
+    y = margin
+  }
+  
+  spellTooltip.value = {
+    show: true,
+    x,
+    y,
+    word,
+    placement
+  }
+}
+
+function scheduleHideSpellTooltip() {
+  if (spellTooltipHideTimeout) return
+  spellTooltipHideTimeout = setTimeout(() => {
+    spellTooltip.value.show = false
+    spellTooltipHideTimeout = null
+  }, 500)
+}
+
+function onSpellTooltipEnter() {
+  if (spellTooltipHideTimeout) {
+    clearTimeout(spellTooltipHideTimeout)
+    spellTooltipHideTimeout = null
+  }
+}
+
+function onSpellTooltipLeave() {
+  scheduleHideSpellTooltip()
 }
 
 function getOffsetFromPoint(textarea, x, y) {
@@ -1159,6 +1220,22 @@ function addToDictionary(word) {
   appStore.addToDictionary(word)
   spellTooltip.value.show = false
   nextTick(() => updateSpellOverlay())
+}
+
+function handleIgnoreWord() {
+  if (spellTooltipHideTimeout) {
+    clearTimeout(spellTooltipHideTimeout)
+    spellTooltipHideTimeout = null
+  }
+  ignoreWord(spellTooltip.value.word)
+}
+
+function handleAddToDictionary() {
+  if (spellTooltipHideTimeout) {
+    clearTimeout(spellTooltipHideTimeout)
+    spellTooltipHideTimeout = null
+  }
+  addToDictionary(spellTooltip.value.word)
 }
 
 function htmlToMarkdown(html) {
@@ -1303,6 +1380,40 @@ function applyFormatToTextarea(format) {
       newText = '\n---\n'
       cursorOffset = 4
       break
+    case 'mermaid-flow':
+      newText = `\n\`\`\`mermaid
+flowchart TD
+    A[开始] --> B{判断}
+    B -->|是| C[处理]
+    B -->|否| D[结束]
+    C --> D
+\`\`\`\n`
+      cursorOffset = 5
+      break
+    case 'mermaid-pie':
+      newText = `\n\`\`\`mermaid
+pie title 项目分布
+    "前端" : 40
+    "后端" : 30
+    "设计" : 20
+    "测试" : 10
+\`\`\`\n`
+      cursorOffset = 5
+      break
+    case 'mermaid-gantt':
+      newText = `\n\`\`\`mermaid
+gantt
+    title 项目计划
+    dateFormat YYYY-MM-DD
+    section 设计
+    需求分析 :a1, 2024-01-01, 7d
+    UI设计 :a2, after a1, 5d
+    section 开发
+    前端开发 :b1, after a2, 14d
+    后端开发 :b2, after a2, 14d
+\`\`\`\n`
+      cursorOffset = 5
+      break
   }
   
   const lineStart = content.value.lastIndexOf('\n', start - 1) + 1
@@ -1378,6 +1489,12 @@ function applyFormatToLive(format) {
     case 'hr':
       document.execCommand('insertHTML', false, '<hr>')
       break
+    case 'codeblock':
+    case 'mermaid-flow':
+    case 'mermaid-pie':
+    case 'mermaid-gantt':
+      applyFormatToTextarea(format)
+      return
   }
   
   setTimeout(() => {
@@ -1452,8 +1569,7 @@ watch(currentNote, (note) => {
 
 watch(content, (newContent) => {
   if (editorMode.value === 'live' && liveEditorRef.value && !isLiveEditing.value) {
-    const newHtml = marked.parse(newContent || '')
-    liveEditorRef.value.innerHTML = newHtml
+    updateLiveEditor()
   }
   if (editorMode.value === 'edit') {
     nextTick(() => {
@@ -1499,7 +1615,7 @@ onMounted(() => {
   
   nextTick(() => {
     if (editorMode.value === 'live' && liveEditorRef.value) {
-      liveEditorRef.value.innerHTML = renderedContent.value
+      updateLiveEditor()
     }
     if (editorMode.value === 'edit') {
       autoResizeTextarea()

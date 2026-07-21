@@ -116,6 +116,7 @@ import { useRoute } from 'vue-router'
 import { useAppStore } from './stores/app'
 import { PanelRight } from 'lucide-vue-next'
 import Sidebar from './components/Sidebar.vue'
+import { setCodeTheme as setHljsTheme } from './utils/markdown'
 
 const appStore = useAppStore()
 const route = useRoute()
@@ -131,10 +132,29 @@ const wallpaperUrl = 'https://images.unsplash.com/photo-1506744038136-46273834b3
 
 const appBgStyle = computed(() => {
   if (isElectron.value) {
+    if (appStore.bingWallpaper && appStore.bingWallpaperUrl) {
+      return `url('${appStore.bingWallpaperUrl}') center/cover no-repeat`
+    }
     return 'transparent'
+  }
+  if (appStore.bingWallpaper && appStore.bingWallpaperUrl) {
+    return `url('${appStore.bingWallpaperUrl}') center/cover no-repeat`
   }
   return `url('${wallpaperUrl}') center/cover no-repeat`
 })
+
+async function fetchBingWallpaper() {
+  try {
+    const response = await fetch('https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN')
+    const data = await response.json()
+    if (data.images && data.images.length > 0) {
+      const imageUrl = 'https://www.bing.com' + data.images[0].url
+      appStore.setBingWallpaperUrl(imageUrl)
+    }
+  } catch (e) {
+    console.error('Failed to fetch Bing wallpaper:', e)
+  }
+}
 
 function minimizeWindow() {
   if (window.electronAPI) {
@@ -161,9 +181,24 @@ watch(() => route.name, () => {
   }, 300)
 }, { immediate: false })
 
+watch(() => appStore.codeTheme, (newTheme) => {
+  setHljsTheme(newTheme)
+})
+
+watch(() => appStore.bingWallpaper, (enabled) => {
+  if (enabled && !appStore.bingWallpaperUrl) {
+    fetchBingWallpaper()
+  }
+})
+
 onMounted(() => {
   appStore.initTheme()
   detectPlatform()
+  setHljsTheme(appStore.codeTheme)
+  
+  if (appStore.bingWallpaper) {
+    fetchBingWallpaper()
+  }
 })
 
 function detectPlatform() {

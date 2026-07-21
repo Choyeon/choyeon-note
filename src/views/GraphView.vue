@@ -27,6 +27,26 @@
 
       <div class="flex items-center gap-1 px-2 py-1 rounded-lg" :style="{ background: 'var(--color-bg-secondary)' }">
         <button 
+          class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95"
+          :class="viewMode === 'global' ? 'bg-[var(--color-primary)] text-white' : 'hover:bg-[var(--color-surface-hover)]'"
+          title="全局视图"
+          @click="viewMode = 'global'"
+        >
+          <Globe class="w-4 h-4" />
+        </button>
+        <button 
+          class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-all duration-200 active:scale-95"
+          :class="viewMode === 'local' ? 'bg-[var(--color-primary)] text-white' : 'hover:bg-[var(--color-surface-hover)]'"
+          :style="{ color: viewMode === 'local' ? 'white' : 'var(--color-text-secondary)' }"
+          title="局部视图"
+          @click="viewMode = 'local'"
+        >
+          <Focus class="w-4 h-4" />
+        </button>
+      </div>
+
+      <div class="flex items-center gap-1 px-2 py-1 rounded-lg" :style="{ background: 'var(--color-bg-secondary)' }">
+        <button 
           class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-[var(--color-surface-hover)] active:scale-95"
           title="缩小"
           @click="zoomOut"
@@ -96,11 +116,11 @@
                 :y1="link.source.y" 
                 :x2="link.target.x" 
                 :y2="link.target.y"
-                :stroke="link.strength > 2 ? 'var(--color-primary)' : (link.strength > 1 ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)')"
-                :stroke-width="link.strength > 2 ? 2.5 : (link.strength > 1 ? 1.5 : 1)"
+                :stroke="link.highlighted ? 'var(--color-primary)' : (link.strength > 2 ? 'var(--color-primary)' : (link.strength > 1 ? 'var(--color-text-secondary)' : 'var(--color-text-tertiary)'))"
+                :stroke-width="link.highlighted ? 2.5 : (link.strength > 2 ? 2 : (link.strength > 1 ? 1.5 : 1))"
                 :opacity="link.opacity"
                 stroke-linecap="round"
-                class="transition-opacity duration-300"
+                class="transition-all duration-200"
               />
             </g>
 
@@ -112,25 +132,27 @@
                 class="cursor-pointer node-group"
                 :class="{ 
                   'node-selected': selectedNode === node.id,
-                  'node-dimmed': searchQuery && !node.matches,
-                  'node-highlighted': searchQuery && node.matches
+                  'node-dimmed': node.dimmed,
+                  'node-highlighted': node.highlighted
                 }"
+                @mouseenter="hoveredNode = node.id"
+                @mouseleave="hoveredNode = null"
+                @mousedown.stop="startDragNode(node, $event)"
                 @click.stop="selectNode(node)"
                 @dblclick="openNote(node.id)"
               >
                 <circle 
-                  :r="node.size + 10" 
-                  fill="url(#nodeGlow)"
-                  :opacity="selectedNode === node.id ? 0.9 : 0.4"
-                  class="transition-opacity duration-300"
+                  :r="node.size + 12" 
+                  :fill="getNodeColor(node)"
+                  :opacity="(selectedNode === node.id || hoveredNode === node.id) ? 0.25 : 0"
+                  class="transition-opacity duration-200"
                 />
                 
                 <circle 
                   :r="node.size" 
-                  :fill="selectedNode === node.id ? 'var(--color-primary)' : 'var(--color-surface)'"
-                  :stroke="selectedNode === node.id ? 'var(--color-primary)' : 'var(--color-primary)'"
-                  :stroke-width="selectedNode === node.id ? 3 : 2"
-                  :filter="selectedNode === node.id ? 'url(#glow)' : ''"
+                  :fill="getNodeColor(node)"
+                  :stroke="selectedNode === node.id || hoveredNode === node.id ? getNodeColor(node) : 'var(--color-border)'"
+                  :stroke-width="selectedNode === node.id || hoveredNode === node.id ? 2.5 : 1.5"
                   class="transition-all duration-200"
                 />
                 
@@ -139,8 +161,9 @@
                   text-anchor="middle" 
                   font-size="12"
                   font-weight="600"
-                  :fill="selectedNode === node.id ? 'var(--color-primary)' : 'var(--color-text-primary)'"
-                  class="pointer-events-none select-none"
+                  :fill="node.dimmed ? 'var(--color-text-tertiary)' : 'var(--color-text-primary)'"
+                  :opacity="node.dimmed ? 0.5 : 1"
+                  class="pointer-events-none select-none transition-all duration-200"
                   style="paint-order: stroke; stroke: var(--color-bg); stroke-width: 3px; stroke-linejoin: round;"
                 >
                   {{ node.label.length > 14 ? node.label.substring(0, 14) + '...' : node.label }}
@@ -256,15 +279,17 @@ import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { 
   RefreshCw, ZoomIn, ZoomOut, Maximize2, Search, 
-  Network, FileText, Link2 
+  Network, FileText, Link2, Globe, Focus
 } from 'lucide-vue-next'
 
 const router = useRouter()
 const noteStore = useNoteStore()
 
 const selectedNode = ref(null)
+const hoveredNode = ref(null)
 const graphContainer = ref(null)
-const searchQuery = ref('')
+const searchQuery = ref(null)
+const viewMode = ref('global')
 
 const nodes = ref([])
 const links = ref([])
@@ -274,10 +299,50 @@ const offsetX = ref(0)
 const offsetY = ref(0)
 
 const isPanning = ref(false)
+const isDraggingNode = ref(false)
+const draggedNodeId = ref(null)
 const lastMousePos = ref({ x: 0, y: 0 })
 
 let animationFrame = null
 let simulationRunning = false
+
+const tagColors = [
+  '#6366f1', '#ec4899', '#8b5cf6', '#f59e0b', '#10b981',
+  '#3b82f6', '#ef4444', '#14b8a6', '#f97316', '#84cc16'
+]
+
+const tagColorMap = computed(() => {
+  const map = {}
+  const allTags = new Set()
+  nodes.value.forEach(n => {
+    (n.tags || []).forEach(t => allTags.add(t))
+  })
+  let colorIndex = 0
+  allTags.forEach(tag => {
+    map[tag] = tagColors[colorIndex % tagColors.length]
+    colorIndex++
+  })
+  return map
+})
+
+function getNodeColor(node) {
+  if (selectedNode.value === node.id) return 'var(--color-primary)'
+  if (node.tags && node.tags.length > 0) {
+    return tagColorMap.value[node.tags[0]] || 'var(--color-surface)'
+  }
+  return 'var(--color-surface)'
+}
+
+const neighborIds = computed(() => {
+  const target = hoveredNode.value || selectedNode.value
+  if (!target) return null
+  const ids = new Set([target])
+  links.value.forEach(link => {
+    if (link.source.id === target) ids.add(link.target.id)
+    if (link.target.id === target) ids.add(link.source.id)
+  })
+  return ids
+})
 
 const selectedNodeData = computed(() => {
   if (!selectedNode.value) return null
@@ -285,32 +350,63 @@ const selectedNodeData = computed(() => {
 })
 
 const visibleNodes = computed(() => {
-  if (!searchQuery.value.trim()) {
-    return nodes.value.map(n => ({ ...n, matches: true }))
+  const query = (searchQuery.value || '').trim()
+  let baseNodes = nodes.value
+  
+  if (viewMode.value === 'local' && selectedNode.value) {
+    const neighbors = neighborIds.value
+    if (neighbors) {
+      baseNodes = nodes.value.filter(n => neighbors.has(n.id))
+    }
   }
-  const query = searchQuery.value.toLowerCase()
-  return nodes.value.map(n => ({
+  
+  if (!query) {
+    return baseNodes.map(n => ({
+      ...n,
+      matches: true,
+      highlighted: neighborIds.value ? neighborIds.value.has(n.id) : true,
+      dimmed: neighborIds.value ? !neighborIds.value.has(n.id) : false
+    }))
+  }
+  
+  const lowerQuery = query.toLowerCase()
+  return baseNodes.map(n => ({
     ...n,
-    matches: n.label.toLowerCase().includes(query)
+    matches: n.label.toLowerCase().includes(lowerQuery),
+    highlighted: neighborIds.value ? neighborIds.value.has(n.id) : n.label.toLowerCase().includes(lowerQuery),
+    dimmed: neighborIds.value ? !neighborIds.value.has(n.id) : !n.label.toLowerCase().includes(lowerQuery)
   }))
 })
 
 const visibleLinks = computed(() => {
-  if (!searchQuery.value.trim()) {
-    return links.value.map(l => ({ ...l, opacity: 0.6 }))
+  const query = (searchQuery.value || '').trim()
+  let baseLinks = links.value
+  
+  if (viewMode.value === 'local' && selectedNode.value) {
+    const neighbors = neighborIds.value
+    if (neighbors) {
+      baseLinks = links.value.filter(l => 
+        neighbors.has(l.source.id) && neighbors.has(l.target.id)
+      )
+    }
   }
   
-  const highlightedIds = new Set(
+  if (!query && !neighborIds.value) {
+    return baseLinks.map(l => ({ ...l, opacity: 0.5, highlighted: false }))
+  }
+  
+  const highlightedIds = neighborIds.value || new Set(
     visibleNodes.value.filter(n => n.matches).map(n => n.id)
   )
   
-  return links.value.map(l => {
-    const sourceMatch = highlightedIds.has(l.source.id)
-    const targetMatch = highlightedIds.has(l.target.id)
-    const bothMatch = sourceMatch && targetMatch
+  return baseLinks.map(l => {
+    const sourceHighlighted = highlightedIds.has(l.source.id)
+    const targetHighlighted = highlightedIds.has(l.target.id)
+    const bothHighlighted = sourceHighlighted && targetHighlighted
     return {
       ...l,
-      opacity: bothMatch ? 0.9 : (sourceMatch || targetMatch ? 0.3 : 0.1)
+      opacity: bothHighlighted ? 0.9 : (sourceHighlighted || targetHighlighted ? 0.2 : 0.05),
+      highlighted: bothHighlighted
     }
   })
 })
@@ -658,8 +754,26 @@ function onCanvasMouseDown(e) {
   lastMousePos.value = { x: e.clientX, y: e.clientY }
 }
 
+function startDragNode(node, e) {
+  if (e.button !== 0) return
+  isDraggingNode.value = true
+  draggedNodeId.value = node.id
+  lastMousePos.value = { x: e.clientX, y: e.clientY }
+}
+
 function onCanvasMouseMove(e) {
-  if (isPanning.value) {
+  if (isDraggingNode.value && draggedNodeId.value) {
+    const dx = (e.clientX - lastMousePos.value.x) / scale.value
+    const dy = (e.clientY - lastMousePos.value.y) / scale.value
+    const node = nodes.value.find(n => n.id === draggedNodeId.value)
+    if (node) {
+      node.x += dx
+      node.y += dy
+      node.vx = 0
+      node.vy = 0
+    }
+    lastMousePos.value = { x: e.clientX, y: e.clientY }
+  } else if (isPanning.value) {
     const dx = e.clientX - lastMousePos.value.x
     const dy = e.clientY - lastMousePos.value.y
     offsetX.value += dx
@@ -670,6 +784,8 @@ function onCanvasMouseMove(e) {
 
 function onCanvasMouseUp() {
   isPanning.value = false
+  isDraggingNode.value = false
+  draggedNodeId.value = null
 }
 
 function getPreview(content) {

@@ -17,6 +17,11 @@ export const useAppStore = defineStore('app', () => {
   const initialized = ref(false)
   const ignoredWords = ref(new Set())
   const customDictionary = ref(new Set())
+  const codeTheme = ref('github')
+  const bingWallpaper = ref(false)
+  const bingWallpaperUrl = ref('')
+  const autoCheckUpdates = ref(true)
+  const appVersion = ref('')
   let mediaQueryListener = null
 
   const effectiveTheme = computed(() => {
@@ -69,6 +74,9 @@ export const useAppStore = defineStore('app', () => {
     const savedWordWrap = localStorage.getItem('choyeon-word-wrap')
     const savedAutoSync = localStorage.getItem('choyeon-auto-sync')
     const savedSidebar = localStorage.getItem('choyeon-sidebar')
+    const savedCodeTheme = localStorage.getItem('choyeon-code-theme')
+    const savedBingWallpaper = localStorage.getItem('choyeon-bing-wallpaper')
+    const savedAutoCheckUpdates = localStorage.getItem('choyeon-auto-check-updates')
     
     setupSystemThemeListener()
     
@@ -132,6 +140,18 @@ export const useAppStore = defineStore('app', () => {
       sidebar.value = savedSidebar === 'true'
     }
 
+    if (savedCodeTheme) {
+      codeTheme.value = savedCodeTheme
+    }
+
+    if (savedBingWallpaper !== null) {
+      bingWallpaper.value = savedBingWallpaper === 'true'
+    }
+
+    if (savedAutoCheckUpdates !== null) {
+      autoCheckUpdates.value = savedAutoCheckUpdates === 'true'
+    }
+
     applyTheme()
     applyAccentColor()
     applyGlassEffect()
@@ -160,6 +180,9 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-auto-sync')
     localStorage.removeItem('choyeon-sidebar')
     localStorage.removeItem('choyeon-mode')
+    localStorage.removeItem('choyeon-code-theme')
+    localStorage.removeItem('choyeon-bing-wallpaper')
+    localStorage.removeItem('choyeon-auto-check-updates')
     
     theme.value = 'system'
     accentColor.value = '#4A90D9'
@@ -174,6 +197,10 @@ export const useAppStore = defineStore('app', () => {
     sidebar.value = true
     ignoredWords.value = new Set()
     customDictionary.value = new Set()
+    codeTheme.value = 'github'
+    bingWallpaper.value = false
+    bingWallpaperUrl.value = ''
+    autoCheckUpdates.value = true
     
     applyTheme()
     applyAccentColor()
@@ -276,6 +303,29 @@ export const useAppStore = defineStore('app', () => {
       customDictionary.value = new Set([...customDictionary.value, lowerWord])
       localStorage.setItem('choyeon-custom-dictionary', JSON.stringify([...customDictionary.value]))
     }
+  }
+
+  function setCodeTheme(theme) {
+    codeTheme.value = theme
+    localStorage.setItem('choyeon-code-theme', theme)
+  }
+
+  function toggleBingWallpaper() {
+    bingWallpaper.value = !bingWallpaper.value
+    localStorage.setItem('choyeon-bing-wallpaper', bingWallpaper.value)
+  }
+
+  function setBingWallpaperUrl(url) {
+    bingWallpaperUrl.value = url
+  }
+
+  function toggleAutoCheckUpdates() {
+    autoCheckUpdates.value = !autoCheckUpdates.value
+    localStorage.setItem('choyeon-auto-check-updates', autoCheckUpdates.value)
+  }
+
+  function setAppVersion(version) {
+    appVersion.value = version
   }
 
   function isWordCorrect(word) {
@@ -391,6 +441,11 @@ export const useAppStore = defineStore('app', () => {
     initialized,
     ignoredWords,
     customDictionary,
+    codeTheme,
+    bingWallpaper,
+    bingWallpaperUrl,
+    autoCheckUpdates,
+    appVersion,
     initTheme,
     toggleTheme,
     setTheme,
@@ -409,6 +464,11 @@ export const useAppStore = defineStore('app', () => {
     ignoreWord,
     addToDictionary,
     isWordCorrect,
-    getSpellErrors
+    getSpellErrors,
+    setCodeTheme,
+    toggleBingWallpaper,
+    setBingWallpaperUrl,
+    toggleAutoCheckUpdates,
+    setAppVersion
   }
 })

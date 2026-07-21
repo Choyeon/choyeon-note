@@ -335,6 +335,150 @@
 
         <div class="mb-8">
           <div class="flex items-center gap-3 mb-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
+              <FileCode class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
+            </div>
+            <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">编辑器</h2>
+          </div>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Palette class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">代码高亮主题</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">选择代码块的配色方案</div>
+                </div>
+              </div>
+              <select 
+                class="px-3 py-1.5 rounded-lg text-[13px] cursor-pointer border outline-none transition-all duration-200 focus:ring-2 focus:ring-[var(--color-primary-ring)]"
+                :style="{ 
+                  background: 'var(--color-bg-tertiary)', 
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border)'
+                }"
+                :value="appStore.codeTheme"
+                @change="appStore.setCodeTheme($event.target.value)"
+              >
+                <option value="github">GitHub</option>
+                <option value="monokai">Monokai</option>
+                <option value="dracula">Dracula</option>
+                <option value="atom-one-dark">Atom One Dark</option>
+                <option value="vs2015">VS 2015</option>
+                <option value="gradient-dark">Gradient Dark</option>
+              </select>
+            </div>
+
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Image class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">Bing 每日壁纸</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">使用 Bing 每日壁纸作为背景</div>
+                </div>
+              </div>
+              <button 
+                class="toggle-btn"
+                :class="{ active: appStore.bingWallpaper }"
+                @click="appStore.toggleBingWallpaper()"
+              >
+                <span class="toggle-thumb"></span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-8">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
+              <RefreshCw class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
+            </div>
+            <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">软件更新</h2>
+          </div>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Zap class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">自动检查更新</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">启动时自动检测新版本</div>
+                </div>
+              </div>
+              <button 
+                class="toggle-btn"
+                :class="{ active: appStore.autoCheckUpdates }"
+                @click="appStore.toggleAutoCheckUpdates()"
+              >
+                <span class="toggle-thumb"></span>
+              </button>
+            </div>
+
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <FileText class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">当前版本</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">v{{ currentVersion }}</div>
+                </div>
+              </div>
+              <button 
+                class="px-4 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-80 active:scale-95"
+                :style="{ 
+                  background: updateStatus === 'checking' ? 'var(--color-bg-tertiary)' : 'var(--color-primary-surface)', 
+                  color: 'var(--color-primary)'
+                }"
+                :disabled="updateStatus === 'checking' || updateStatus === 'downloading'"
+                @click="checkForUpdates"
+              >
+                <span v-if="updateStatus === 'checking'">检查中...</span>
+                <span v-else-if="updateStatus === 'available'">立即更新</span>
+                <span v-else-if="updateStatus === 'downloading'">下载中 {{ downloadProgress }}%</span>
+                <span v-else-if="updateStatus === 'ready'">重启安装</span>
+                <span v-else>检查更新</span>
+              </button>
+            </div>
+
+            <div v-if="updateInfo" class="px-5 py-4 border-t" :style="{ borderColor: 'var(--color-border-light)' }">
+              <div class="text-[13px] font-medium mb-2" :style="{ color: 'var(--color-text-primary)' }">
+                更新内容 v{{ updateInfo.version }}
+              </div>
+              <div 
+                class="text-[12px] leading-relaxed update-release-notes" 
+                :style="{ color: 'var(--color-text-secondary)' }"
+                v-html="updateInfo.releaseNotes || '暂无更新说明'"
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-8">
+          <div class="flex items-center gap-3 mb-2">
+            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
+              <MessageCircle class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
+            </div>
+            <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">反馈与帮助</h2>
+          </div>
+          <div class="settings-card">
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Github class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">提交反馈 / 功能建议</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">在 GitHub 上提交 Issue</div>
+                </div>
+              </div>
+              <button 
+                class="px-4 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-80 active:scale-95"
+                :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
+                @click="openFeedback"
+              >
+                前往
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="mb-8">
+          <div class="flex items-center gap-3 mb-2">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'rgba(255,112,67,0.1)' }">
               <RotateCcw class="w-4 h-4" :style="{ color: 'var(--state-warning)' }" />
             </div>
@@ -417,7 +561,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
@@ -425,7 +569,8 @@ import {
   ArrowLeft, SunMoon, Palette, Type, Layers, 
   FileCode, SpellCheck, Save, ListOrdered, WrapText,
   FolderOpen, RefreshCw, Paperclip, Folder, AlertTriangle, RotateCcw,
-  Keyboard, Search, FileText, Edit, Eye, Navigation, Zap
+  Keyboard, Search, FileText, Edit, Eye, Navigation, Zap,
+  Image, MessageCircle, Github
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -434,6 +579,91 @@ const noteStore = useNoteStore()
 const showResetConfirm = ref(false)
 const shortcutSearch = ref('')
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
+
+const currentVersion = ref('1.0.0')
+const updateStatus = ref('idle')
+const updateInfo = ref(null)
+const downloadProgress = ref(0)
+let updaterUnsubscribe = null
+
+async function checkForUpdates() {
+  if (!isElectron.value) return
+  
+  if (updateStatus.value === 'ready') {
+    window.electronAPI.quitAndInstall()
+    return
+  }
+  
+  if (updateStatus.value === 'available') {
+    updateStatus.value = 'downloading'
+    downloadProgress.value = 0
+    await window.electronAPI.downloadUpdate()
+    return
+  }
+  
+  updateStatus.value = 'checking'
+  await window.electronAPI.checkForUpdates()
+}
+
+function openFeedback() {
+  window.open('https://github.com/Choyeon/choyeon-note/issues/new/choose', '_blank')
+}
+
+function setupUpdaterListeners() {
+  if (!isElectron.value) return
+  
+  updaterUnsubscribe = window.electronAPI.onUpdaterEvent((event, data) => {
+    switch (event) {
+      case 'updater:checking':
+        updateStatus.value = 'checking'
+        break
+      case 'updater:update-available':
+        updateStatus.value = 'available'
+        updateInfo.value = data
+        break
+      case 'updater:update-not-available':
+        updateStatus.value = 'idle'
+        break
+      case 'updater:error':
+        updateStatus.value = 'idle'
+        console.error('Update error:', data)
+        break
+      case 'updater:download-progress':
+        updateStatus.value = 'downloading'
+        downloadProgress.value = Math.round(data.percent || 0)
+        break
+      case 'updater:update-downloaded':
+        updateStatus.value = 'ready'
+        updateInfo.value = data
+        break
+    }
+  })
+}
+
+onMounted(async () => {
+  if (isElectron.value) {
+    try {
+      const version = await window.electronAPI.getVersion()
+      currentVersion.value = version
+      appStore.setAppVersion(version)
+    } catch (e) {
+      console.error('Failed to get version:', e)
+    }
+    setupUpdaterListeners()
+    
+    if (appStore.autoCheckUpdates) {
+      setTimeout(() => {
+        checkForUpdates()
+      }, 2000)
+    }
+  }
+})
+
+onUnmounted(() => {
+  if (updaterUnsubscribe) {
+    updaterUnsubscribe()
+  }
+})
 
 const shortcutCategories = [
   {

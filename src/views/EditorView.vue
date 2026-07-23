@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col overflow-hidden">
     <div 
-      class="min-h-11 px-6 py-2 flex items-center gap-3 border-b acrylic-content"
+      class="min-h-11 px-6 py-2 flex items-center gap-3 border-b acrylic-content min-w-[700px]"
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
       <button 
@@ -532,6 +532,8 @@ const spellTooltip = ref({
   placement: 'bottom'
 })
 
+let isMouseInSpellTooltip = false
+
 const floatingToolbar = ref({
   show: false,
   x: 0,
@@ -1019,6 +1021,8 @@ function onMouseMove(e) {
   
   if (contextMenu.value.show) return
   
+  if (isMouseInSpellTooltip) return
+  
   const textarea = editorMode.value === 'edit' ? editorRef.value : liveEditorRef.value
   if (!textarea) return
   
@@ -1105,6 +1109,7 @@ function scheduleHideSpellTooltip() {
 }
 
 function onSpellTooltipEnter() {
+  isMouseInSpellTooltip = true
   if (spellTooltipHideTimeout) {
     clearTimeout(spellTooltipHideTimeout)
     spellTooltipHideTimeout = null
@@ -1112,6 +1117,7 @@ function onSpellTooltipEnter() {
 }
 
 function onSpellTooltipLeave() {
+  isMouseInSpellTooltip = false
   scheduleHideSpellTooltip()
 }
 

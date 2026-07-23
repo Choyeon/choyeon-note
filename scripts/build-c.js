@@ -19,10 +19,10 @@ console.log('🔨 运行 Vite 构建...')
 execSync('vite build', { stdio: 'inherit' })
 
 console.log()
-console.log('⚡ 运行 Electron Builder...')
-execSync(`electron-builder --win --x64 --config.directories.output="${outputDir}"`, {
+console.log('⚡ 运行 Electron Builder (发布到 GitHub Release)...')
+execSync(`electron-builder --win --x64 --config.directories.output="${outputDir}" --publish=always`, {
   stdio: 'inherit',
-  env: { ...process.env }
+  env: process.env
 })
 
 console.log()

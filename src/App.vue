@@ -114,11 +114,13 @@
 import { computed, onMounted, watch, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAppStore } from './stores/app'
+import { useNoteStore } from './stores/note'
 import { PanelRight } from 'lucide-vue-next'
 import Sidebar from './components/Sidebar.vue'
 import { setCodeTheme as setHljsTheme } from './utils/markdown'
 
 const appStore = useAppStore()
+const noteStore = useNoteStore()
 const route = useRoute()
 const isLoading = ref(false)
 
@@ -198,6 +200,11 @@ onMounted(() => {
   
   if (appStore.bingWallpaper) {
     fetchBingWallpaper()
+  }
+  
+  const savedLocation = localStorage.getItem('choyeon-notes-location')
+  if (savedLocation && window.electronAPI) {
+    noteStore.loadNotesFromPath(savedLocation)
   }
 })
 

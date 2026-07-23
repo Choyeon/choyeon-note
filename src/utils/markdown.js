@@ -64,7 +64,7 @@ function getCodeTheme() {
 
 const renderer = new marked.Renderer()
 
-renderer.code = function({ text, lang }) {
+renderer.code = function(text, lang) {
   const language = lang || 'text'
   
   if (language === 'mermaid') {

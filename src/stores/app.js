@@ -184,6 +184,16 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-bing-wallpaper')
     localStorage.removeItem('choyeon-auto-check-updates')
     
+    if (mediaQueryListener) {
+      const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', mediaQueryListener)
+      } else if (mediaQuery.removeListener) {
+        mediaQuery.removeListener(mediaQueryListener)
+      }
+      mediaQueryListener = null
+    }
+    
     theme.value = 'system'
     accentColor.value = '#4A90D9'
     fontSize.value = 'medium'

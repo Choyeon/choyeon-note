@@ -17,6 +17,7 @@ export const useAppStore = defineStore('app', () => {
   const initialized = ref(false)
   const ignoredWords = ref(new Set())
   const customDictionary = ref(new Set())
+  const spellVersion = ref(0)
   const codeTheme = ref('github')
   const bingWallpaper = ref(false)
   const bingWallpaperUrl = ref('')
@@ -304,6 +305,7 @@ export const useAppStore = defineStore('app', () => {
     if (!ignoredWords.value.has(lowerWord)) {
       ignoredWords.value = new Set([...ignoredWords.value, lowerWord])
       localStorage.setItem('choyeon-ignored-words', JSON.stringify([...ignoredWords.value]))
+      spellVersion.value++
     }
   }
 
@@ -312,6 +314,7 @@ export const useAppStore = defineStore('app', () => {
     if (!customDictionary.value.has(lowerWord)) {
       customDictionary.value = new Set([...customDictionary.value, lowerWord])
       localStorage.setItem('choyeon-custom-dictionary', JSON.stringify([...customDictionary.value]))
+      spellVersion.value++
     }
   }
 
@@ -352,27 +355,42 @@ export const useAppStore = defineStore('app', () => {
     if (!spellCheck.value || !text) return []
     
     const errors = []
-    const words = text.match(/[a-zA-Z]+/g) || []
-    const seen = new Set()
+    const wordRegex = /\b[a-zA-Z]+\b/g
+    let match
     
-    words.forEach(word => {
+    const excludedRanges = []
+    const codeBlockRegex = /```[\s\S]*?```/g
+    let cbMatch
+    while ((cbMatch = codeBlockRegex.exec(text)) !== null) {
+      excludedRanges.push({ start: cbMatch.index, end: cbMatch.index + cbMatch[0].length })
+    }
+    
+    const inlineCodeRegex = /`[^`\n]+`/g
+    let icMatch
+    while ((icMatch = inlineCodeRegex.exec(text)) !== null) {
+      excludedRanges.push({ start: icMatch.index, end: icMatch.index + icMatch[0].length })
+    }
+    
+    function isInExcludedRange(pos) {
+      return excludedRanges.some(r => pos >= r.start && pos < r.end)
+    }
+    
+    while ((match = wordRegex.exec(text)) !== null) {
+      const word = match[0]
       const lowerWord = word.toLowerCase()
-      if (seen.has(lowerWord)) return
-      seen.add(lowerWord)
       
-      if (ignoredWords.value.has(lowerWord)) return
-      if (customDictionary.value.has(lowerWord)) return
+      if (isInExcludedRange(match.index)) continue
+      if (ignoredWords.value.has(lowerWord)) continue
+      if (customDictionary.value.has(lowerWord)) continue
       
       if (!isCommonEnglishWord(word)) {
-        const indices = []
-        let idx = text.indexOf(word)
-        while (idx !== -1) {
-          indices.push({ word, start: idx, end: idx + word.length })
-          idx = text.indexOf(word, idx + word.length)
-        }
-        errors.push(...indices)
+        errors.push({ 
+          word, 
+          start: match.index, 
+          end: match.index + word.length 
+        })
       }
-    })
+    }
     
     return errors
   }
@@ -413,7 +431,8 @@ export const useAppStore = defineStore('app', () => {
       'today', 'tomorrow', 'yesterday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
       'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july',
       'august', 'september', 'october', 'november', 'december', 'china', 'chinese', 'english',
-      'american', 'europe', 'asian', 'beijing', 'shanghai', 'guangzhou', 'shenzhen', ' Obsidian',
+      'american', 'europe', 'asian', 'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'obsidian',
+      'notion', 'typology', 'roam', 'logseq', 'bear', 'ia', 'writer', 'ulysses', 'zettelkasten',
       'type', 'types', 'typed', 'typing', 'keyboard', 'mouse', 'screen', 'window', 'windows',
       'linux', 'macos', 'ios', 'android', 'mobile', 'desktop', 'laptop', 'tablet', 'phone',
       'setting', 'settings', 'config', 'configuration', 'preference', 'preferences', 'option',
@@ -451,6 +470,7 @@ export const useAppStore = defineStore('app', () => {
     initialized,
     ignoredWords,
     customDictionary,
+    spellVersion,
     codeTheme,
     bingWallpaper,
     bingWallpaperUrl,

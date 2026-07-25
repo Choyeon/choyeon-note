@@ -88,21 +88,19 @@
           >
             <PanelRight class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
           </button>
-          <router-view v-slot="{ Component }">
-            <transition name="page" mode="out-in">
-              <div :key="route.name" class="page-wrapper h-full flex flex-col">
-                <component :is="Component" />
-                <div 
-                  v-if="isLoading" 
-                  class="page-loading-overlay"
-                >
-                  <div class="loading-spinner">
-                    <div class="spinner-ring"></div>
-                    <div class="spinner-ring spinner-ring-delay"></div>
-                  </div>
+          <router-view v-slot="{ Component, route: viewRoute }">
+            <div :key="viewRoute.fullPath" class="page-wrapper h-full flex flex-col">
+              <component :is="Component" />
+              <div 
+                v-if="isLoading" 
+                class="page-loading-overlay"
+              >
+                <div class="loading-spinner">
+                  <div class="spinner-ring"></div>
+                  <div class="spinner-ring spinner-ring-delay"></div>
                 </div>
               </div>
-            </transition>
+            </div>
           </router-view>
         </main>
       </div>
@@ -203,7 +201,7 @@ onMounted(() => {
   }
   
   const savedLocation = localStorage.getItem('choyeon-notes-location')
-  if (savedLocation && window.electronAPI) {
+  if (savedLocation && savedLocation !== 'sample' && window.electronAPI) {
     noteStore.loadNotesFromPath(savedLocation)
   }
 })

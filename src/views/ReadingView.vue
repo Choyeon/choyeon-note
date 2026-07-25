@@ -1,5 +1,5 @@
 <template>
-  <div class="h-full flex flex-col overflow-hidden">
+  <div class="h-full flex flex-col overflow-hidden editor-page-wrapper">
     <!-- 顶部工具栏：圆角按钮，无黑边框 -->
     <div
       class="min-h-11 px-5 py-2 flex items-center gap-2 border-b acrylic-content"
@@ -121,19 +121,50 @@ function formatDate(date) {
 watch(() => route.params.id, (newId) => {
   if (newId) {
     noteStore.selectNote(newId)
+  } else if (noteStore.notes && noteStore.notes.length > 0) {
+    const firstNote = noteStore.notes[0]
+    if (firstNote && firstNote.id) {
+      noteStore.selectNote(firstNote.id)
+      router.replace(`/reading/${firstNote.id}`)
+    }
   }
-}, { immediate: true })
+})
 
 watch(renderedContent, () => {
   updateMermaid()
 })
 
 onMounted(() => {
+  const routeId = route.params.id
+  if (routeId) {
+    noteStore.selectNote(routeId)
+  } else if (noteStore.notes && noteStore.notes.length > 0) {
+    const firstNote = noteStore.notes[0]
+    if (firstNote && firstNote.id) {
+      noteStore.selectNote(firstNote.id)
+      router.replace(`/reading/${firstNote.id}`)
+    }
+  }
   updateMermaid()
 })
 </script>
 
 <style scoped>
+.editor-page-wrapper {
+  position: relative;
+}
+
+.editor-page-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--content-bg);
+  backdrop-filter: blur(var(--content-blur)) saturate(var(--content-saturate));
+  -webkit-backdrop-filter: blur(var(--content-blur)) saturate(var(--content-saturate));
+  z-index: 0;
+  pointer-events: none;
+}
+
 .prose-custom {
   max-width: none;
   font-family: var(--font-body);

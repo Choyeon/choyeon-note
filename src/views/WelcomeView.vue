@@ -172,6 +172,8 @@ async function createNewNotesFolder() {
 
 function useSampleNotes() {
   localStorage.setItem('choyeon-mode', 'sample')
+  localStorage.setItem('choyeon-notes-location', 'sample')
+  appStore.notesLocation = 'sample'
   router.push('/notes')
 }
 

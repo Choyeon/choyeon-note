@@ -1,22 +1,51 @@
 <template>
-  <div class="h-full flex flex-col overflow-hidden">
+  <div class="h-full flex flex-col overflow-hidden editor-page-wrapper">
     <div 
-      class="min-h-11 px-6 py-2 flex items-center gap-3 border-b acrylic-content min-w-[700px]"
+      class="flex flex-col border-b z-10 relative"
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
-      <button 
-        v-if="currentNote"
-        class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-        @click="$router.push('/notes')"
-      >
-        <ArrowLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
-      </button>
-      <span class="text-xs whitespace-nowrap" :style="{ color: 'var(--color-text-tertiary)' }">
-        {{ currentNote?.folder || '根目录' }} <span class="mx-1">&gt;</span> {{ currentNote?.title || '无标题' }}
-      </span>
-      <div class="flex-1"></div>
-      
-      <div class="flex items-center gap-0.5 mr-2">
+      <div class="min-h-10 px-6 py-1.5 flex items-center gap-3">
+        <button 
+          v-if="currentNote"
+          class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          @click="$router.push('/notes')"
+        >
+          <ArrowLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
+        </button>
+        <span class="text-xs whitespace-nowrap" :style="{ color: 'var(--color-text-tertiary)' }">
+          {{ currentNote?.folder || '根目录' }} <span class="mx-1">&gt;</span> {{ currentNote?.title || '无标题' }}
+        </span>
+        <div class="flex-1"></div>
+
+        <div class="segmented-control">
+          <button 
+            class="segment-btn"
+            :class="{ active: editorMode === 'edit' }"
+            title="编辑模式"
+            @click="setMode('edit')"
+          >
+            <Pencil class="w-4 h-4" />
+          </button>
+          <button 
+            class="segment-btn"
+            :class="{ active: editorMode === 'live' }"
+            title="实时渲染模式"
+            @click="setMode('live')"
+          >
+            <Zap class="w-4 h-4" />
+          </button>
+          <button 
+            class="segment-btn"
+            :class="{ active: editorMode === 'preview' }"
+            title="预览模式"
+            @click="setMode('preview')"
+          >
+            <Eye class="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+
+      <div class="px-6 pb-2 flex items-center gap-0.5">
         <template v-for="tool in formatTools" :key="tool.id">
           <div 
             v-if="tool.type === 'divider'" 
@@ -33,93 +62,20 @@
           </button>
         </template>
       </div>
-
-      <div class="segmented-control">
-        <button 
-          class="segment-btn"
-          :class="{ active: editorMode === 'edit' }"
-          @click="setMode('edit')"
-        >编辑</button>
-        <button 
-          class="segment-btn"
-          :class="{ active: editorMode === 'live' }"
-          @click="setMode('live')"
-        >实时</button>
-        <button 
-          class="segment-btn"
-          :class="{ active: editorMode === 'preview' }"
-          @click="setMode('preview')"
-        >预览</button>
-      </div>
     </div>
 
     <div class="flex-1 min-h-0 flex overflow-hidden">
-      <div v-if="editorMode === 'edit'" class="flex-1 min-w-0 flex overflow-hidden">
-        <div 
-          v-if="showLineNumbers" 
-          class="w-10 min-w-[40px] flex-shrink-0 py-8 px-0 overflow-hidden select-none"
-          :style="{ background: 'var(--color-bg-tertiary)' }"
-        >
-          <div class="text-right pr-2">
-            <div 
-              v-for="n in lineCount" 
-              :key="n"
-              class="h-[23.8px] leading-[23.8px] text-[12px]"
-              :style="{ color: 'var(--color-text-tertiary)' }"
-            >{{ n }}</div>
-          </div>
-        </div>
-        <div 
-          class="flex-1 overflow-y-auto cho-scrollbar acrylic-content" 
-          ref="editorScrollRef"
-          @scroll="syncSpellOverlay"
-        >
-          <div class="max-w-[780px] mx-auto py-8 px-8 pb-16" :style="{ paddingLeft: showLineNumbers ? '8px' : '32px' }">
-            <div class="relative">
-              <div 
-                ref="spellOverlayRef"
-                class="absolute inset-0 pointer-events-none spell-overlay"
-                :style="{ 
-                  fontSize: fontSize,
-                  lineHeight: '1.7',
-                  fontFamily: 'var(--font-body)',
-                  whiteSpace: wordWrap ? 'pre-wrap' : 'pre',
-                  wordBreak: wordWrap ? 'break-word' : 'normal',
-                  color: 'transparent',
-                  overflow: 'hidden',
-                  padding: '0',
-                  margin: '0',
-                  border: 'none'
-                }"
-              ></div>
-              <textarea
-                ref="editorRef"
-                v-model="content"
-                class="w-full outline-none resize-none bg-transparent font-sans relative z-10"
-                :style="{ 
-                  color: 'var(--color-text-primary)',
-                  fontSize: fontSize,
-                  lineHeight: '1.7',
-                  minHeight: '500px',
-                  fontFamily: 'var(--font-body)',
-                  overflow: 'hidden',
-                  height: 'auto',
-                  display: 'block',
-                  padding: '0',
-                  margin: '0',
-                  border: 'none'
-                }"
-                :spellcheck="spellCheckEnabled"
-                :wrap="wordWrap ? 'soft' : 'off'"
-                @input="onContentChange"
-                @keydown="onEditorKeydown"
-                @contextmenu="onContextMenu"
-                @mousemove="onMouseMove"
-                @mouseleave="hideSpellTooltip"
-              ></textarea>
-            </div>
-          </div>
-        </div>
+      <div v-if="editorMode === 'edit'" class="flex-1 min-w-0 flex flex-col overflow-hidden acrylic-content" @mousemove="onMouseMove">
+        <MarkdownEditor
+          ref="mdEditorRef"
+          v-model="content"
+          class="flex-1 min-h-0"
+          :read-only="false"
+          @change="onContentChange"
+          @save="saveNote"
+          @focus="onEditorFocus"
+          @blur="onEditorBlur"
+        />
       </div>
 
       <div v-else-if="editorMode === 'live'" class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content" ref="liveScrollRef">
@@ -235,10 +191,12 @@
             :style="{ 
               left: contextMenu.x + 'px', 
               top: contextMenu.y + 'px',
-              background: 'var(--card-bg)',
-              border: '1px solid var(--card-border)',
-              minWidth: '200px',
-              padding: '4px'
+              background: 'var(--color-surface-elevated)',
+              border: '1px solid var(--color-border)',
+              minWidth: '240px',
+              padding: '6px',
+              backdropFilter: 'none',
+              zIndex: 9999
             }"
             @click.stop
           >
@@ -343,10 +301,12 @@
           <div 
             class="spell-tooltip rounded-lg overflow-hidden shadow-lg"
             :style="{ 
-              background: 'var(--card-bg)',
-              border: '1px solid var(--card-border)',
-              minWidth: '180px',
-              padding: '4px'
+              background: 'var(--color-surface-elevated)',
+              border: '1px solid var(--color-border)',
+              minWidth: '200px',
+              padding: '6px',
+              backdropFilter: 'none',
+              zIndex: 9999
             }"
           >
             <div class="spell-tooltip-header">
@@ -488,14 +448,15 @@ import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
 import { renderMarkdown, renderMermaidInContainer } from '@/utils/markdown'
+import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import { 
   Bold, Italic, Code, Link, List, CheckSquare, ArrowLeft, 
   Heading1, Heading2, Heading3, Quote, Minus, Highlighter, 
   Strikethrough, Copy, Scissors, ClipboardPaste, Check,
-  EyeOff, BookPlus, Underline, FileText, Search,
+  EyeOff, BookPlus, Underline, FileText, Search, Eye,
   Type, Pilcrow, ListOrdered, ListTodo, Table as TableIcon,
-  Image as ImageIcon, Code2, Square, Heading, Hash,
-  PieChart, GitBranch, Clock, BarChart3
+  Image as ImageIcon, Code2, Square, Heading, Hash, Pencil,
+  PieChart, GitBranch, Clock, BarChart3, Zap
 } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -503,10 +464,11 @@ const router = useRouter()
 const noteStore = useNoteStore()
 const appStore = useAppStore()
 
-const editorMode = ref('live')
+const editorMode = ref('edit')
 const rightPanelTab = ref('outline')
 const content = ref('')
 const editorRef = ref(null)
+const mdEditorRef = ref(null)
 const liveEditorRef = ref(null)
 const editorScrollRef = ref(null)
 const liveScrollRef = ref(null)
@@ -655,6 +617,7 @@ const outlineItems = computed(() => {
 })
 
 const spellErrors = computed(() => {
+  appStore.spellVersion
   if (!spellCheckEnabled.value || editorMode.value !== 'edit') return []
   return appStore.getSpellErrors(content.value)
 })
@@ -676,13 +639,22 @@ async function updateLiveEditor() {
   renderMermaidInContainer(liveEditorRef.value)
 }
 
-function onContentChange() {
-  if (currentNote.value) {
+function onContentChange(newContent) {
+  if (currentNote.value?.id) {
+    noteStore.updateNoteContent(currentNote.value.id, newContent || content.value)
+  }
+}
+
+function saveNote() {
+  if (currentNote.value?.id) {
     noteStore.updateNoteContent(currentNote.value.id, content.value)
   }
-  autoResizeTextarea()
-  if (spellUpdateTimeout) clearTimeout(spellUpdateTimeout)
-  spellUpdateTimeout = setTimeout(() => updateSpellOverlay(), 200)
+}
+
+function onEditorFocus() {
+}
+
+function onEditorBlur() {
 }
 
 function autoResizeTextarea() {
@@ -966,17 +938,32 @@ function onContextMenu(e) {
   e.preventDefault()
   
   const hasSelection = checkHasSelection()
+  const estimatedWidth = 280
+  const estimatedHeight = hasSelection ? 520 : 120
+  
+  let x = e.clientX
+  let y = e.clientY
+  
+  if (x + estimatedWidth > window.innerWidth - 8) {
+    x = window.innerWidth - estimatedWidth - 8
+  }
+  if (y + estimatedHeight > window.innerHeight - 8) {
+    y = e.clientY - estimatedHeight
+    if (y < 8) y = 8
+  }
+  
   contextMenu.value = {
     show: true,
-    x: e.clientX,
-    y: e.clientY,
+    x: x,
+    y: y,
     hasSelection: hasSelection
   }
 }
 
 function checkHasSelection() {
-  if (editorMode.value === 'edit' && editorRef.value) {
-    return editorRef.value.selectionStart !== editorRef.value.selectionEnd
+  if (editorMode.value === 'edit' && mdEditorRef.value) {
+    const sel = mdEditorRef.value.getSelection()
+    return sel && sel.from !== sel.to
   } else if (editorMode.value === 'live') {
     const selection = window.getSelection()
     return selection && selection.toString().length > 0
@@ -998,8 +985,8 @@ function contextMenuAction(action) {
     } else if (action === 'paste') {
       document.execCommand('paste')
     } else if (action === 'selectAll') {
-      if (editorMode.value === 'edit' && editorRef.value) {
-        editorRef.value.select()
+      if (editorMode.value === 'edit' && mdEditorRef.value) {
+        mdEditorRef.value.selectAll()
       } else if (editorMode.value === 'live' && liveEditorRef.value) {
         const range = document.createRange()
         range.selectNodeContents(liveEditorRef.value)
@@ -1023,32 +1010,46 @@ function onMouseMove(e) {
   
   if (isMouseInSpellTooltip) return
   
-  const textarea = editorMode.value === 'edit' ? editorRef.value : liveEditorRef.value
-  if (!textarea) return
+  let offset = -1
   
-  const rect = textarea.getBoundingClientRect()
-  const style = window.getComputedStyle(textarea)
+  if (editorMode.value === 'edit') {
+    if (!mdEditorRef.value) {
+      scheduleHideSpellTooltip()
+      return
+    }
+    offset = mdEditorRef.value.posAtCoords(e.clientX, e.clientY)
+  } else {
+    const textarea = liveEditorRef.value
+    if (!textarea) {
+      scheduleHideSpellTooltip()
+      return
+    }
+    
+    const rect = textarea.getBoundingClientRect()
+    const style = window.getComputedStyle(textarea)
+    
+    const paddingLeft = parseFloat(style.paddingLeft) || 0
+    const paddingTop = parseFloat(style.paddingTop) || 0
+    const borderWidth = parseFloat(style.borderTopWidth) || 0
+    
+    const relX = e.clientX - rect.left - paddingLeft - (parseFloat(style.borderLeftWidth) || 0)
+    const relY = e.clientY - rect.top - paddingTop - borderWidth
+    
+    if (relX < 0 || relY < 0 || relX > rect.width || relY > rect.height) {
+      scheduleHideSpellTooltip()
+      return
+    }
+    
+    offset = getOffsetFromPoint(textarea, relX, relY)
+  }
   
-  const paddingLeft = parseFloat(style.paddingLeft) || 0
-  const paddingTop = parseFloat(style.paddingTop) || 0
-  const borderWidth = parseFloat(style.borderTopWidth) || 0
-  
-  const relX = e.clientX - rect.left - paddingLeft - (parseFloat(style.borderLeftWidth) || 0)
-  const relY = e.clientY - rect.top - paddingTop - borderWidth
-  
-  if (relX < 0 || relY < 0 || relX > rect.width || relY > rect.height) {
+  if (offset < 0) {
     scheduleHideSpellTooltip()
     return
   }
   
   const errors = appStore.getSpellErrors(content.value)
   if (errors.length === 0) {
-    scheduleHideSpellTooltip()
-    return
-  }
-  
-  const offset = getOffsetFromPoint(textarea, relX, relY)
-  if (offset < 0) {
     scheduleHideSpellTooltip()
     return
   }
@@ -1305,7 +1306,9 @@ function htmlToMarkdown(html) {
 
 function applyFormat(format) {
   if (editorMode.value === 'edit') {
-    applyFormatToTextarea(format)
+    if (mdEditorRef.value) {
+      mdEditorRef.value.applyFormat(format)
+    }
   } else if (editorMode.value === 'live') {
     applyFormatToLive(format)
   }
@@ -1564,57 +1567,49 @@ function handleGlobalSelectionChange() {
 watch(() => route.params.id, (newId) => {
   if (newId) {
     noteStore.selectNote(newId)
+  } else if (noteStore.notes && noteStore.notes.length > 0) {
+    const firstNote = noteStore.notes[0]
+    if (firstNote && firstNote.id) {
+      noteStore.selectNote(firstNote.id)
+      router.replace(`/editor/${firstNote.id}`)
+    }
   }
-}, { immediate: true })
+})
 
 watch(currentNote, (note) => {
   if (note) {
     content.value = note.content
   }
-}, { immediate: true, deep: true })
+}, { deep: true })
 
 watch(content, (newContent) => {
   if (editorMode.value === 'live' && liveEditorRef.value && !isLiveEditing.value) {
     updateLiveEditor()
   }
-  if (editorMode.value === 'edit') {
-    nextTick(() => {
-      autoResizeTextarea()
-      updateSpellOverlay()
-    })
-  }
-  if (spellUpdateTimeout) clearTimeout(spellUpdateTimeout)
-  spellUpdateTimeout = setTimeout(() => updateSpellOverlay(), 200)
 })
 
 watch(editorMode, (newMode) => {
-  if (newMode === 'edit') {
-    nextTick(() => {
-      autoResizeTextarea()
-      updateSpellOverlay()
-    })
-  } else if (spellOverlayRef.value) {
-    spellOverlayRef.value.innerHTML = ''
+  if (newMode === 'live' && liveEditorRef.value) {
+    nextTick(() => updateLiveEditor())
   }
 })
 
-watch(spellCheckEnabled, () => {
+watch(() => appStore.spellVersion, () => {
   nextTick(() => updateSpellOverlay())
 })
 
-watch(() => appStore.fontSize, () => {
-  if (editorMode.value === 'edit') {
-    nextTick(() => autoResizeTextarea())
-  }
-})
-
-watch(wordWrap, () => {
-  if (editorMode.value === 'edit') {
-    nextTick(() => autoResizeTextarea())
-  }
-})
-
 onMounted(() => {
+  const routeId = route.params.id
+  if (routeId) {
+    noteStore.selectNote(routeId)
+  } else if (noteStore.notes && noteStore.notes.length > 0) {
+    const firstNote = noteStore.notes[0]
+    if (firstNote && firstNote.id) {
+      noteStore.selectNote(firstNote.id)
+      router.replace(`/editor/${firstNote.id}`)
+    }
+  }
+  
   if (currentNote.value) {
     content.value = currentNote.value.content
   }
@@ -1623,10 +1618,6 @@ onMounted(() => {
     if (editorMode.value === 'live' && liveEditorRef.value) {
       updateLiveEditor()
     }
-    if (editorMode.value === 'edit') {
-      autoResizeTextarea()
-    }
-    updateSpellOverlay()
   })
   
   document.addEventListener('click', handleGlobalClick)
@@ -1657,6 +1648,21 @@ function handleMouseUp(e) {
 }</script>
 
 <style scoped>
+.editor-page-wrapper {
+  position: relative;
+}
+
+.editor-page-wrapper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--content-bg);
+  backdrop-filter: blur(var(--content-blur)) saturate(var(--content-saturate));
+  -webkit-backdrop-filter: blur(var(--content-blur)) saturate(var(--content-saturate));
+  z-index: 0;
+  pointer-events: none;
+}
+
 .outline-item-active {
   background: var(--color-primary-lightest);
 }

@@ -40,13 +40,12 @@ async function loadCodeTheme(themeId) {
   }
   
   try {
-    const cssModule = await import(`highlight.js/styles/${themeName}.css?inline`)
-    
-    const style = document.createElement('style')
-    style.textContent = cssModule.default
-    style.setAttribute('data-highlight-theme', themeId)
-    document.head.appendChild(style)
-    currentStyleElement = style
+    const link = document.createElement('link')
+    link.rel = 'stylesheet'
+    link.href = new URL(`../../../node_modules/highlight.js/styles/${themeName}.css`, import.meta.url).href
+    link.setAttribute('data-highlight-theme', themeId)
+    document.head.appendChild(link)
+    currentStyleElement = link
     currentCodeTheme = themeId
   } catch (e) {
     console.error('Failed to load code theme:', e)

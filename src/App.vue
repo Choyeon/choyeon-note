@@ -109,8 +109,8 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, watch, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from './stores/app'
 import { useNoteStore } from './stores/note'
 import { PanelRight } from 'lucide-vue-next'
@@ -120,7 +120,9 @@ import { setCodeTheme as setHljsTheme } from './utils/markdown'
 const appStore = useAppStore()
 const noteStore = useNoteStore()
 const route = useRoute()
+const router = useRouter()
 const isLoading = ref(false)
+let menuUnsubscribe = null
 
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 const showSidebar = computed(() => route.meta?.showSidebar !== false)
@@ -174,6 +176,42 @@ function closeWindow() {
   }
 }
 
+function handleMenuAction(event) {
+  switch (event) {
+    case 'menu:new-note': {
+      const note = noteStore.createNote('', '新笔记')
+      router.push(`/editor/${note.id}`)
+      break
+    }
+    case 'menu:open': {
+      router.push('/notes')
+      break
+    }
+    case 'menu:save': {
+      if (noteStore.currentNote?.id) {
+        noteStore.flushSave(noteStore.currentNote.id)
+      }
+      break
+    }
+    case 'menu:toggle-sidebar': {
+      appStore.toggleSidebar()
+      break
+    }
+    case 'menu:search': {
+      router.push('/search')
+      break
+    }
+    case 'menu:command-palette': {
+      router.push('/search')
+      break
+    }
+    case 'menu:toggle-theme': {
+      appStore.toggleTheme()
+      break
+    }
+  }
+}
+
 watch(() => route.name, () => {
   isLoading.value = true
   setTimeout(() => {
@@ -203,6 +241,17 @@ onMounted(() => {
   const savedLocation = localStorage.getItem('choyeon-notes-location')
   if (savedLocation && savedLocation !== 'sample' && window.electronAPI) {
     noteStore.loadNotesFromPath(savedLocation)
+  }
+
+  if (window.electronAPI?.onMenuAction) {
+    menuUnsubscribe = window.electronAPI.onMenuAction(handleMenuAction)
+  }
+})
+
+onUnmounted(() => {
+  if (menuUnsubscribe) {
+    menuUnsubscribe()
+    menuUnsubscribe = null
   }
 })
 

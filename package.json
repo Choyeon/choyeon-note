@@ -3,6 +3,7 @@
   "version": "2.0.2",
   "description": "Choyeon Note - A beautiful acrylic design note-taking application",
   "main": "electron/main.js",
+  "type": "module",
   "author": "Choyeon",
   "license": "MIT",
   "scripts": {

@@ -500,7 +500,7 @@
 
     <div class="cho-statusbar justify-between">
       <span class="cho-statusbar-hint">Choyeon Notes</span>
-      <span class="cho-statusbar-meta">v1.0.0</span>
+      <span class="cho-statusbar-meta">v{{ currentVersion }}</span>
     </div>
   </div>
 

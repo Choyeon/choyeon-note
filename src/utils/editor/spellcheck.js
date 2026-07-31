@@ -4,12 +4,19 @@ import { RangeSetBuilder, StateEffect, StateField } from '@codemirror/state'
 export const setSpellCheckConfig = StateEffect.define()
 
 export function spellCheckExtension(getSpellErrors, spellEnabled, getSpellVersion) {
+  let lastVersion = -1
+  
   const spellField = StateField.define({
     create(state) {
+      lastVersion = getSpellVersion?.() ?? 0
       return buildDecorations(state.doc.toString(), getSpellErrors, getSpellVersion)
     },
     update(decorations, tr) {
-      if (tr.docChanged || tr.effects.some(e => e.is(setSpellCheckConfig))) {
+      const currentVersion = getSpellVersion?.() ?? 0
+      const versionChanged = currentVersion !== lastVersion
+      lastVersion = currentVersion
+      
+      if (tr.docChanged || tr.effects.some(e => e.is(setSpellCheckConfig)) || versionChanged) {
         return buildDecorations(tr.state.doc.toString(), getSpellErrors, getSpellVersion)
       }
       return decorations

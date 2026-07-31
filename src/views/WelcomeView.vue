@@ -124,14 +124,14 @@
     <!-- 底部状态栏：统一毛玻璃效果 -->
     <div class="cho-statusbar">
       <span class="cho-statusbar-meta">
-        Choyeon Notes v1.0.0 · 欢迎页面
+        Choyeon Notes v{{ appVersion }} · 欢迎页面
       </span>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
@@ -143,7 +143,19 @@ const appStore = useAppStore()
 
 const selectedPath = ref(null)
 const isLoading = ref(false)
+const appVersion = ref('2.0.2')
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
+
+onMounted(async () => {
+  if (isElectron.value) {
+    try {
+      const version = await window.electronAPI.getVersion()
+      if (version) appVersion.value = version
+    } catch (e) {
+      console.error('Failed to get version:', e)
+    }
+  }
+})
 
 async function selectNotesFolder() {
   if (!window.electronAPI) {

@@ -3,6 +3,16 @@ import { ref, computed } from 'vue'
 
 const generateId = () => Math.random().toString(36).substr(2, 9)
 
+const generateStableId = (str) => {
+  let hash = 0
+  for (let i = 0; i < str.length; i++) {
+    const char = str.charCodeAt(i)
+    hash = ((hash << 5) - hash) + char
+    hash = hash & hash
+  }
+  return Math.abs(hash).toString(36)
+}
+
 const SAVE_DEBOUNCE_MS = 500
 const saveTimers = new Map()
 
@@ -235,6 +245,7 @@ export const useNoteStore = defineStore('note', () => {
 
   function selectNote(id) {
     currentNoteId.value = id
+    localStorage.setItem('choyeon-current-note-id', id)
   }
 
   function createNote(folder = '', title = '无标题笔记') {
@@ -253,6 +264,12 @@ export const useNoteStore = defineStore('note', () => {
     }
     notes.value.unshift(newNote)
     currentNoteId.value = newNote.id
+    localStorage.setItem('choyeon-current-note-id', newNote.id)
+    
+    if (notesPath.value && window.electronAPI) {
+      saveNoteToFile(newNote, folder)
+    }
+    
     return newNote
   }
 
@@ -366,40 +383,58 @@ export const useNoteStore = defineStore('note', () => {
     isLoading.value = true
     notesPath.value = path
     
+    if (window.electronAPI?.setNotesPath) {
+      window.electronAPI.setNotesPath(path)
+    }
+    
     try {
       const files = await window.electronAPI.readDirectoryRecursive(path)
       
       const loadedNotes = []
       
       for (const file of files) {
-        const content = await window.electronAPI.readFile(file.path)
-        if (content !== null) {
-          const titleMatch = content.match(/^#\s+(.+)$/m)
-          const title = titleMatch ? titleMatch[1] : file.name.replace('.md', '')
-          
-          const relativePathParts = file.relativePath.split('/')
-          relativePathParts.pop()
-          const folder = relativePathParts.join('/') || ''
-          
-          loadedNotes.push({
-            id: generateId(),
-            title,
-            content,
-            folder,
-            tags: [],
-            createdAt: new Date(file.ctime),
-            updatedAt: new Date(file.mtime),
-            wordCount: content.replace(/\s/g, '').length,
-            charCount: content.length,
-            lineCount: content.split('\n').length,
-            filePath: file.path
-          })
+        try {
+          const content = await window.electronAPI.readFile(file.path)
+          if (content !== null) {
+            const titleMatch = content.match(/^#\s+(.+)$/m)
+            const title = titleMatch ? titleMatch[1] : file.name.replace('.md', '')
+            
+            const relativePathParts = file.relativePath.split('/')
+            relativePathParts.pop()
+            const folder = relativePathParts.join('/') || ''
+            
+            loadedNotes.push({
+              id: generateStableId(file.path),
+              title,
+              content,
+              folder,
+              tags: [],
+              createdAt: new Date(file.ctime),
+              updatedAt: new Date(file.mtime),
+              wordCount: content.replace(/\s/g, '').length,
+              charCount: content.length,
+              lineCount: content.split('\n').length,
+              filePath: file.path
+            })
+          }
+        } catch (fileError) {
+          console.warn(`Failed to load file ${file.path}:`, fileError.message)
         }
       }
       
       notes.value.length = 0
-      notes.value.push(...(loadedNotes.length > 0 ? loadedNotes : sampleNotes))
-      currentNoteId.value = notes.value[0]?.id || null
+      if (loadedNotes.length > 0) {
+        notes.value.push(...loadedNotes)
+      } else {
+        notes.value.push(...sampleNotes)
+      }
+      
+      const savedCurrentId = localStorage.getItem('choyeon-current-note-id')
+      if (savedCurrentId && notes.value.some(n => n.id === savedCurrentId)) {
+        currentNoteId.value = savedCurrentId
+      } else {
+        currentNoteId.value = notes.value[0]?.id || null
+      }
       
     } catch (error) {
       console.error('Error loading notes:', error)

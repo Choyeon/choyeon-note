@@ -23,6 +23,7 @@ export function useEditor(options = {}) {
 
   let internalUpdate = false
   let spellWatchStop = null
+  let settingsWatchStops = []
 
   function computeStats(text) {
     wordCount.value = text.trim() ? text.trim().split(/\s+/).length : 0
@@ -49,7 +50,6 @@ export function useEditor(options = {}) {
     const isDark = options.isDark ?? document.documentElement.getAttribute('data-theme') === 'dark'
     
     const extensions = [
-      lineNumbers(),
       highlightActiveLineGutter(),
       highlightActiveLine(),
       drawSelection(),
@@ -121,11 +121,24 @@ export function useEditor(options = {}) {
       )
     ]
 
-    if (options.lineWrapping !== false) {
+    if (appStore.showLineNumbers) {
+      extensions.push(lineNumbers())
+    }
+
+    if (appStore.wordWrap) {
       extensions.push(EditorView.lineWrapping)
     }
 
     return extensions
+  }
+
+  function reconfigureExtensions() {
+    if (!view.value) return
+    view.value.dispatch({
+      effects: view.value.state.facet(EditorView.view).reconfigure(
+        createExtensions()
+      )
+    })
   }
 
   function init() {
@@ -148,12 +161,26 @@ export function useEditor(options = {}) {
         forceSpellUpdate(view.value)
       }
     })
+
+    settingsWatchStops.push(
+      watch(() => appStore.showLineNumbers, () => reconfigureExtensions()),
+      watch(() => appStore.wordWrap, () => reconfigureExtensions()),
+      watch(() => appStore.spellCheck, () => {
+        if (view.value) {
+          forceSpellUpdate(view.value)
+        }
+      })
+    )
   }
 
   function destroy() {
     if (spellWatchStop) {
       spellWatchStop()
       spellWatchStop = null
+    }
+    if (settingsWatchStops.length > 0) {
+      settingsWatchStops.forEach(stop => stop?.())
+      settingsWatchStops = []
     }
     if (view.value) {
       view.value.destroy()

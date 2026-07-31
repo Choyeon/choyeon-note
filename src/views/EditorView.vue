@@ -1515,13 +1515,11 @@ function applyFormatToLive(format) {
 }
 
 function scrollToHeading(item) {
-  if (editorMode.value === 'edit' && editorRef.value) {
+  if (editorMode.value === 'edit' && mdEditorRef.value) {
     const lines = content.value.split('\n')
     for (let i = 0; i < lines.length; i++) {
       if (lines[i].includes(item.text)) {
-        const textarea = editorRef.value
-        const lineHeight = parseFloat(window.getComputedStyle(textarea).lineHeight)
-        textarea.scrollTop = i * lineHeight
+        mdEditorRef.value.scrollToLine(i + 1)
         break
       }
     }
@@ -1531,6 +1529,16 @@ function scrollToHeading(item) {
       if (h.textContent.includes(item.text)) {
         h.scrollIntoView({ behavior: 'smooth', block: 'start' })
         break
+      }
+    }
+  } else if (editorMode.value === 'live') {
+    const headings = liveEditorRef.value?.querySelectorAll('h1, h2, h3, h4, h5, h6')
+    if (headings) {
+      for (const h of headings) {
+        if (h.textContent.includes(item.text)) {
+          h.scrollIntoView({ behavior: 'smooth', block: 'start' })
+          break
+        }
       }
     }
   }

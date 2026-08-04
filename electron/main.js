@@ -40,10 +40,12 @@ function validatePath(targetPath) {
   }
   const normalizedTarget = path.normalize(targetPath)
   const normalizedBase = path.normalize(notesPath)
-  if (!normalizedTarget.startsWith(normalizedBase)) {
-    throw new Error('Access denied: path outside notes directory')
+  // 用 path.relative 做边界检查，避免 startsWith 的前缀绕过（如 /notes_evil）
+  const rel = path.relative(normalizedBase, normalizedTarget)
+  if (rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel))) {
+    return normalizedTarget
   }
-  return normalizedTarget
+  throw new Error('Access denied: path outside notes directory')
 }
 
 function safeJoin(...parts) {
@@ -65,7 +67,7 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: true
     },
     show: false
   }

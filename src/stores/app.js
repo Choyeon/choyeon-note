@@ -1,54 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-
-// 模块级常量：只需构建一次，避免每个单词都重建 Set 导致的性能问题
-const COMMON_ENGLISH_WORDS = new Set([
-  'the', 'be', 'to', 'of', 'and', 'a', 'in', 'that', 'have', 'i',
-  'it', 'for', 'not', 'on', 'with', 'he', 'as', 'you', 'do', 'at',
-  'this', 'but', 'his', 'by', 'from', 'they', 'we', 'say', 'her', 'she',
-  'or', 'an', 'will', 'my', 'one', 'all', 'would', 'there', 'their', 'what',
-  'so', 'up', 'out', 'if', 'about', 'who', 'get', 'which', 'go', 'me',
-  'when', 'make', 'can', 'like', 'time', 'no', 'just', 'him', 'know', 'take',
-  'people', 'into', 'year', 'your', 'good', 'some', 'could', 'them', 'see', 'other',
-  'than', 'then', 'now', 'look', 'only', 'come', 'its', 'over', 'think', 'also',
-  'back', 'after', 'use', 'two', 'how', 'our', 'work', 'first', 'well', 'way',
-  'even', 'new', 'want', 'because', 'any', 'these', 'give', 'day', 'most', 'us',
-  'is', 'are', 'was', 'were', 'been', 'being', 'am', 'has', 'had', 'does',
-  'did', 'done', 'doing', 'having', 'where', 'why', 'here', 'there', 'very', 'more',
-  'much', 'many', 'such', 'same', 'own', 'other', 'some', 'any', 'every', 'each',
-  'both', 'few', 'more', 'most', 'other', 'some', 'no', 'nor', 'not', 'only',
-  'same', 'so', 'than', 'too', 'very', 'can', 'will', 'just', 'don', 'should',
-  'now', 'yes', 'no', 'not', 'and', 'but', 'or', 'nor', 'for', 'yet', 'so',
-  'either', 'neither', 'both', 'each', 'every', 'all', 'any', 'few', 'more',
-  'most', 'some', 'such', 'no', 'nor', 'not', 'only', 'same', 'so', 'than',
-  'too', 'very', 'can', 'will', 'just', 'don', 'should', 'now', 'test', 'hello',
-  'world', 'code', 'note', 'notes', 'app', 'markdown', 'electron', 'vue', 'javascript',
-  'html', 'css', 'json', 'api', 'url', 'http', 'https', 'www', 'com', 'org',
-  'net', 'io', 'github', 'git', 'npm', 'yarn', 'node', 'python', 'java', 'cpp',
-  'file', 'files', 'folder', 'folders', 'path', 'dir', 'directory', 'open', 'save',
-  'close', 'edit', 'view', 'new', 'old', 'left', 'right', 'top', 'bottom', 'center',
-  'font', 'size', 'color', 'theme', 'light', 'dark', 'mode', 'text', 'title', 'content',
-  'word', 'char', 'line', 'count', 'date', 'time', 'week', 'month', 'year', 'day',
-  'today', 'tomorrow', 'yesterday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday',
-  'saturday', 'sunday', 'january', 'february', 'march', 'april', 'may', 'june', 'july',
-  'august', 'september', 'october', 'november', 'december', 'china', 'chinese', 'english',
-  'american', 'europe', 'asian', 'beijing', 'shanghai', 'guangzhou', 'shenzhen', 'obsidian',
-  'notion', 'typology', 'roam', 'logseq', 'bear', 'ia', 'writer', 'ulysses', 'zettelkasten',
-  'type', 'types', 'typed', 'typing', 'keyboard', 'mouse', 'screen', 'window', 'windows',
-  'linux', 'macos', 'ios', 'android', 'mobile', 'desktop', 'laptop', 'tablet', 'phone',
-  'setting', 'settings', 'config', 'configuration', 'preference', 'preferences', 'option',
-  'options', 'choice', 'choices', 'select', 'selected', 'selection', 'filter', 'filtered',
-  'sort', 'sorted', 'sorting', 'search', 'searched', 'searching', 'find', 'found', 'finding',
-  'replace', 'replaced', 'replacing', 'insert', 'inserted', 'inserting', 'delete', 'deleted',
-  'deleting', 'remove', 'removed', 'removing', 'add', 'added', 'adding', 'create', 'created',
-  'creating', 'update', 'updated', 'updating', 'read', 'reading', 'write', 'writing', 'written',
-  'list', 'item', 'items', 'task', 'tasks', 'todo', 'done', 'complete', 'completed',
-  'progress', 'pending', 'active', 'inactive', 'enable', 'enabled', 'disable', 'disabled',
-  'true', 'false', 'null', 'undefined', 'function', 'return', 'const', 'let', 'var', 'class',
-  'import', 'export', 'default', 'async', 'await', 'promise', 'resolve', 'reject', 'error',
-  'warning', 'info', 'debug', 'log', 'message', 'data', 'value', 'key', 'object', 'array',
-  'string', 'number', 'boolean', 'true', 'false', 'null', 'undefined', 'void', 'never', 'any'
-])
+import { isCommonEnglishWord, getSpellErrors as getSpellErrorsPure } from '@/utils/spellcheck'
 
 export const useAppStore = defineStore('app', () => {
   const theme = ref('system')
@@ -401,56 +353,11 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function getSpellErrors(text) {
-    if (!spellCheck.value || !text) return []
-    
-    const errors = []
-    const wordRegex = /\b[a-zA-Z]+\b/g
-    let match
-    
-    const excludedRanges = []
-    const codeBlockRegex = /```[\s\S]*?```/g
-    let cbMatch
-    while ((cbMatch = codeBlockRegex.exec(text)) !== null) {
-      excludedRanges.push({ start: cbMatch.index, end: cbMatch.index + cbMatch[0].length })
-    }
-    
-    const inlineCodeRegex = /`[^`\n]+`/g
-    let icMatch
-    while ((icMatch = inlineCodeRegex.exec(text)) !== null) {
-      excludedRanges.push({ start: icMatch.index, end: icMatch.index + icMatch[0].length })
-    }
-    
-    function isInExcludedRange(pos) {
-      return excludedRanges.some(r => pos >= r.start && pos < r.end)
-    }
-    
-    while ((match = wordRegex.exec(text)) !== null) {
-      const word = match[0]
-      const lowerWord = word.toLowerCase()
-      
-      if (isInExcludedRange(match.index)) continue
-      if (ignoredWords.value.has(lowerWord)) continue
-      if (customDictionary.value.has(lowerWord)) continue
-      
-      if (!isCommonEnglishWord(word)) {
-        errors.push({ 
-          word, 
-          start: match.index, 
-          end: match.index + word.length 
-        })
-      }
-    }
-    
-    return errors
-  }
-
-  function isCommonEnglishWord(word) {
-    const lowerWord = word.toLowerCase()
-    if (/^\d+$/.test(word)) return true
-    if (word.length <= 1) return true
-    if (word === word.toUpperCase() && word.length > 1) return true
-    
-    return COMMON_ENGLISH_WORDS.has(lowerWord) || /^[A-Z]/.test(word)
+    return getSpellErrorsPure(text, {
+      enabled: spellCheck.value,
+      ignoredWords: ignoredWords.value,
+      customDictionary: customDictionary.value
+    })
   }
 
   return {

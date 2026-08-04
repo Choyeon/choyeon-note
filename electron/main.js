@@ -5,6 +5,8 @@ const fs = require('fs/promises')
 const fsConstants = require('fs')
 const os = require('os')
 
+const { validatePath, safeJoin } = require('./path-safety')
+
 const isDev = !app.isPackaged
 const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5176'
 
@@ -34,23 +36,8 @@ async function saveSettings() {
   }
 }
 
-function validatePath(targetPath) {
-  if (!notesPath) {
-    throw new Error('Notes path not set')
-  }
-  const normalizedTarget = path.normalize(targetPath)
-  const normalizedBase = path.normalize(notesPath)
-  // 用 path.relative 做边界检查，避免 startsWith 的前缀绕过（如 /notes_evil）
-  const rel = path.relative(normalizedBase, normalizedTarget)
-  if (rel === '' || (rel !== '..' && !rel.startsWith('..' + path.sep) && !path.isAbsolute(rel))) {
-    return normalizedTarget
-  }
-  throw new Error('Access denied: path outside notes directory')
-}
-
-function safeJoin(...parts) {
-  const joined = path.join(...parts)
-  return validatePath(joined)
+function safeJoinWithNotes(...parts) {
+  return safeJoin(notesPath, ...parts)
 }
 
 function createWindow() {
@@ -276,7 +263,7 @@ ipcMain.handle('app:set-notes-path', async (_, path) => {
 
 ipcMain.handle('fs:read-directory', async (_, dirPath) => {
   try {
-    const safePath = validatePath(dirPath)
+    const safePath = validatePath(notesPath, dirPath)
     const files = await fs.readdir(safePath, { withFileTypes: true })
     const result = []
     
@@ -307,7 +294,7 @@ ipcMain.handle('fs:read-directory', async (_, dirPath) => {
 
 ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
   try {
-    const safePath = validatePath(dirPath)
+    const safePath = validatePath(notesPath, dirPath)
     const result = []
     
     async function readDir(currentPath, relativePath = '') {
@@ -348,7 +335,7 @@ ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
 
 ipcMain.handle('fs:read-file', async (_, filePath) => {
   try {
-    const safePath = validatePath(filePath)
+    const safePath = validatePath(notesPath, filePath)
     const content = await fs.readFile(safePath, 'utf-8')
     return content
   } catch (error) {
@@ -359,7 +346,7 @@ ipcMain.handle('fs:read-file', async (_, filePath) => {
 
 ipcMain.handle('fs:write-file', async (_, filePath, content) => {
   try {
-    const safePath = validatePath(filePath)
+    const safePath = validatePath(notesPath, filePath)
     const dir = path.dirname(safePath)
     await fs.mkdir(dir, { recursive: true })
     await fs.writeFile(safePath, content, 'utf-8')
@@ -372,7 +359,7 @@ ipcMain.handle('fs:write-file', async (_, filePath, content) => {
 
 ipcMain.handle('fs:create-directory', async (_, dirPath) => {
   try {
-    const safePath = validatePath(dirPath)
+    const safePath = validatePath(notesPath, dirPath)
     await fs.mkdir(safePath, { recursive: true })
     return true
   } catch (error) {
@@ -383,7 +370,7 @@ ipcMain.handle('fs:create-directory', async (_, dirPath) => {
 
 ipcMain.handle('fs:delete-file', async (_, filePath) => {
   try {
-    const safePath = validatePath(filePath)
+    const safePath = validatePath(notesPath, filePath)
     await fs.unlink(safePath)
     return true
   } catch (error) {
@@ -394,7 +381,7 @@ ipcMain.handle('fs:delete-file', async (_, filePath) => {
 
 ipcMain.handle('fs:file-exists', async (_, filePath) => {
   try {
-    const safePath = validatePath(filePath)
+    const safePath = validatePath(notesPath, filePath)
     await fs.access(safePath, fsConstants.constants.F_OK)
     return true
   } catch (error) {

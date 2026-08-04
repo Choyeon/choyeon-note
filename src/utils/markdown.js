@@ -1,11 +1,12 @@
 import { marked } from 'marked'
 import hljs from 'highlight.js'
 import mermaid from 'mermaid'
+import DOMPurify from 'dompurify'
 
 mermaid.initialize({
   startOnLoad: false,
   theme: 'default',
-  securityLevel: 'loose',
+  securityLevel: 'strict',
   fontFamily: 'inherit',
   fontSize: 14
 })
@@ -92,7 +93,11 @@ marked.setOptions({
 })
 
 function renderMarkdown(content) {
-  return marked.parse(content || '')
+  const rawHtml = marked.parse(content || '')
+  // DOMPurify 净化：笔记内容来自磁盘/用户输入，直接 v-html 注入存在 XSS 风险
+  return DOMPurify.sanitize(rawHtml, {
+    ADD_ATTR: ['data-mermaid-id', 'data-mermaid-code', 'data-lang', 'data-highlight-theme']
+  })
 }
 
 async function renderMermaidInContainer(container) {

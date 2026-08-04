@@ -478,6 +478,10 @@ let liveInputTimeout = null
 let spellUpdateTimeout = null
 let spellTooltipHideTimeout = null
 let canvasMeasureCtx = null
+// 拼写检查缓存：鼠标在同一个单词偏移上移动时不重复计算错误
+let lastSpellOffset = -1
+let lastSpellCacheKey = ''
+let lastSpellErrors = null
 
 const contextMenu = ref({
   show: false,
@@ -1048,8 +1052,15 @@ function onMouseMove(e) {
     return
   }
   
-  const errors = appStore.getSpellErrors(content.value)
-  if (errors.length === 0) {
+  // 缓存错误：内容或偏移不变时复用上一次结果，避免每次 mousemove 都重算
+  const key = content.value
+  if (lastSpellOffset !== offset || lastSpellCacheKey !== key) {
+    lastSpellOffset = offset
+    lastSpellCacheKey = key
+    lastSpellErrors = appStore.getSpellErrors(content.value)
+  }
+  const errors = lastSpellErrors
+  if (!errors || errors.length === 0) {
     scheduleHideSpellTooltip()
     return
   }

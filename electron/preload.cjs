@@ -19,7 +19,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   deleteFile: (filePath) => ipcRenderer.invoke('fs:delete-file', filePath),
   moveFile: (oldPath, newPath) => ipcRenderer.invoke('fs:move-file', oldPath, newPath),
   fileExists: (filePath) => ipcRenderer.invoke('fs:file-exists', filePath),
-  
+
+  loadSpellData: () => ipcRenderer.invoke('spell:load'),
+  saveSpellData: (payload) => ipcRenderer.invoke('spell:save', payload),
+
   onMenuAction: (callback) => {
     const events = [
       'menu:new-note',

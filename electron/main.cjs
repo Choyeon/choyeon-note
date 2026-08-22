@@ -14,6 +14,7 @@ let mainWindow = null
 let notesPath = null
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
+const spellDataFile = () => path.join(app.getPath('userData'), 'spell-data.json')
 
 async function loadSettings() {
   try {
@@ -416,6 +417,38 @@ ipcMain.handle('fs:file-exists', async (_, filePath) => {
     await fs.access(safePath, fsConstants.constants.F_OK)
     return true
   } catch (error) {
+    return false
+  }
+})
+
+// 拼写数据持久化（userData/spell-data.json：ignoredWords / customDictionary 数组）
+ipcMain.handle('spell:load', async () => {
+  try {
+    const raw = await fs.readFile(spellDataFile(), 'utf-8')
+    const data = JSON.parse(raw || '{}')
+    return {
+      ignoredWords: Array.isArray(data.ignoredWords) ? data.ignoredWords : [],
+      customDictionary: Array.isArray(data.customDictionary) ? data.customDictionary : []
+    }
+  } catch (err) {
+    if (err && err.code === 'ENOENT') {
+      return { ignoredWords: [], customDictionary: [] }
+    }
+    console.error('spell:load error:', err?.message || String(err))
+    return { ignoredWords: [], customDictionary: [] }
+  }
+})
+
+ipcMain.handle('spell:save', async (_, payload) => {
+  try {
+    const data = {
+      ignoredWords: Array.isArray(payload?.ignoredWords) ? payload.ignoredWords : [],
+      customDictionary: Array.isArray(payload?.customDictionary) ? payload.customDictionary : []
+    }
+    await fs.writeFile(spellDataFile(), JSON.stringify(data, null, 2), 'utf-8')
+    return true
+  } catch (err) {
+    console.error('spell:save error:', err?.message || String(err))
     return false
   }
 })

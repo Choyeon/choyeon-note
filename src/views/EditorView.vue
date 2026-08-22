@@ -4,15 +4,15 @@
       class="flex flex-col border-b z-10 relative"
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
-      <div class="min-h-10 px-6 py-1.5 flex items-center gap-3">
+      <div class="min-h-11 px-6 py-2 flex items-center gap-3">
         <button 
           v-if="currentNote"
-          class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+          class="w-8 h-8 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
           @click="$router.push('/notes')"
         >
-          <ArrowLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
+          <ArrowLeft class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
         </button>
-        <span class="text-xs whitespace-nowrap" :style="{ color: 'var(--color-text-tertiary)' }">
+        <span class="text-[13px] whitespace-nowrap" :style="{ color: 'var(--color-text-tertiary)' }">
           {{ currentNote?.folder || '根目录' }} <span class="mx-1">&gt;</span> {{ currentNote?.title || '无标题' }}
         </span>
         <div class="flex-1"></div>
@@ -24,7 +24,7 @@
             title="编辑模式"
             @click="setMode('edit')"
           >
-            <Pencil class="w-4 h-4" />
+            <Pencil class="w-[18px] h-[18px]" />
           </button>
           <button 
             class="segment-btn"
@@ -32,7 +32,7 @@
             title="实时渲染模式"
             @click="setMode('live')"
           >
-            <Zap class="w-4 h-4" />
+            <Zap class="w-[18px] h-[18px]" />
           </button>
           <button 
             class="segment-btn"
@@ -40,7 +40,7 @@
             title="预览模式"
             @click="setMode('preview')"
           >
-            <Eye class="w-4 h-4" />
+            <Eye class="w-[18px] h-[18px]" />
           </button>
         </div>
       </div>
@@ -49,23 +49,23 @@
         <template v-for="tool in formatTools" :key="tool.id">
           <div 
             v-if="tool.type === 'divider'" 
-            class="w-px h-4 mx-1"
+            class="w-px h-5 mx-1"
             :style="{ background: 'var(--color-border)' }"
           ></div>
           <button 
             v-else
-            class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
             :title="tool.title"
             @click="applyFormat(tool.id)"
           >
-            <component :is="tool.icon" class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
+            <component :is="tool.icon" class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
           </button>
         </template>
       </div>
     </div>
 
     <div class="flex-1 min-h-0 flex overflow-hidden">
-      <div v-if="editorMode === 'edit'" class="flex-1 min-w-0 flex flex-col overflow-hidden acrylic-content" @mousemove="onMouseMove">
+      <div v-if="editorMode === 'edit'" class="flex-1 min-w-0 flex flex-col overflow-hidden acrylic-content" @mousemove="onMouseMove" @click="onEditClick" @mousedown="onEditMouseDown">
         <MarkdownEditor
           ref="mdEditorRef"
           v-model="content"
@@ -85,16 +85,10 @@
         <div class="max-w-[780px] mx-auto py-10 px-8 pb-32">
           <div
             ref="liveEditorRef"
-            class="live-editor outline-none min-h-[500px] focus:outline-none notion-editor"
+            class="live-editor outline-none min-h-[500px] focus:outline-none notion-editor unified-editor"
             contenteditable="true"
             :spellcheck="spellCheckEnabled"
             :data-placeholder="editorPlaceholder"
-            :style="{ 
-              color: 'var(--color-text-primary)',
-              fontSize: fontSize,
-              lineHeight: '1.7',
-              fontFamily: 'var(--font-body)'
-            }"
             @input="onLiveInput"
             @keydown="onLiveKeydown"
             @keyup="onLiveKeyup"
@@ -109,11 +103,11 @@
       <div v-else class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content" @click="onPreviewClick">
         <div class="max-w-[780px] mx-auto py-10 px-8 pb-32">
           <div v-if="!content" class="text-center py-20" :style="{ color: 'var(--color-text-tertiary)' }">
-            <FileText class="w-12 h-12 mx-auto mb-4 opacity-40" />
-            <p class="text-sm">这篇笔记还是空的</p>
-            <p class="text-xs mt-2">切换到编辑或实时模式开始创作</p>
+            <FileText class="w-14 h-14 mx-auto mb-4 opacity-40" />
+            <p class="text-base">这篇笔记还是空的</p>
+            <p class="text-sm mt-2">切换到编辑或实时模式开始创作</p>
           </div>
-          <div v-else class="markdown-body notion-preview" v-html="renderedContent"></div>
+          <div v-else class="markdown-body notion-preview unified-editor" v-html="renderedContent"></div>
         </div>
       </div>
 
@@ -451,41 +445,49 @@
       <Transition name="fade">
         <div 
           v-if="spellTooltip.show" 
-          class="fixed z-50"
+          class="fixed z-[9999] spell-tooltip-wrapper"
           :style="{ 
             left: spellTooltip.x + 'px', 
             top: spellTooltip.y + 'px',
             pointerEvents: 'auto'
           }"
+          @mousedown.prevent
           @click.stop
           @mouseenter="onSpellTooltipEnter"
           @mouseleave="onSpellTooltipLeave"
         >
           <div 
-            class="spell-tooltip rounded-lg overflow-hidden shadow-lg"
+            class="spell-tooltip rounded-xl overflow-hidden shadow-2xl"
             :style="{ 
               background: 'var(--color-surface-elevated)',
               border: '1px solid var(--color-border)',
-              minWidth: '200px',
-              padding: '6px',
-              backdropFilter: 'none',
-              zIndex: 9999
+              minWidth: '230px',
+              padding: '8px',
+              backdropFilter: 'none'
             }"
           >
             <div class="spell-tooltip-header">
-              <span class="text-[11px]" :style="{ color: 'var(--state-error)' }">拼写错误</span>
+              <span class="text-[12px] font-semibold tracking-wide" :style="{ color: 'var(--state-error)' }">拼写错误</span>
             </div>
             <div class="spell-tooltip-word">
-              <span class="text-[13px] font-medium" :style="{ color: 'var(--color-text-primary)' }">{{ spellTooltip.word }}</span>
+              <span class="text-[15px] font-semibold font-mono break-all" :style="{ color: 'var(--color-text-primary)' }">{{ spellTooltip.word }}</span>
             </div>
-            <div class="context-menu-divider"></div>
-            <button class="context-menu-item" @click="handleIgnoreWord">
-              <EyeOff class="w-3.5 h-3.5" />
-              <span>忽略此单词</span>
+            <div class="context-menu-divider" style="margin: 6px 4px;"></div>
+            <button 
+              class="context-menu-item spell-action-btn"
+              :data-spell-action="true"
+              @click.stop.prevent="handleIgnoreWord"
+            >
+              <EyeOff class="w-[18px] h-[18px]" />
+              <span class="flex-1">忽略此单词</span>
             </button>
-            <button class="context-menu-item" @click="handleAddToDictionary">
-              <BookPlus class="w-3.5 h-3.5" />
-              <span>添加到词典</span>
+            <button 
+              class="context-menu-item spell-action-btn"
+              :data-spell-action="true"
+              @click.stop.prevent="handleAddToDictionary"
+            >
+              <BookPlus class="w-[18px] h-[18px]" />
+              <span class="flex-1">添加到词典</span>
             </button>
           </div>
         </div>
@@ -659,6 +661,7 @@ const contextMenu = ref({
 
 const spellTooltip = ref({
   show: false,
+  pinned: false,
   x: 0,
   y: 0,
   word: '',
@@ -729,12 +732,13 @@ const modeLabel = computed(() => {
 })
 
 const fontSize = computed(() => {
-  const sizes = {
-    small: '13px',
-    medium: '14px',
-    large: '16px'
+  // 对齐到 appStore 统一字号变量，三模式使用同一份 CSS 变量
+  const map = {
+    small: 'var(--font-size-body)',
+    medium: 'var(--font-size-body)',
+    large: 'var(--font-size-body)'
   }
-  return sizes[appStore.fontSize]
+  return map[appStore.fontSize] || 'var(--font-size-body)'
 })
 
 const showLineNumbers = computed(() => appStore.showLineNumbers)
@@ -1395,6 +1399,9 @@ function onMouseMove(e) {
   
   if (contextMenu.value.show) return
   
+  // 已"锁定"显示（通过点击）时，鼠标移动不再自动隐藏
+  if (spellTooltip.value.pinned) return
+
   if (isMouseInSpellTooltip) return
   
   let offset = -1
@@ -1450,7 +1457,7 @@ function onMouseMove(e) {
   
   for (const error of errors) {
     if (offset >= error.start && offset <= error.end) {
-      showSpellTooltip(error.word, e.clientX, e.clientY)
+      showSpellTooltip(error.word, e.clientX, e.clientY, false)
       return
     }
   }
@@ -1458,15 +1465,42 @@ function onMouseMove(e) {
   scheduleHideSpellTooltip()
 }
 
-function showSpellTooltip(word, clientX, clientY) {
+function onEditMouseDown(e) {
+  // 如果点击不在 spell tooltip 上，点击编辑区前清除"锁定"，让新一轮交互接管
+  if (spellTooltip.value.pinned) {
+    const path = e.composedPath?.() || []
+    const hit = path.some(el => el && el.classList && (el.classList.contains('spell-tooltip-wrapper') || el.closest && el.closest('.spell-tooltip-wrapper')))
+    if (!hit) {
+      spellTooltip.value.pinned = false
+    }
+  }
+}
+
+function onEditClick(e) {
+  if (!spellCheckEnabled.value || editorMode.value !== 'edit') return
+  if (!mdEditorRef.value) return
+  const offset = mdEditorRef.value.posAtCoords(e.clientX, e.clientY)
+  if (offset < 0) return
+  const errors = appStore.getSpellErrors(content.value)
+  for (const error of errors) {
+    if (offset >= error.start && offset <= error.end) {
+      showSpellTooltip(error.word, e.clientX, e.clientY, true)
+      return
+    }
+  }
+  // 没命中则关闭
+  hideSpellTooltip()
+}
+
+function showSpellTooltip(word, clientX, clientY, pinned = false) {
   if (spellTooltipHideTimeout) {
     clearTimeout(spellTooltipHideTimeout)
     spellTooltipHideTimeout = null
   }
   
-  const tooltipWidth = 200
-  const tooltipHeight = 120
-  const margin = 8
+  const tooltipWidth = 240
+  const tooltipHeight = 150
+  const margin = 10
   
   let x = clientX - tooltipWidth / 2
   let y = clientY + 16
@@ -1486,8 +1520,10 @@ function showSpellTooltip(word, clientX, clientY) {
     y = margin
   }
   
+  // pinned=true 则"锁定"：不再被 500ms 定时器关闭
   spellTooltip.value = {
     show: true,
+    pinned: !!pinned,
     x,
     y,
     word,
@@ -1496,9 +1532,12 @@ function showSpellTooltip(word, clientX, clientY) {
 }
 
 function scheduleHideSpellTooltip() {
+  // 已锁定状态不自动隐藏
+  if (spellTooltip.value.pinned) return
   if (spellTooltipHideTimeout) return
   spellTooltipHideTimeout = setTimeout(() => {
     spellTooltip.value.show = false
+    spellTooltip.value.pinned = false
     spellTooltipHideTimeout = null
   }, 500)
 }
@@ -1949,8 +1988,19 @@ function formatDate(date) {
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
-function handleGlobalClick() {
-  if (spellTooltip.value.show) spellTooltip.value.show = false
+function handleGlobalClick(e) {
+  // 如果点击发生在拼写 popover 上，不要关闭
+  const target = e && e.target
+  if (target && typeof target.closest === 'function') {
+    if (target.closest('.spell-tooltip-wrapper')) return
+  }
+  if (spellTooltip.value.show && !spellTooltip.value.pinned) spellTooltip.value.show = false
+  // 锁定的 popover 只在点击其它区域时关闭
+  if (spellTooltip.value.show && spellTooltip.value.pinned) {
+    // 点击其它区域 → 解锁并关闭
+    spellTooltip.value.pinned = false
+    spellTooltip.value.show = false
+  }
   if (floatingToolbar.value.show) floatingToolbar.value.show = false
   if (slashMenu.value.show) closeSlashMenu()
 }
@@ -2066,7 +2116,19 @@ function handleMouseUp(e) {
 }
 
 .outline-item-active {
-  background: var(--color-primary-lightest);
+  background: var(--color-primary-surface);
+}
+
+/* ===== 三模式统一排版：live / preview / edit (CodeMirror 使用 themes.js) ===== */
+.unified-editor,
+.live-editor,
+.notion-preview,
+.markdown-body {
+  font-size: var(--font-size-body) !important;
+  line-height: 1.72 !important;
+  color: var(--color-text-primary) !important;
+  font-family: var(--font-body) !important;
+  word-break: break-word;
 }
 
 .live-editor {
@@ -2078,78 +2140,98 @@ function handleMouseUp(e) {
   outline: none;
 }
 
-.live-editor :deep(h1) {
-  font-size: 24px;
-  font-weight: 600;
+/* 标题字号统一（live） */
+.live-editor :deep(h1),
+.live-editor.notion-editor :deep(h1) {
+  font-size: var(--font-size-h1) !important;
+  font-weight: 700;
   color: var(--color-text-primary);
-  margin: 0 0 24px;
+  margin: 32px 0 12px;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+}
+.live-editor :deep(h2),
+.live-editor.notion-editor :deep(h2) {
+  font-size: var(--font-size-h2) !important;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin: 24px 0 8px;
   line-height: 1.3;
+  letter-spacing: -0.005em;
 }
-
-.live-editor :deep(h2) {
-  font-size: 20px;
+.live-editor :deep(h3),
+.live-editor.notion-editor :deep(h3) {
+  font-size: var(--font-size-h3) !important;
   font-weight: 600;
   color: var(--color-text-primary);
-  margin: 0 0 12px;
+  margin: 20px 0 6px;
   line-height: 1.4;
 }
-
-.live-editor :deep(h3) {
-  font-size: 16px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 0 0 12px;
-  line-height: 1.4;
-}
-
 .live-editor :deep(h4),
 .live-editor :deep(h5),
-.live-editor :deep(h6) {
-  font-size: 15px;
+.live-editor :deep(h6),
+.live-editor.notion-editor :deep(h4),
+.live-editor.notion-editor :deep(h5),
+.live-editor.notion-editor :deep(h6) {
+  font-size: var(--font-size-h4) !important;
   font-weight: 600;
   color: var(--color-text-primary);
-  margin: 0 0 12px;
+  margin: 14px 0 6px;
   line-height: 1.4;
 }
 
-.live-editor :deep(p) {
-  margin: 0 0 16px;
-  line-height: 1.7;
+.live-editor :deep(p),
+.live-editor.notion-editor :deep(p) {
+  font-size: var(--font-size-body) !important;
+  margin: 0 0 12px;
+  line-height: 1.72;
+  color: var(--color-text-primary);
 }
 
 .live-editor :deep(strong) {
-  font-weight: 600;
+  font-weight: 700;
 }
 
 .live-editor :deep(em) {
   font-style: italic;
 }
 
-.live-editor :deep(code) {
+.live-editor :deep(code),
+.live-editor.notion-editor :deep(code) {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: var(--font-size-sm) !important;
   background: var(--color-bg-tertiary);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: 6px;
+  border: 1px solid var(--color-border-light);
+  color: var(--state-error);
 }
 
-.live-editor :deep(pre) {
-  background: var(--color-bg-tertiary);
-  border-radius: var(--radius-sm);
-  padding: 16px;
-  margin-bottom: 16px;
+.live-editor :deep(pre),
+.live-editor.notion-editor :deep(pre) {
+  background: var(--color-bg-secondary);
+  border-radius: 10px;
+  border: 1px solid var(--color-border-light);
+  padding: 14px 16px;
+  margin: 10px 0;
   overflow-x: auto;
 }
 
-.live-editor :deep(pre code) {
+.live-editor :deep(pre code),
+.live-editor.notion-editor :deep(pre code) {
   background: transparent;
   padding: 0;
+  border: none;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm) !important;
 }
 
-.live-editor :deep(mark) {
-  background: rgba(255, 235, 59, 0.4);
+.live-editor :deep(mark),
+.live-editor.notion-editor :deep(mark) {
+  background: rgba(255, 213, 79, 0.4);
+  color: inherit;
   padding: 1px 4px;
-  border-radius: 2px;
+  border-radius: 4px;
 }
 
 .live-editor :deep(del),
@@ -2158,74 +2240,135 @@ function handleMouseUp(e) {
   color: var(--color-text-tertiary);
 }
 
-.live-editor :deep(ul) {
-  margin: 0 0 16px;
-  padding-left: 24px;
+.live-editor :deep(ul),
+.live-editor :deep(ol),
+.live-editor.notion-editor :deep(ul),
+.live-editor.notion-editor :deep(ol) {
+  margin: 6px 0 12px;
+  padding-left: 28px;
 }
 
-.live-editor :deep(ol) {
-  margin: 0 0 16px;
-  padding-left: 24px;
+.live-editor :deep(li),
+.live-editor.notion-editor :deep(li) {
+  font-size: var(--font-size-body);
+  margin: 2px 0;
+  line-height: 1.72;
 }
 
-.live-editor :deep(li) {
-  margin: 4px 0;
+.live-editor :deep(blockquote),
+.live-editor.notion-editor :deep(blockquote) {
+  padding: 4px 14px;
+  border-left: 3px solid var(--color-text-tertiary);
+  background: transparent;
+  margin: 10px 0;
+  color: var(--color-text-secondary);
+  font-style: normal;
 }
 
-.live-editor :deep(blockquote) {
-  padding: 12px 16px;
-  border-left: 3px solid var(--color-primary);
-  background: var(--color-primary-surface);
-  margin: 0 0 16px;
+.live-editor :deep(blockquote p) {
+  margin: 0;
 }
 
 .live-editor :deep(hr) {
   border: none;
   border-top: 1px solid var(--color-border);
-  margin: 24px 0;
+  margin: 22px 0;
 }
 
-.live-editor :deep(input[type="checkbox"]) {
+.live-editor :deep(input[type="checkbox"]),
+.live-editor.notion-editor :deep(input[type="checkbox"]) {
   margin-right: 8px;
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  accent-color: var(--color-primary);
   cursor: pointer;
 }
 
-.live-editor :deep(a) {
+.live-editor :deep(a),
+.live-editor.notion-editor :deep(a) {
   color: var(--color-primary);
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s ease;
 }
-
-.live-editor :deep(a:hover) {
+.live-editor :deep(a:hover),
+.live-editor.notion-editor :deep(a:hover) {
   border-bottom-color: var(--color-primary);
 }
 
 .live-editor :deep(img) {
   max-width: 100%;
-  border-radius: var(--radius-sm);
+  border-radius: 10px;
+  box-shadow: var(--shadow-sm);
 }
 
-.live-editor :deep(table) {
+.live-editor :deep(table),
+.live-editor.notion-editor :deep(table) {
   width: 100%;
   border-collapse: collapse;
-  font-size: 14px;
-  margin-bottom: 24px;
+  font-size: var(--font-size-sm);
+  margin-bottom: 20px;
+  box-shadow: var(--shadow-xs);
+  border-radius: 10px;
+  overflow: hidden;
 }
-
-.live-editor :deep(th) {
+.live-editor :deep(th),
+.live-editor.notion-editor :deep(th) {
   text-align: left;
   padding: 8px 12px;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--color-text-secondary);
-  background: var(--color-bg-tertiary);
-  border-bottom: 1px solid var(--color-border-light);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-light);
+  border-top: none;
+  border-left: none;
+}
+.live-editor :deep(td),
+.live-editor.notion-editor :deep(td) {
+  padding: 8px 12px;
+  border: 1px solid var(--color-border-light);
+  border-top: none;
+  border-left: none;
+  color: var(--color-text-primary);
 }
 
-.live-editor :deep(td) {
-  padding: 8px 12px;
-  border-bottom: 1px solid var(--color-border-light);
-  color: var(--color-text-primary);
+/* 预览模式标题字号与 live 对齐 */
+.notion-preview h1 { font-size: var(--font-size-h1) !important; margin: 36px 0 16px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.25; }
+.notion-preview h2 { font-size: var(--font-size-h2) !important; margin: 28px 0 10px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; }
+.notion-preview h3 { font-size: var(--font-size-h3) !important; margin: 22px 0 8px; font-weight: 600; line-height: 1.4; }
+.notion-preview h4 { font-size: var(--font-size-h4) !important; margin: 16px 0 6px; font-weight: 600; }
+.notion-preview h5 { font-size: var(--font-size-base) !important; margin: 12px 0 4px; font-weight: 600; }
+.notion-preview h6 { font-size: var(--font-size-sm) !important; margin: 10px 0 4px; font-weight: 600; color: var(--color-text-secondary); }
+.notion-preview p  { font-size: var(--font-size-body) !important; margin: 0 0 12px; line-height: 1.72; }
+.notion-preview code { font-size: var(--font-size-sm) !important; }
+.notion-preview pre  { font-size: var(--font-size-sm) !important; }
+.notion-preview li   { font-size: var(--font-size-body) !important; margin: 2px 0; line-height: 1.72; }
+
+.notion-preview blockquote {
+  border-left: 3px solid var(--color-text-tertiary);
+  background: transparent;
+  padding: 4px 14px;
+  margin: 12px 0;
+  font-style: normal;
+  border-radius: 0 8px 8px 0;
+}
+
+.notion-preview ul,
+.notion-preview ol {
+  margin: 6px 0 12px;
+  padding-left: 28px;
+}
+
+/* 暗色模式代码块背景统一 */
+[data-theme='dark'] .live-editor.notion-editor pre,
+[data-theme='dark'] .notion-preview pre {
+  background: rgba(30, 30, 45, 0.6);
+}
+
+/* 暗色模式下 notion preview 代码块背景（与主题变量一致） */
+[data-theme='dark'] .notion-preview pre {
+  background: rgba(30, 30, 45, 0.6);
 }
 
 .context-menu-item {
@@ -2275,14 +2418,42 @@ function handleMouseUp(e) {
   margin: 4px 6px;
 }
 
-.spell-tooltip-header {
-  padding: 6px 10px 2px;
+/* 拼写 popover 按钮：高对比度 + hover 可视度保证 */
+.spell-action-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
 }
-
+.spell-action-btn:hover {
+  background: var(--color-primary-surface);
+  color: var(--color-primary);
+  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
+}
+.spell-action-btn:active {
+  transform: translateY(1px);
+}
+.spell-action-btn svg {
+  color: currentColor;
+  flex-shrink: 0;
+}
+.spell-tooltip-header {
+  padding: 4px 10px;
+}
 .spell-tooltip-word {
-  padding: 0 10px 6px;
+  padding: 2px 10px 8px;
   border-bottom: 1px solid var(--color-border-light);
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
 
 .spell-overlay {
@@ -2330,9 +2501,10 @@ function handleMouseUp(e) {
   -webkit-backdrop-filter: blur(20px) saturate(180%);
 }
 
+/* 悬浮工具栏 - 图标尺寸放大，可视度提升 */
 .ft-btn {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2340,17 +2512,16 @@ function handleMouseUp(e) {
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: 8px;
   transition: all 0.15s ease;
 }
-
+.ft-btn svg { width: 18px; height: 18px; }
 .ft-btn:hover {
   background: var(--color-surface-hover);
   color: var(--color-text-primary);
 }
-
 .ft-btn:active {
-  transform: scale(0.92);
+  transform: scale(0.95);
 }
 
 .ft-divider {

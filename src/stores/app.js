@@ -28,6 +28,16 @@ export const useAppStore = defineStore('app', () => {
   const commandPaletteOpen = ref(false)
   const quickSwitcherOpen = ref(false)
   let mediaQueryListener = null
+  let spellSaveTimer = null
+  let firstLoadDone = false
+  const isElectron = typeof window !== 'undefined' && !!window.electronAPI
+
+  // 字号（"稍微大一点"）：small 14 / medium 16 / large 18（每级相对旧值 +1 ~ +2px）
+  const fontSizeMap = {
+    small:  { body: '14px', h1: '30px', h2: '24px', h3: '20px', h4: '16px', base: '14px', lg: '16px', xl: '18px', h2xl: '22px', h3xl: '28px', h4xl: '32px', h5xl: '36px', sm: '13px', xs: '12px', xxs: '11px', xxxs: '10px' },
+    medium: { body: '16px', h1: '34px', h2: '28px', h3: '23px', h4: '18px', base: '16px', lg: '18px', xl: '20px', h2xl: '24px', h3xl: '30px', h4xl: '36px', h5xl: '40px', sm: '14px', xs: '13px', xxs: '12px', xxxs: '11px' },
+    large:  { body: '18px', h1: '38px', h2: '32px', h3: '26px', h4: '20px', base: '18px', lg: '20px', xl: '22px', h2xl: '26px', h3xl: '34px', h4xl: '40px', h5xl: '44px', sm: '16px', xs: '14px', xxs: '13px', xxxs: '12px' }
+  }
 
   const effectiveTheme = computed(() => {
     if (theme.value === 'system') {
@@ -225,6 +235,7 @@ export const useAppStore = defineStore('app', () => {
 
   function initTheme() {
     loadConfig()
+    hydrateSpellDataFromDisk()
   }
 
   function toggleTheme() {
@@ -259,7 +270,25 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function applyFontSize() {
-    document.documentElement.setAttribute('data-font-size', fontSize.value)
+    const m = fontSizeMap[fontSize.value] || fontSizeMap.medium
+    const root = document.documentElement
+    root.setAttribute('data-font-size', fontSize.value)
+    root.style.setProperty('--font-size-body', m.body)
+    root.style.setProperty('--font-size-sm', m.sm)
+    root.style.setProperty('--font-size-xs', m.xs)
+    root.style.setProperty('--font-size-2xs', m.xxs)
+    root.style.setProperty('--font-size-3xs', m.xxxs)
+    root.style.setProperty('--font-size-h1', m.h1)
+    root.style.setProperty('--font-size-h2', m.h2)
+    root.style.setProperty('--font-size-h3', m.h3)
+    root.style.setProperty('--font-size-h4', m.h4)
+    root.style.setProperty('--font-size-base', m.base)
+    root.style.setProperty('--font-size-lg', m.lg)
+    root.style.setProperty('--font-size-xl', m.xl)
+    root.style.setProperty('--font-size-2xl', m.h2xl)
+    root.style.setProperty('--font-size-3xl', m.h3xl)
+    root.style.setProperty('--font-size-4xl', m.h4xl)
+    root.style.setProperty('--font-size-5xl', m.h5xl)
   }
 
   function setFontSize(size) {
@@ -304,13 +333,48 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('choyeon-sidebar', sidebar.value)
   }
 
+  function scheduleSpellPersist() {
+    if (!isElectron) return
+    if (spellSaveTimer) clearTimeout(spellSaveTimer)
+    spellSaveTimer = setTimeout(async () => {
+      try {
+        if (window.electronAPI?.saveSpellData) {
+          await window.electronAPI.saveSpellData({
+            ignoredWords: [...ignoredWords.value],
+            customDictionary: [...customDictionary.value]
+          })
+        }
+      } catch (e) { /* ignore */ }
+    }, 250)
+  }
+
   function ignoreWord(word) {
     const lowerWord = word.toLowerCase()
     if (!ignoredWords.value.has(lowerWord)) {
       ignoredWords.value = new Set([...ignoredWords.value, lowerWord])
       localStorage.setItem('choyeon-ignored-words', JSON.stringify([...ignoredWords.value]))
+      scheduleSpellPersist()
       spellVersion.value++
     }
+  }
+
+  function unignoreWord(word) {
+    const lowerWord = word.toLowerCase()
+    if (ignoredWords.value.has(lowerWord)) {
+      const next = new Set(ignoredWords.value)
+      next.delete(lowerWord)
+      ignoredWords.value = next
+      localStorage.setItem('choyeon-ignored-words', JSON.stringify([...ignoredWords.value]))
+      scheduleSpellPersist()
+      spellVersion.value++
+    }
+  }
+
+  function clearIgnoredWords() {
+    ignoredWords.value = new Set()
+    localStorage.setItem('choyeon-ignored-words', '[]')
+    scheduleSpellPersist()
+    spellVersion.value++
   }
 
   function addToDictionary(word) {
@@ -318,8 +382,51 @@ export const useAppStore = defineStore('app', () => {
     if (!customDictionary.value.has(lowerWord)) {
       customDictionary.value = new Set([...customDictionary.value, lowerWord])
       localStorage.setItem('choyeon-custom-dictionary', JSON.stringify([...customDictionary.value]))
+      scheduleSpellPersist()
       spellVersion.value++
     }
+  }
+
+  function removeFromDictionary(word) {
+    const lowerWord = word.toLowerCase()
+    if (customDictionary.value.has(lowerWord)) {
+      const next = new Set(customDictionary.value)
+      next.delete(lowerWord)
+      customDictionary.value = next
+      localStorage.setItem('choyeon-custom-dictionary', JSON.stringify([...customDictionary.value]))
+      scheduleSpellPersist()
+      spellVersion.value++
+    }
+  }
+
+  function clearCustomDictionary() {
+    customDictionary.value = new Set()
+    localStorage.setItem('choyeon-custom-dictionary', '[]')
+    scheduleSpellPersist()
+    spellVersion.value++
+  }
+
+  async function hydrateSpellDataFromDisk() {
+    if (!isElectron || firstLoadDone) return
+    firstLoadDone = true
+    try {
+      if (window.electronAPI?.loadSpellData) {
+        const data = await window.electronAPI.loadSpellData()
+        if (data) {
+          if (Array.isArray(data.ignoredWords) && data.ignoredWords.length > 0) {
+            const merged = new Set([...ignoredWords.value, ...data.ignoredWords.map(w => String(w).toLowerCase())])
+            ignoredWords.value = merged
+            localStorage.setItem('choyeon-ignored-words', JSON.stringify([...merged]))
+          }
+          if (Array.isArray(data.customDictionary) && data.customDictionary.length > 0) {
+            const merged = new Set([...customDictionary.value, ...data.customDictionary.map(w => String(w).toLowerCase())])
+            customDictionary.value = merged
+            localStorage.setItem('choyeon-custom-dictionary', JSON.stringify([...merged]))
+          }
+          if (data.ignoredWords || data.customDictionary) spellVersion.value++
+        }
+      }
+    } catch (e) { /* ignore */ }
   }
 
   function setCodeTheme(theme) {
@@ -426,7 +533,12 @@ export const useAppStore = defineStore('app', () => {
     resetConfig,
     loadConfig,
     ignoreWord,
+    unignoreWord,
+    clearIgnoredWords,
     addToDictionary,
+    removeFromDictionary,
+    clearCustomDictionary,
+    hydrateSpellDataFromDisk,
     isWordCorrect,
     getSpellErrors,
     setCodeTheme,

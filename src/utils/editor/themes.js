@@ -7,20 +7,27 @@ const lightTheme = EditorView.theme({
     backgroundColor: 'transparent',
     color: 'var(--color-text-primary)',
     fontSize: 'var(--font-size-body)',
-    fontFamily: "var(--font-mono), 'Consolas', 'Monaco', 'Courier New', monospace",
-    lineHeight: '1.7'
+    fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
+    lineHeight: '1.72'
   },
   '.cm-content': {
     caretColor: 'var(--color-primary)',
-    padding: '20px 24px',
-    minHeight: '100%'
+    padding: '40px 32px',
+    minHeight: '100%',
+    fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
+    fontSize: 'var(--font-size-body)',
+    lineHeight: '1.72',
+    maxWidth: '780px',
+    margin: '0 auto'
   },
   '.cm-cursor': {
     borderLeftColor: 'var(--color-primary)',
     borderLeftWidth: '2px'
   },
   '.cm-line': {
-    padding: '0 4px'
+    padding: '2px 4px',
+    fontSize: 'var(--font-size-body)',
+    lineHeight: '1.72'
   },
   '.cm-selectionBackground, ::selection': {
     backgroundColor: 'rgba(74, 144, 217, 0.2) !important'
@@ -29,8 +36,8 @@ const lightTheme = EditorView.theme({
     backgroundColor: 'transparent',
     color: 'var(--color-text-tertiary)',
     border: 'none',
-    padding: '20px 8px 20px 16px',
-    fontSize: '12px',
+    padding: '40px 10px 40px 20px',
+    fontSize: 'var(--font-size-sm)',
     fontFamily: 'var(--font-mono)'
   },
   '.cm-activeLineGutter': {
@@ -43,14 +50,14 @@ const lightTheme = EditorView.theme({
   '.cm-tooltip': {
     backgroundColor: 'var(--color-surface-elevated)',
     border: '1px solid var(--color-border)',
-    borderRadius: '8px',
+    borderRadius: '10px',
     boxShadow: 'var(--shadow-float)',
-    padding: '4px'
+    padding: '6px'
   },
   '.cm-tooltip-autocomplete': {
     '& > ul > li': {
-      padding: '6px 10px',
-      borderRadius: '4px'
+      padding: '8px 12px',
+      borderRadius: '6px'
     },
     '& > ul > li[aria-selected]': {
       backgroundColor: 'var(--color-primary-surface)',
@@ -68,8 +75,8 @@ const lightTheme = EditorView.theme({
   '.cm-button': {
     backgroundColor: 'var(--color-bg-tertiary)',
     border: '1px solid var(--color-border)',
-    borderRadius: '6px',
-    padding: '4px 10px',
+    borderRadius: '8px',
+    padding: '6px 12px',
     color: 'var(--color-text-primary)',
     cursor: 'pointer'
   },
@@ -79,8 +86,8 @@ const lightTheme = EditorView.theme({
   '.cm-textfield': {
     backgroundColor: 'var(--color-surface)',
     border: '1px solid var(--color-border)',
-    borderRadius: '6px',
-    padding: '4px 8px',
+    borderRadius: '8px',
+    padding: '6px 10px',
     color: 'var(--color-text-primary)'
   },
   '.cm-textfield:focus': {
@@ -90,9 +97,12 @@ const lightTheme = EditorView.theme({
   },
   '.cm-spell-error': {
     textDecoration: 'wavy underline var(--state-error)',
-    textDecorationThickness: '1.5px',
-    textUnderlineOffset: '2px',
-    cursor: 'pointer'
+    textDecorationThickness: '1.8px',
+    textUnderlineOffset: '3px',
+    cursor: 'pointer',
+    textDecorationSkipInk: 'none',
+    background: 'color-mix(in srgb, var(--state-error) 6%, transparent)',
+    borderRadius: '3px'
   }
 }, { dark: false })
 
@@ -101,20 +111,27 @@ const darkTheme = EditorView.theme({
     backgroundColor: 'transparent',
     color: 'var(--color-text-primary)',
     fontSize: 'var(--font-size-body)',
-    fontFamily: "var(--font-mono), 'Consolas', 'Monaco', 'Courier New', monospace",
-    lineHeight: '1.7'
+    fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
+    lineHeight: '1.72'
   },
   '.cm-content': {
     caretColor: 'var(--color-primary)',
-    padding: '20px 24px',
-    minHeight: '100%'
+    padding: '40px 32px',
+    minHeight: '100%',
+    fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
+    fontSize: 'var(--font-size-body)',
+    lineHeight: '1.72',
+    maxWidth: '780px',
+    margin: '0 auto'
   },
   '.cm-cursor': {
     borderLeftColor: 'var(--color-primary)',
     borderLeftWidth: '2px'
   },
   '.cm-line': {
-    padding: '0 4px'
+    padding: '2px 4px',
+    fontSize: 'var(--font-size-body)',
+    lineHeight: '1.72'
   },
   '.cm-selectionBackground, ::selection': {
     backgroundColor: 'rgba(74, 144, 217, 0.35) !important'
@@ -123,8 +140,8 @@ const darkTheme = EditorView.theme({
     backgroundColor: 'transparent',
     color: 'var(--color-text-tertiary)',
     border: 'none',
-    padding: '20px 8px 20px 16px',
-    fontSize: '12px',
+    padding: '40px 10px 40px 20px',
+    fontSize: 'var(--font-size-sm)',
     fontFamily: 'var(--font-mono)'
   },
   '.cm-activeLineGutter': {
@@ -137,14 +154,14 @@ const darkTheme = EditorView.theme({
   '.cm-tooltip': {
     backgroundColor: 'var(--color-surface-elevated)',
     border: '1px solid var(--color-border)',
-    borderRadius: '8px',
+    borderRadius: '10px',
     boxShadow: 'var(--shadow-float)',
-    padding: '4px'
+    padding: '6px'
   },
   '.cm-tooltip-autocomplete': {
     '& > ul > li': {
-      padding: '6px 10px',
-      borderRadius: '4px'
+      padding: '8px 12px',
+      borderRadius: '6px'
     },
     '& > ul > li[aria-selected]': {
       backgroundColor: 'var(--color-primary-surface)',
@@ -162,8 +179,8 @@ const darkTheme = EditorView.theme({
   '.cm-button': {
     backgroundColor: 'var(--color-bg-tertiary)',
     border: '1px solid var(--color-border)',
-    borderRadius: '6px',
-    padding: '4px 10px',
+    borderRadius: '8px',
+    padding: '6px 12px',
     color: 'var(--color-text-primary)',
     cursor: 'pointer'
   },
@@ -173,8 +190,8 @@ const darkTheme = EditorView.theme({
   '.cm-textfield': {
     backgroundColor: 'var(--color-surface)',
     border: '1px solid var(--color-border)',
-    borderRadius: '6px',
-    padding: '4px 8px',
+    borderRadius: '8px',
+    padding: '6px 10px',
     color: 'var(--color-text-primary)'
   },
   '.cm-textfield:focus': {
@@ -184,9 +201,12 @@ const darkTheme = EditorView.theme({
   },
   '.cm-spell-error': {
     textDecoration: 'wavy underline var(--state-error)',
-    textDecorationThickness: '1.5px',
-    textUnderlineOffset: '2px',
-    cursor: 'pointer'
+    textDecorationThickness: '1.8px',
+    textUnderlineOffset: '3px',
+    cursor: 'pointer',
+    textDecorationSkipInk: 'none',
+    background: 'color-mix(in srgb, var(--state-error) 10%, transparent)',
+    borderRadius: '3px'
   }
 }, { dark: true })
 

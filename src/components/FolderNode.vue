@@ -205,6 +205,8 @@ import { computed, reactive, ref, nextTick, provide, inject, h, watch } from 'vu
 import {
   ChevronRight, Folder, FolderOpen, FileText, Plus, FolderPlus
 } from 'lucide-vue-next'
+import { useNoteStore } from '@/stores/note'
+import { dndCtxKey, createDndCtx } from '@/composables/folderDnd.js'
 
 const props = defineProps({
   folder: { type: Object, required: true },
@@ -216,7 +218,7 @@ const props = defineProps({
   currentNoteId: { type: [String, null], default: null }
 })
 
-defineEmits([
+const emit = defineEmits([
   'open-note',
   'context-menu',
   'dnd',
@@ -228,27 +230,11 @@ defineEmits([
   'select-folder'
 ])
 
-// ====== 同层节点间共享的 DnD + Rename + ContextMenu 反应状态 ======
-const dndCtxKey = Symbol('folderNodeDndCtx')
+// FolderNode 会在 script 动作点主动 emit（除模板里嵌套转发外），所以需要 emit 句柄。
 
-function createDndCtx() {
-  return {
-    dropState: reactive({ kind: '', path: '', parentPath: '' }),
-    dragPayload: reactive({ type: '', id: '', sourceFolder: '' }),
-    editing: reactive({ active: false, type: '', target: '', value: '' }),
-    renameInputRef: ref(null),
-    onRenameComplete: (payload) => {},
-    request: {
-      move: () => {},
-      contextMenu: () => {},
-      createNote: () => {},
-      createFolder: () => {},
-      deleteItem: () => {},
-      toggleFolder: () => {},
-      selectFolder: () => {}
-    }
-  }
-}
+// 注：dndCtxKey / createDndCtx 统一从 folderDnd 共享模块导入
+//   这样 Sidebar 能用同一 key provide 真实回调，否则 FolderNode 顶层将退回 stub，
+//   导致 ctx.request.move / createNote / onRenameComplete 全部空转。
 
 // 顶层是 Sidebar 注入的 ctx；递归子节点复用
 let ctx = inject(dndCtxKey, null)
@@ -275,27 +261,32 @@ const sortedChildren = computed(() => {
 
 function toggleOnly() {
   ctx.request.toggleFolder(props.folder.path)
+  emit('toggle-folder', props.folder.path)
 }
 function onFolderClick() {
   // 选中文件夹 + 切换展开
   if (props.selectedFolder !== props.folder.path) {
     ctx.request.selectFolder(props.folder.path)
+    emit('select-folder', props.folder.path)
   } else {
     ctx.request.toggleFolder(props.folder.path)
+    emit('toggle-folder', props.folder.path)
   }
 }
 
 // ====== 右键菜单（冒泡给 Sidebar 统一渲染）======
 function openContextMenu(e, kind, target) {
   const rect = e.currentTarget.getBoundingClientRect()
-  ctx.request.contextMenu({
+  const payload = {
     clientX: e.clientX,
     clientY: e.clientY,
     kind, // 'folder' | 'note'
     target, // folder.path | note.id
     name: kind === 'folder' ? props.folder.name : (props.notes.find(n => n.id === target)?.title || ''),
     sourceFolder: props.folder.path
-  })
+  }
+  ctx.request.contextMenu(payload)
+  emit('context-menu', payload)
 }
 
 // ====== 重命名 ======
@@ -321,7 +312,9 @@ function commitRename() {
   if (!editing.active) return
   const v = (editing.value || '').trim()
   if (v && v !== (editing.type === 'folder' ? props.folder.name : (props.notes.find(n => n.id === editing.target)?.title || ''))) {
-    ctx.onRenameComplete({ type: editing.type, target: editing.target, value: v })
+    const payload = { type: editing.type, target: editing.target, value: v }
+    ctx.onRenameComplete(payload)
+    emit('rename', payload)
   }
   cancelRename()
 }
@@ -334,13 +327,17 @@ function cancelRename() {
 
 // ====== 动作 ======
 function createNoteInFolder(folderPath) {
-  ctx.request.createNote({ folder: folderPath })
+  const payload = { folder: folderPath }
+  ctx.request.createNote(payload)
+  emit('create-note', payload)
 }
 function createSubfolder(folderPath) {
   const name = window.prompt('新建子文件夹名称', '新文件夹')
   if (!name) return
   const path = folderPath ? `${folderPath}/${name.trim()}` : name.trim()
-  ctx.request.createFolder({ path })
+  const payload = { path }
+  ctx.request.createFolder(payload)
+  emit('create-folder', payload)
 }
 
 // ====== HTML5 DnD ======
@@ -400,14 +397,16 @@ function onDrop(e, kind, pathOrId) {
   const h = rect.height
   const zone = y < h * 0.25 ? 'before' : (y > h * 0.75 ? 'after' : 'on')
 
-  ctx.request.move({
+  const payload = {
     source: data,
     targetKind: kind, // 'folder' | 'note'
     targetPath: pathOrId, // folder.path | note.id
     targetFolderContainer: props.folder.path,
     zone, // 'before' | 'on' | 'after'
     parentPath: props.parentPath
-  })
+  }
+  ctx.request.move(payload)
+  emit('dnd', payload)
   clearDropState()
 }
 </script>

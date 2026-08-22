@@ -260,22 +260,41 @@
 </template>
 
 <script setup>
-import { computed, reactive, ref, nextTick } from 'vue'
+import { computed, reactive, ref, nextTick, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
-import { 
-  PenLine, Search, CalendarDays, GitBranch, Tag, 
-  Folder, FolderOpen, FileText, 
+import {
+  PenLine, Search, CalendarDays, GitBranch, Tag,
+  Folder, FolderOpen, FileText,
   Plus, Settings, PanelLeft, FolderPlus,
   Pencil, Copy, Trash2
 } from 'lucide-vue-next'
 import FolderNode from './FolderNode.vue'
+import { dndCtxKey, createDndCtx } from '@/composables/folderDnd.js'
 
 defineEmits(['toggle-sidebar'])
 
 const route = useRoute()
 const router = useRouter()
 const noteStore = useNoteStore()
+
+// =====================================================================
+// 给 FolderNode 递归树注入真实 DnD/Rename 上下文。
+// 之前：dndCtxKey 在 FolderNode 内部声明，Sidebar 无法 provide 对应 key，
+// 导致 ctx.request.move/createNote/onRenameComplete 全是空 stub，
+// 表现为：拖放 / 新建 / 重命名 静默失败。
+// 现在：从共享模块 dndCtxKey 取相同 Symbol，Sidebar 先 provide 真实实现。
+// =====================================================================
+const folderDndCtx = createDndCtx()
+folderDndCtx.onRenameComplete = (payload) => receiveRename(payload)
+folderDndCtx.request.move = (p) => receiveDnd(p)
+folderDndCtx.request.contextMenu = (p) => receiveChildContextMenu(p)
+folderDndCtx.request.createNote = (p) => receiveCreateNote(p)
+folderDndCtx.request.createFolder = (p) => receiveCreateFolder(p)
+folderDndCtx.request.deleteItem = (p) => receiveDeleteItem(p)
+folderDndCtx.request.toggleFolder = (p) => toggleFolder(p)
+folderDndCtx.request.selectFolder = (p) => selectFolderOnly(p)
+provide(dndCtxKey, folderDndCtx)
 
 const rootDrop = ref(false)
 const siblingDrop = reactive({ kind: '', path: '', folder: '' })

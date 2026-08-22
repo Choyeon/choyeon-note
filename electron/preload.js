@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   writeFile: (filePath, content) => ipcRenderer.invoke('fs:write-file', filePath, content),
   createDirectory: (dirPath) => ipcRenderer.invoke('fs:create-directory', dirPath),
   deleteFile: (filePath) => ipcRenderer.invoke('fs:delete-file', filePath),
+  moveFile: (oldPath, newPath) => ipcRenderer.invoke('fs:move-file', oldPath, newPath),
   fileExists: (filePath) => ipcRenderer.invoke('fs:file-exists', filePath),
   
   onMenuAction: (callback) => {

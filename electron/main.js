@@ -379,6 +379,37 @@ ipcMain.handle('fs:delete-file', async (_, filePath) => {
   }
 })
 
+// ============= fs:move-file：重命名/拖放移动时的原子操作 =============
+// 为什么需要独立 IPC：之前没有该 API，moveNote/renameNote 只能走 writeFile + deleteFile
+// 的 fallback，会出现「写入成功但删除失败 → 重复文件」或「跨分区需要 copy+unlink」等
+// 不一致问题。这里优先用 fs.rename（POSIX 原子性/Windows 同 NTFS 卷内原子），失败时退化为
+// copy+unlink 并返回 true/false 标志，让渲染侧能正确更新 note.filePath。
+ipcMain.handle('fs:move-file', async (_, oldPath, newPath) => {
+  try {
+    const safeOld = validatePath(notesPath, oldPath)
+    const safeNew = validatePath(notesPath, newPath)
+    if (safeOld === safeNew) return true
+    // 目标目录预先创建
+    await fs.mkdir(path.dirname(safeNew), { recursive: true })
+    try {
+      await fs.rename(safeOld, safeNew)
+      return true
+    } catch (renameErr) {
+      // 跨设备 / 目录级 rename 不支持时 fallback：copy + unlink
+      const stat = await fs.stat(safeOld)
+      if (stat.isFile()) {
+        await fs.copyFile(safeOld, safeNew)
+        await fs.unlink(safeOld)
+        return true
+      }
+      throw renameErr
+    }
+  } catch (error) {
+    console.error('Error moving file:', error.message, { oldPath, newPath })
+    return false
+  }
+})
+
 ipcMain.handle('fs:file-exists', async (_, filePath) => {
   try {
     const safePath = validatePath(notesPath, filePath)

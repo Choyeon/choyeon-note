@@ -695,6 +695,24 @@ export const useNoteStore = defineStore('note', () => {
     loadNotesFromPath,
     saveNoteToFile,
     createNewNoteFile,
-    resetConfig
+    resetConfig,
+    // ===== Obsidian 功能方法（之前已实现但漏导出，导致调用方静默失败）=====
+    getBacklinks,
+    getOutgoing,
+    getUnresolved,
+    getNotesByTag,
+    findByTitle,
+    findNoteByWikiTarget,
+    resolveWikiForRender,
+    searchNotesFuzzy,
+    getNoteOutline,
+    getNoteFrontmatter,
+    updateNoteFrontmatter,
+    createNoteFromWikiTarget,
+    moveNote,
+    renameNote,
+    createFolder,
+    deleteFolder,
+    renameFolder
   }
 })

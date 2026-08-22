@@ -105,6 +105,8 @@
         </main>
       </div>
     </div>
+    <CommandPalette />
+    <QuickSwitcher />
   </div>
 </template>
 
@@ -115,6 +117,8 @@ import { useAppStore } from './stores/app'
 import { useNoteStore } from './stores/note'
 import { PanelRight } from 'lucide-vue-next'
 import Sidebar from './components/Sidebar.vue'
+import CommandPalette from './components/CommandPalette.vue'
+import QuickSwitcher from './components/QuickSwitcher.vue'
 import { setCodeTheme as setHljsTheme } from './utils/markdown'
 
 const appStore = useAppStore()
@@ -198,17 +202,81 @@ function handleMenuAction(event) {
       break
     }
     case 'menu:search': {
-      router.push('/search')
+      appStore.openQuickSwitcher()
       break
     }
     case 'menu:command-palette': {
-      router.push('/search')
+      appStore.openCommandPalette()
       break
     }
     case 'menu:toggle-theme': {
       appStore.toggleTheme()
       break
     }
+  }
+}
+
+function onGlobalKeydown(e) {
+  // 忽略 input / textarea / contenteditable 内部（除了 ESC 和特殊组合）
+  const target = e.target
+  const inEditable =
+    target &&
+    (target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable)
+
+  // 命令面板 / 快速切换器打开时的 ESC 由各自组件接管
+  const mod = e.ctrlKey || e.metaKey
+  const shift = e.shiftKey
+  const k = e.key
+
+  // Ctrl/Cmd + Shift + P → 命令面板
+  if (mod && shift && (k === 'p' || k === 'P')) {
+    e.preventDefault()
+    appStore.toggleCommandPalette()
+    return
+  }
+  // Ctrl/Cmd + O → 快速切换器
+  if (mod && !shift && (k === 'o' || k === 'O')) {
+    e.preventDefault()
+    appStore.toggleQuickSwitcher()
+    return
+  }
+  // Ctrl/Cmd + K → 快速切换器（和侧边栏搜索按钮展示的一致）
+  if (mod && !shift && (k === 'k' || k === 'K')) {
+    e.preventDefault()
+    appStore.openQuickSwitcher()
+    return
+  }
+  // Ctrl/Cmd + N → 新建笔记
+  if (mod && !shift && (k === 'n' || k === 'N') && !inEditable) {
+    e.preventDefault()
+    const note = noteStore.createNote('', '新笔记')
+    router.push(`/editor/${note.id}`)
+    return
+  }
+  // Ctrl/Cmd + S → 保存当前
+  if (mod && !shift && (k === 's' || k === 'S')) {
+    e.preventDefault()
+    if (noteStore.currentNote?.id) noteStore.flushSave?.(noteStore.currentNote.id)
+    return
+  }
+  // Ctrl/Cmd + , → 设置
+  if (mod && (k === ',')) {
+    e.preventDefault()
+    router.push('/settings')
+    return
+  }
+  // Ctrl/Cmd + B → 切换侧边栏
+  if (mod && !shift && (k === 'b' || k === 'B') && !inEditable) {
+    e.preventDefault()
+    appStore.toggleSidebar()
+    return
+  }
+  // 未在可编辑区时的 Escape：关闭任意模态
+  if (k === 'Escape' && !inEditable) {
+    if (appStore.commandPaletteOpen) appStore.closeCommandPalette()
+    if (appStore.quickSwitcherOpen) appStore.closeQuickSwitcher()
   }
 }
 
@@ -246,6 +314,8 @@ onMounted(() => {
   if (window.electronAPI?.onMenuAction) {
     menuUnsubscribe = window.electronAPI.onMenuAction(handleMenuAction)
   }
+
+  window.addEventListener('keydown', onGlobalKeydown, true)
 })
 
 onUnmounted(() => {
@@ -253,6 +323,7 @@ onUnmounted(() => {
     menuUnsubscribe()
     menuUnsubscribe = null
   }
+  window.removeEventListener('keydown', onGlobalKeydown, true)
 })
 
 function detectPlatform() {

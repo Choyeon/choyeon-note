@@ -1,5 +1,14 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import {
+  buildLinkGraph,
+  extractOutline,
+  extractTags,
+  parseFrontmatter,
+  stringifyFrontmatter,
+  resolveLink,
+  fuzzyMatch
+} from '../composables/useLinks.js'
 
 const generateId = () => Math.random().toString(36).substr(2, 9)
 
@@ -239,9 +248,181 @@ export const useNoteStore = defineStore('note', () => {
     const tagSet = new Set()
     notes.value.forEach(note => {
       note.tags.forEach(tag => tagSet.add(tag))
+      // 正文内的标签也加入 allTags 集合
+      try {
+        const inlineTags = extractTags(note.content)
+        inlineTags.forEach(t => tagSet.add(t))
+      } catch (_) { /* ignore */ }
     })
     return Array.from(tagSet)
   })
+
+  // =========================================================================
+  // Obsidian 风格链接图
+  // =========================================================================
+  const linkGraph = computed(() => buildLinkGraph(notes.value))
+
+  function getBacklinks (noteId) {
+    return linkGraph.value.getBacklinks(noteId)
+  }
+  function getOutgoing (noteId) {
+    return linkGraph.value.getOutgoing(noteId)
+  }
+  function getUnresolved (noteId) {
+    return linkGraph.value.getUnresolved(noteId)
+  }
+  function getNotesByTag (tag) {
+    return linkGraph.value.getNotesByTag(tag)
+  }
+  function findByTitle (title) {
+    if (!title) return []
+    const ids = linkGraph.value.getByTitle(title)
+    return ids.map(id => notes.value.find(n => n.id === id)).filter(Boolean)
+  }
+  function findNoteByWikiTarget (anchor, ctxNote) {
+    return resolveLink(anchor, ctxNote, notes.value)
+  }
+  function resolveWikiForRender (target) {
+    const found = resolveLink(target, null, notes.value)
+    if (!found) return { resolved: false, id: null, title: target }
+    return { resolved: true, id: found.id, title: found.title }
+  }
+  function searchNotesFuzzy (query, limit = 20) {
+    const hits = fuzzyMatch(query, notes.value, { key: n => `${n.title} ${n.folder} ${getInlineTagsHint(n.content)}` })
+    return hits.slice(0, limit).map(h => h.item)
+  }
+  function getInlineTagsHint (md) {
+    try { return extractTags(md).join(' ') } catch { return '' }
+  }
+  function getNoteOutline (noteId) {
+    const note = notes.value.find(n => n.id === noteId)
+    return note ? extractOutline(note.content) : []
+  }
+  function getNoteFrontmatter (noteId) {
+    const note = notes.value.find(n => n.id === noteId)
+    if (!note) return parseFrontmatter('')
+    return parseFrontmatter(note.content)
+  }
+  function updateNoteFrontmatter (noteId, patch) {
+    const note = notes.value.find(n => n.id === noteId)
+    if (!note) return false
+    const { frontmatter, body } = parseFrontmatter(note.content)
+    const next = { ...frontmatter, ...patch }
+    Object.keys(next).forEach(k => {
+      if (next[k] === undefined || next[k] === null) delete next[k]
+    })
+    const newContent = stringifyFrontmatter(next, body)
+    updateNoteContent(noteId, newContent)
+    return true
+  }
+  function createNoteFromWikiTarget (target, folder = '') {
+    const title = String(target || '').replace(/^.*\//, '').replace(/\.md$/i, '') || '新笔记'
+    return createNote(folder, title)
+  }
+
+  // =========================================================================
+  // 文件夹 / 笔记移动 & 重命名（侧边栏 DnD & 右键菜单用）
+  // =========================================================================
+  function moveNote (noteId, targetFolder) {
+    const note = notes.value.find(n => n.id === noteId)
+    if (!note || note.folder === targetFolder) return false
+    note.folder = targetFolder
+    note.updatedAt = new Date()
+    if (note.filePath && window.electronAPI && notesPath.value) {
+      // 走主进程 moveFile（如有）；否则重写 + 删旧
+      const newFolderPath = targetFolder ? `${notesPath.value}/${targetFolder}` : notesPath.value
+      const oldPath = note.filePath
+      const fileName = `${note.title}.md`.replace(/[\\/:*?"<>|]/g, '_')
+      const newPath = `${newFolderPath}/${fileName}`
+      if (window.electronAPI.moveFile) {
+        window.electronAPI.moveFile(oldPath, newPath).then(ok => {
+          if (ok) note.filePath = newPath
+        })
+      } else {
+        window.electronAPI.createDirectory(newFolderPath).then(() => {
+          window.electronAPI.writeFile(newPath, note.content).then(ok => {
+            if (ok) { note.filePath = newPath; window.electronAPI.deleteFile(oldPath) }
+          })
+        })
+      }
+    }
+    return true
+  }
+
+  function renameNote (noteId, newTitle) {
+    const note = notes.value.find(n => n.id === noteId)
+    if (!note) return false
+    const cleanTitle = String(newTitle || '').trim()
+    if (!cleanTitle) return false
+    note.title = cleanTitle
+    // 同步更新 content 首行 H1（若原始首行是 # 旧标题）
+    const lines = note.content.split('\n')
+    if (/^#\s+/.test(lines[0])) {
+      lines[0] = `# ${cleanTitle}`
+      note.content = lines.join('\n')
+      note.updatedAt = new Date()
+    }
+    if (note.filePath && window.electronAPI && notesPath.value) {
+      const folderPath = note.folder ? `${notesPath.value}/${note.folder}` : notesPath.value
+      const newFileName = `${cleanTitle}.md`.replace(/[\\/:*?"<>|]/g, '_')
+      const newPath = `${folderPath}/${newFileName}`
+      const oldPath = note.filePath
+      if (newPath !== oldPath) {
+        if (window.electronAPI.moveFile) {
+          window.electronAPI.moveFile(oldPath, newPath).then(ok => {
+            if (ok) note.filePath = newPath
+          })
+        } else {
+          window.electronAPI.writeFile(newPath, note.content).then(ok => {
+            if (ok) { note.filePath = newPath; window.electronAPI.deleteFile(oldPath) }
+          })
+        }
+      } else {
+        window.electronAPI.writeFile(oldPath, note.content)
+      }
+    }
+    return true
+  }
+
+  function createFolder (folderPath) {
+    if (!folderPath) return false
+    if (expandedFolders.value.indexOf(folderPath) === -1) expandedFolders.value.push(folderPath)
+    // 同步磁盘
+    if (notesPath.value && window.electronAPI) {
+      window.electronAPI.createDirectory(`${notesPath.value}/${folderPath}`)
+    }
+    return true
+  }
+
+  function deleteFolder (folderPath) {
+    if (!folderPath) return false
+    // 把该文件夹所有笔记移到根
+    notes.value.forEach(n => {
+      if (n.folder === folderPath || n.folder.startsWith(folderPath + '/')) {
+        n.folder = ''
+        n.updatedAt = new Date()
+      }
+    })
+    const idx = expandedFolders.value.indexOf(folderPath)
+    if (idx > -1) expandedFolders.value.splice(idx, 1)
+    return true
+  }
+
+  function renameFolder (oldPath, newName) {
+    if (!oldPath || !newName) return false
+    const parts = oldPath.split('/')
+    parts[parts.length - 1] = newName
+    const newPath = parts.join('/')
+    notes.value.forEach(n => {
+      if (n.folder === oldPath) n.folder = newPath
+      else if (n.folder && n.folder.startsWith(oldPath + '/')) {
+        n.folder = newPath + n.folder.slice(oldPath.length)
+      }
+    })
+    const idx = expandedFolders.value.indexOf(oldPath)
+    if (idx > -1) { expandedFolders.value[idx] = newPath }
+    return true
+  }
 
   function selectNote(id) {
     currentNoteId.value = id

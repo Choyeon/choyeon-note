@@ -24,6 +24,9 @@ export const useAppStore = defineStore('app', () => {
   const bingWallpaperUrl = ref('')
   const autoCheckUpdates = ref(true)
   const appVersion = ref('')
+  // 全局模态：命令面板 & 快速切换器
+  const commandPaletteOpen = ref(false)
+  const quickSwitcherOpen = ref(false)
   let mediaQueryListener = null
 
   const effectiveTheme = computed(() => {
@@ -338,6 +341,27 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('choyeon-auto-check-updates', autoCheckUpdates.value)
   }
 
+  function openCommandPalette() {
+    commandPaletteOpen.value = true
+  }
+  function closeCommandPalette() {
+    commandPaletteOpen.value = false
+  }
+  function toggleCommandPalette() {
+    commandPaletteOpen.value = !commandPaletteOpen.value
+    if (commandPaletteOpen.value) quickSwitcherOpen.value = false
+  }
+  function openQuickSwitcher() {
+    quickSwitcherOpen.value = true
+  }
+  function closeQuickSwitcher() {
+    quickSwitcherOpen.value = false
+  }
+  function toggleQuickSwitcher() {
+    quickSwitcherOpen.value = !quickSwitcherOpen.value
+    if (quickSwitcherOpen.value) commandPaletteOpen.value = false
+  }
+
   function setAppVersion(version) {
     appVersion.value = version
   }
@@ -384,6 +408,8 @@ export const useAppStore = defineStore('app', () => {
     bingWallpaperUrl,
     autoCheckUpdates,
     appVersion,
+    commandPaletteOpen,
+    quickSwitcherOpen,
     initTheme,
     toggleTheme,
     setTheme,
@@ -407,6 +433,12 @@ export const useAppStore = defineStore('app', () => {
     toggleBingWallpaper,
     setBingWallpaperUrl,
     toggleAutoCheckUpdates,
+    openCommandPalette,
+    closeCommandPalette,
+    toggleCommandPalette,
+    openQuickSwitcher,
+    closeQuickSwitcher,
+    toggleQuickSwitcher,
     setAppVersion
   }
 })

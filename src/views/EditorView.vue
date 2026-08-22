@@ -71,14 +71,17 @@
           v-model="content"
           class="flex-1 min-h-0"
           :read-only="false"
+          :completion-context="completionContext"
           @change="onContentChange"
           @save="saveNote"
           @focus="onEditorFocus"
           @blur="onEditorBlur"
+          @open-note="openNoteById"
+          @create-note="onEditorCreateNote"
         />
       </div>
 
-      <div v-else-if="editorMode === 'live'" class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content" ref="liveScrollRef">
+      <div v-else-if="editorMode === 'live'" class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content" ref="liveScrollRef" @click="onPreviewClick">
         <div class="max-w-[780px] mx-auto py-10 px-8 pb-32">
           <div
             ref="liveEditorRef"
@@ -103,7 +106,7 @@
         </div>
       </div>
 
-      <div v-else class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content">
+      <div v-else class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content" @click="onPreviewClick">
         <div class="max-w-[780px] mx-auto py-10 px-8 pb-32">
           <div v-if="!content" class="text-center py-20" :style="{ color: 'var(--color-text-tertiary)' }">
             <FileText class="w-12 h-12 mx-auto mb-4 opacity-40" />
@@ -115,34 +118,36 @@
       </div>
 
       <aside 
-        class="w-[280px] min-w-[280px] h-full acrylic-sidebar flex flex-col overflow-hidden border-l"
+        class="w-[300px] min-w-[300px] h-full acrylic-sidebar flex flex-col overflow-hidden border-l"
         :style="{ borderColor: 'var(--sidebar-border)' }"
       >
         <div 
-          class="flex items-stretch h-10 min-h-10 border-b px-3"
+          class="flex items-stretch h-10 min-h-10 border-b px-2 gap-1 overflow-x-auto cho-scrollbar"
           :style="{ borderColor: 'var(--color-border)' }"
         >
-          <div 
-            class="flex items-center px-1 mr-1 cursor-pointer border-b-2 transition-colors"
-            :style="rightPanelTab === 'outline' ? { borderColor: 'var(--color-primary)', color: 'var(--color-primary)' } : { borderColor: 'transparent' }"
-            @click="rightPanelTab = 'outline'"
-          >
-            <span class="text-[13px] font-medium whitespace-nowrap" :style="{ color: rightPanelTab === 'outline' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">大纲</span>
-          </div>
-          <div 
-            class="flex items-center px-1 cursor-pointer border-b-2 transition-colors"
-            :style="rightPanelTab === 'backlinks' ? { borderColor: 'var(--color-primary)' } : { borderColor: 'transparent' }"
-            @click="rightPanelTab = 'backlinks'"
-          >
-            <span class="text-[13px] font-medium whitespace-nowrap" :style="{ color: rightPanelTab === 'backlinks' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">反向链接</span>
-          </div>
+          <template v-for="tab in rightPanelTabs" :key="tab.key">
+            <div 
+              class="flex items-center px-2 cursor-pointer border-b-2 transition-colors whitespace-nowrap shrink-0"
+              :style="rightPanelTab === tab.key ? { borderColor: 'var(--color-primary)' } : { borderColor: 'transparent' }"
+              @click="rightPanelTab = tab.key"
+            >
+              <component :is="tab.icon" class="w-3.5 h-3.5 mr-1" :style="{ color: rightPanelTab === tab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
+              <span class="text-[12px] font-medium" :style="{ color: rightPanelTab === tab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">{{ tab.label }}</span>
+              <span 
+                v-if="tab.badge !== undefined && tab.badge > 0"
+                class="ml-1 text-[10px] px-1.5 rounded-full"
+                :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
+              >{{ tab.badge }}</span>
+            </div>
+          </template>
         </div>
 
-        <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar p-2">
+        <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar p-2" ref="rightPanelRef">
+          <!-- ============= 大纲 ============= -->
           <div v-if="rightPanelTab === 'outline'" class="flex flex-col gap-0.5">
             <div 
               v-for="(item, index) in outlineItems" 
-              :key="index"
+              :key="'o'+index"
               class="outline-item flex items-center h-7 px-2 rounded-md cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
               :class="{ 'outline-item-active': index === 0 }"
               :style="{ paddingLeft: `${8 + (item.level - 1) * 12}px` }"
@@ -156,14 +161,172 @@
                 }"
               >{{ item.text }}</span>
             </div>
-            <div v-if="outlineItems.length === 0" class="text-[13px] px-2 py-2" :style="{ color: 'var(--color-text-tertiary)' }">
-              暂无大纲
+            <div v-if="outlineItems.length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
+              暂无大纲，使用 # 标题 生成
             </div>
           </div>
-          <div v-else class="flex flex-col gap-0.5">
-            <div class="text-[13px] px-2 py-2" :style="{ color: 'var(--color-text-tertiary)' }">
-              暂无反向链接
+
+          <!-- ============= 反向链接 ============= -->
+          <div v-else-if="rightPanelTab === 'backlinks'" class="flex flex-col gap-2">
+            <div v-if="backlinksList.length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
+              暂无反向链接，使用 [[笔记名]] 来建立引用
             </div>
+            <template v-else>
+              <div v-for="group in groupedBacklinks" :key="group.id" class="rounded-lg overflow-hidden" :style="{ border: '1px solid var(--color-border-light)' }">
+                <div 
+                  class="flex items-center justify-between px-2.5 h-8 cursor-pointer transition-colors"
+                  :style="{ background: 'var(--color-surface)' }"
+                  @click="openNoteById(group.id)"
+                  @mouseenter="($event.currentTarget.style.background='var(--color-surface-hover)')"
+                  @mouseleave="($event.currentTarget.style.background='var(--color-surface)')"
+                >
+                  <div class="flex items-center min-w-0">
+                    <FileText class="w-3.5 h-3.5 mr-2 shrink-0" :style="{ color: 'var(--color-text-secondary)' }" />
+                    <span class="text-[13px] font-medium truncate" :style="{ color: 'var(--color-text-primary)' }">{{ group.title }}</span>
+                  </div>
+                  <ChevronRight class="w-3.5 h-3.5 shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
+                </div>
+                <div 
+                  v-for="(m, idx) in group.matches" 
+                  :key="idx"
+                  class="px-3 py-2 text-[12px] border-t cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+                  :style="{ borderColor: 'var(--color-border-light)', color: 'var(--color-text-secondary)' }"
+                  @click="openNoteById(group.id)"
+                >
+                  <span v-html="highlightWikiContext(m.context || '')"></span>
+                </div>
+              </div>
+            </template>
+          </div>
+
+          <!-- ============= 出站链接 ============= -->
+          <div v-else-if="rightPanelTab === 'outgoing'" class="flex flex-col gap-2">
+            <div v-if="outgoingList.length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
+              暂无出站链接
+            </div>
+            <template v-else>
+              <div class="rounded-lg px-2.5 py-1.5 mb-1" :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border-light)' }">
+                <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">已解析 {{ outgoingList.length }} 个链接 · {{ unresolvedOutgoing.length }} 个未找到</span>
+              </div>
+              <div 
+                v-for="(link, idx) in outgoingList" 
+                :key="'out'+idx"
+                class="flex items-center justify-between px-2.5 h-9 rounded-lg cursor-pointer transition-colors"
+                :class="{ 'opacity-70': !link.resolvedId }"
+                :style="{ border: '1px solid var(--color-border-light)' }"
+                @click="openOutgoingLink(link)"
+                @mouseenter="($event.currentTarget.style.background='var(--color-surface-hover)')"
+                @mouseleave="($event.currentTarget.style.background='transparent')"
+              >
+                <div class="flex items-center min-w-0 flex-1">
+                  <component 
+                    :is="link.embed ? Image : ExternalLink" 
+                    class="w-3.5 h-3.5 mr-2 shrink-0" 
+                    :style="{ color: link.resolvedId ? 'var(--color-primary)' : 'var(--state-warning)' }" 
+                  />
+                  <div class="min-w-0">
+                    <div class="text-[13px] font-medium truncate" :style="{ color: 'var(--color-text-primary)' }">
+                      {{ link.alias || link.displayTitle || link.target }}
+                    </div>
+                    <div class="text-[11px] truncate" :style="{ color: 'var(--color-text-tertiary)' }">
+                      {{ link.resolvedId ? (link.targetFolder || '根目录') : '未创建 · 点击可新建' }}
+                    </div>
+                  </div>
+                </div>
+                <span 
+                  v-if="link.embed" 
+                  class="text-[10px] px-1.5 rounded shrink-0 ml-2"
+                  :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
+                >嵌入</span>
+              </div>
+            </template>
+          </div>
+
+          <!-- ============= 属性/Frontmatter ============= -->
+          <div v-else-if="rightPanelTab === 'properties'" class="flex flex-col gap-1.5 px-0.5">
+            <div class="flex items-center justify-between px-2 py-1.5">
+              <span class="text-[11px] font-medium tracking-wide uppercase" :style="{ color: 'var(--color-text-tertiary)' }">属性 Frontmatter</span>
+              <button 
+                class="text-[11px] px-2 py-0.5 rounded-md transition-colors"
+                :style="{ color: 'var(--color-primary)' }"
+                @click="ensureFrontmatter"
+              >+ 添加</button>
+            </div>
+            <div v-if="Object.keys(frontmatter).length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
+              还没有设置属性，点击右上「添加」或直接在文档顶部写 YAML。
+            </div>
+            <template v-else>
+              <div 
+                v-for="(value, key) in frontmatter" 
+                :key="key"
+                class="flex flex-col rounded-lg px-2.5 py-1.5 transition-colors"
+                :style="{ border: '1px solid var(--color-border-light)' }"
+                @mouseenter="($event.currentTarget.style.background='var(--color-surface-hover)')"
+                @mouseleave="($event.currentTarget.style.background='transparent')"
+              >
+                <div class="flex items-center justify-between">
+                  <span class="text-[11px] font-medium" :style="{ color: 'var(--color-text-tertiary)' }">{{ key }}</span>
+                  <button 
+                    class="text-[11px] opacity-60 hover:opacity-100"
+                    :style="{ color: 'var(--state-error)' }"
+                    @click="removeProperty(key)"
+                  >删除</button>
+                </div>
+                <input 
+                  v-if="!Array.isArray(value)"
+                  type="text"
+                  class="mt-0.5 text-[13px] bg-transparent outline-none"
+                  :value="String(value ?? '')"
+                  :style="{ color: 'var(--color-text-primary)' }"
+                  @change="updateProperty(key, $event.target.value)"
+                />
+                <div v-else class="mt-0.5 flex flex-wrap gap-1.5">
+                  <template v-for="(tag, i) in value" :key="i">
+                    <span 
+                      class="inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full"
+                      :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
+                    >
+                      {{ tag }}
+                      <button 
+                        class="opacity-60 hover:opacity-100"
+                        @click="removeArrayItem(key, i)"
+                      >×</button>
+                    </span>
+                  </template>
+                  <input 
+                    type="text"
+                    placeholder="+ 新值"
+                    class="text-[12px] bg-transparent outline-none w-16"
+                    :style="{ color: 'var(--color-text-secondary)' }"
+                    @keydown.enter.prevent="appendArrayItem(key, $event.target)"
+                  />
+                </div>
+              </div>
+              <div class="mt-2">
+                <div class="text-[11px] px-2 mb-1" :style="{ color: 'var(--color-text-tertiary)' }">新建属性</div>
+                <div class="flex items-center gap-1.5 px-2">
+                  <input 
+                    v-model="newProp.key"
+                    type="text"
+                    placeholder="Key"
+                    class="flex-1 text-[12px] px-2 py-1 rounded-md outline-none"
+                    :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
+                  />
+                  <input 
+                    v-model="newProp.value"
+                    type="text"
+                    placeholder="Value"
+                    class="flex-1 text-[12px] px-2 py-1 rounded-md outline-none"
+                    :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
+                  />
+                  <button 
+                    class="text-[12px] px-2 py-1 rounded-md"
+                    :style="{ background: 'var(--color-primary)', color: 'white' }"
+                    @click="addNewProperty"
+                  >+</button>
+                </div>
+              </div>
+            </template>
           </div>
         </div>
       </aside>
@@ -456,8 +619,10 @@ import {
   EyeOff, BookPlus, Underline, FileText, Search, Eye,
   Type, Pilcrow, ListOrdered, ListTodo, Table as TableIcon,
   Image as ImageIcon, Code2, Square, Heading, Hash, Pencil,
-  PieChart, GitBranch, Clock, BarChart3, Zap
+  PieChart, GitBranch, Clock, BarChart3, Zap, ChevronRight,
+  ExternalLink, ListTree, Link2, Settings2
 } from 'lucide-vue-next'
+import { parseFrontmatter, extractOutline } from '@/composables/useLinks.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -466,6 +631,8 @@ const appStore = useAppStore()
 
 const editorMode = ref('edit')
 const rightPanelTab = ref('outline')
+const newProp = ref({ key: '', value: '' })
+const rightPanelRef = ref(null)
 const content = ref('')
 const editorRef = ref(null)
 const mdEditorRef = ref(null)
@@ -606,19 +773,235 @@ const renderedContent = computed(() => {
 })
 
 const outlineItems = computed(() => {
-  const items = []
-  const lines = content.value.split('\n')
-  lines.forEach(line => {
-    const match = line.match(/^(#{1,6})\s+(.+)$/)
-    if (match) {
-      items.push({
-        level: match[1].length,
-        text: match[2]
-      })
+  try { return extractOutline(content.value || '') } catch { return [] }
+})
+
+// =========================== 右栏 Tabs 元数据 ===========================
+const rightPanelTabs = computed(() => [
+  { key: 'outline', label: '大纲', icon: ListTree, badge: outlineItems.value.length || undefined },
+  { key: 'backlinks', label: '反向链接', icon: Link2, badge: backlinksList.value.length || undefined },
+  { key: 'outgoing', label: '出站链接', icon: ExternalLink, badge: outgoingList.value.length || undefined },
+  { key: 'properties', label: '属性', icon: Settings2 }
+])
+
+// =========================== Frontmatter ===========================
+const parsedFrontmatter = computed(() => parseFrontmatter(content.value || ''))
+const frontmatter = computed(() => parsedFrontmatter.value.frontmatter || {})
+
+// =========================== 自动补全上下文 ===========================
+const completionContext = computed(() => {
+  const notes = (noteStore.notes || []).map(n => ({
+    id: n.id,
+    title: n.title,
+    folder: n.folder,
+    content: n.content
+  }))
+  return {
+    notes,
+    tags: noteStore.allTags || [],
+    currentNoteId: currentNote.value?.id || null,
+    outline: outlineItems.value,
+    onCreateNote: (target) => {
+      const folder = currentNote.value?.folder || ''
+      return noteStore.createNoteFromWikiTarget?.(target, folder) || noteStore.createNote(folder, target)
+    }
+  }
+})
+
+// =========================== 反向 / 出站链接 ===========================
+const backlinksList = computed(() => {
+  const id = currentNote.value?.id
+  if (!id) return []
+  try { return noteStore.getBacklinks?.(id) || [] } catch { return [] }
+})
+
+const groupedBacklinks = computed(() => {
+  const map = new Map()
+  for (const b of backlinksList.value) {
+    const key = b.fromId || b.raw || ''
+    if (!map.has(key)) {
+      map.set(key, { id: b.fromId, title: b.fromTitle || '(未知笔记)', matches: [] })
+    }
+    map.get(key).matches.push({ context: b.context || b.raw, alias: b.alias })
+  }
+  return Array.from(map.values())
+})
+
+const outgoingList = computed(() => {
+  const id = currentNote.value?.id
+  if (!id) return []
+  let raw = []
+  try { raw = noteStore.getOutgoing?.(id) || [] } catch { raw = [] }
+  const notesMap = new Map((noteStore.notes || []).map(n => [n.id, n]))
+  return raw.map(link => {
+    const resolvedNote = link.resolvedId ? notesMap.get(link.resolvedId) : null
+    return {
+      ...link,
+      displayTitle: resolvedNote?.title || link.target,
+      targetFolder: resolvedNote?.folder || ''
     }
   })
-  return items
 })
+
+const unresolvedOutgoing = computed(() => outgoingList.value.filter(l => !l.resolvedId))
+
+function highlightWikiContext(text) {
+  if (!text) return ''
+  const escaped = String(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+  return escaped.replace(/(!?\[\[[^\[\]]*?\]\])/g, '<span style="color:var(--color-primary);font-weight:500;">$1</span>')
+}
+
+function openNoteById(id) {
+  if (!id) return
+  noteStore.selectNote(id)
+  router.replace(`/editor/${id}`)
+}
+
+function openOutgoingLink(link) {
+  if (!link) return
+  if (link.resolvedId) {
+    openNoteById(link.resolvedId)
+    if (link.hash) {
+      nextTick(() => {
+        if (editorMode.value === 'edit' && mdEditorRef.value?.scrollToHeadingText) {
+          mdEditorRef.value.scrollToHeadingText(link.hash)
+        } else {
+          scrollToHeadingTextFallback(link.hash)
+        }
+      })
+    }
+    return
+  }
+  // 未解析：创建新笔记
+  const folder = currentNote.value?.folder || ''
+  const created = noteStore.createNoteFromWikiTarget?.(link.target, folder) || noteStore.createNote(folder, link.target)
+  if (created?.id) openNoteById(created.id)
+}
+
+function scrollToHeadingTextFallback(text) {
+  if (editorMode.value === 'preview') {
+    const els = document.querySelectorAll('.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4,.markdown-body h5,.markdown-body h6')
+    for (const el of els) {
+      if (el.textContent.includes(text)) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
+    }
+  }
+}
+
+function onEditorCreateNote({ target, resolve }) {
+  const folder = currentNote.value?.folder || ''
+  const created = noteStore.createNoteFromWikiTarget?.(target, folder) || noteStore.createNote(folder, target)
+  resolve?.(created)
+  return created
+}
+
+// =========================== 属性编辑 API ===========================
+function ensureFrontmatter() {
+  const { body, hasFrontmatter } = parsedFrontmatter.value
+  if (hasFrontmatter) return
+  const preamble = '---\ntitle: ' + JSON.stringify(currentNote.value?.title || '无标题') + '\ntags: []\ndate: ' + new Date().toISOString().slice(0, 10) + '\n---\n\n'
+  content.value = preamble + (body || content.value || '')
+  onContentChange()
+}
+
+function updateProperty(key, value) {
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: value })
+}
+
+function removeProperty(key) {
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: undefined })
+}
+
+function addNewProperty() {
+  const k = newProp.value.key?.trim()
+  if (!k) return
+  let v = newProp.value.value
+  if (k === 'tags' || k === 'tag' || k === 'categories' || k === 'category') {
+    v = v ? String(v).split(',').map(s => s.trim()).filter(Boolean) : []
+  }
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [k]: v })
+  newProp.value = { key: '', value: '' }
+}
+
+function appendArrayItem(key, inputEl) {
+  const v = (inputEl.value || '').trim()
+  if (!v) return
+  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
+  if (!arr.includes(v)) arr.push(v)
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
+  inputEl.value = ''
+}
+
+function removeArrayItem(key, index) {
+  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
+  arr.splice(index, 1)
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
+}
+
+// =========================== 预览 / Live 模式 wikilink 点击跳转 ===========================
+function onPreviewClick(e) {
+  if (!e) return
+  const a = e.target?.closest?.('a.wikilink, a[data-wiki-target]')
+  if (!a) {
+    // 嵌入块点击（预览卡片）也可打开对应笔记
+    const embedCard = e.target?.closest?.('.embed-card, .wikilink-embed')
+    if (!embedCard) return
+    const target = embedCard.getAttribute('data-wiki-target') || embedCard.getAttribute('data-note-id')
+    if (!target) return
+    handleGenericWikilinkClick({ target, id: embedCard.getAttribute('data-note-id') || null, hash: embedCard.getAttribute('data-wiki-hash') || '' })
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
+  e.preventDefault()
+  e.stopPropagation()
+  const id = a.getAttribute('data-note-id') || null
+  const target = a.getAttribute('data-wiki-target') || ''
+  const hash = a.getAttribute('data-wiki-hash') || ''
+  handleGenericWikilinkClick({ target, id, hash })
+}
+
+function handleGenericWikilinkClick({ target, id, hash }) {
+  // 仅有锚点：滚动到当前文档标题
+  if (!target && hash) {
+    if (editorMode.value === 'edit' && mdEditorRef.value?.scrollToHeadingText) {
+      mdEditorRef.value.scrollToHeadingText(hash)
+    } else {
+      scrollToHeadingTextFallback(hash)
+    }
+    return
+  }
+  if (id) {
+    openNoteById(id)
+    if (hash) setTimeout(() => {
+      if (editorMode.value === 'edit' && mdEditorRef.value?.scrollToHeadingText) {
+        mdEditorRef.value.scrollToHeadingText(hash)
+      } else {
+        scrollToHeadingTextFallback(hash)
+      }
+    }, 80)
+    return
+  }
+  // 根据 target 查找
+  if (target) {
+    const exact = (noteStore.notes || []).find(n => n.title === target)
+    if (exact) {
+      openNoteById(exact.id)
+      if (hash) setTimeout(() => scrollToHeadingTextFallback(hash), 80)
+      return
+    }
+    const fuzzy = (noteStore.notes || []).find(n => n.title.toLowerCase().includes(target.toLowerCase()))
+    if (fuzzy) {
+      openNoteById(fuzzy.id)
+      if (hash) setTimeout(() => scrollToHeadingTextFallback(hash), 80)
+      return
+    }
+    const created = noteStore.createNoteFromWikiTarget?.(target, currentNote.value?.folder || '') || noteStore.createNote(currentNote.value?.folder || '', target)
+    if (created?.id) openNoteById(created.id)
+  }
+}
 
 const spellErrors = computed(() => {
   appStore.spellVersion
@@ -2289,5 +2672,153 @@ function handleMouseUp(e) {
 
 [data-theme='dark'] .notion-preview pre {
   background: rgba(30, 30, 45, 0.6);
+}
+
+/* =================== Wikilink 样式 (edit: CodeMirror 在 themes.js; preview/live 这里) =================== */
+.live-editor :deep(a.wikilink),
+.notion-preview a.wikilink {
+  color: var(--color-primary);
+  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
+  padding: 1px 6px;
+  border-radius: 4px;
+  margin: 0 1px;
+  text-decoration: none;
+  border-bottom: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
+  transition: all 0.15s ease;
+  cursor: pointer;
+  font-weight: 500;
+}
+.live-editor :deep(a.wikilink:hover),
+.notion-preview a.wikilink:hover {
+  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
+  border-bottom-style: solid;
+}
+.live-editor :deep(a.wikilink.is-unresolved),
+.notion-preview a.wikilink.is-unresolved {
+  color: var(--state-warning);
+  background: color-mix(in srgb, var(--state-warning) 8%, transparent);
+  border-bottom-color: color-mix(in srgb, var(--state-warning) 40%, transparent);
+}
+.live-editor :deep(a.wikilink.is-unresolved:hover),
+.notion-preview a.wikilink.is-unresolved:hover {
+  background: color-mix(in srgb, var(--state-warning) 16%, transparent);
+}
+
+/* =================== Callouts =================== */
+.callout-block {
+  border: 1px solid var(--color-border-light);
+  border-radius: 10px;
+  padding: 12px 14px 12px 12px;
+  margin: 12px 0;
+  background: var(--color-surface);
+  transition: background 0.15s ease;
+}
+.callout-block:hover { background: var(--color-surface-hover); }
+.callout-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  user-select: none;
+}
+.callout-icon {
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  font-size: 14px;
+  background: var(--color-bg-tertiary);
+  flex-shrink: 0;
+}
+.callout-title {
+  flex: 1;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-primary);
+}
+.callout-fold {
+  width: 18px; height: 18px;
+  color: var(--color-text-tertiary);
+  transition: transform 0.2s ease;
+}
+.callout-fold.is-open { transform: rotate(90deg); }
+.callout-body {
+  padding-left: 30px;
+  font-size: 14px;
+  color: var(--color-text-secondary);
+  line-height: 1.7;
+  transition: max-height 0.25s ease, opacity 0.2s ease;
+  overflow: hidden;
+}
+.callout-body.is-collapsed {
+  max-height: 0 !important;
+  opacity: 0;
+  pointer-events: none;
+}
+/* 不同 callout 类型颜色 */
+.callout-block.type-note    { border-left: 4px solid #60a5fa; }
+.callout-block.type-info    { border-left: 4px solid #22d3ee; }
+.callout-block.type-tip     { border-left: 4px solid #34d399; }
+.callout-block.type-success { border-left: 4px solid #34d399; }
+.callout-block.type-question{ border-left: 4px solid #fbbf24; }
+.callout-block.type-warning { border-left: 4px solid #f59e0b; }
+.callout-block.type-failure { border-left: 4px solid #f87171; }
+.callout-block.type-danger  { border-left: 4px solid #ef4444; }
+.callout-block.type-bug     { border-left: 4px solid #ec4899; }
+.callout-block.type-example { border-left: 4px solid #a78bfa; }
+.callout-block.type-quote   { border-left: 4px solid var(--color-text-tertiary); }
+.callout-block.type-todo    { border-left: 4px solid var(--color-primary); }
+.callout-block.type-summary { border-left: 4px solid #a3e635; }
+.callout-block.type-abstract{ border-left: 4px solid #a3e635; }
+
+/* =================== Wikilink embed cards =================== */
+.embed-card {
+  border: 1px solid var(--color-border-light);
+  border-radius: 10px;
+  padding: 10px 14px;
+  margin: 10px 0;
+  background: var(--color-surface);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.embed-card:hover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-primary);
+  transform: translateY(-1px);
+}
+.embed-card-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--color-text-primary);
+  margin-bottom: 4px;
+}
+.embed-card-excerpt {
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+  line-height: 1.6;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.embed-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+.embed-hint.embed-missing { color: var(--state-warning); }
+
+/* =================== Right panel tweak: scrollbar subtle =================== */
+.acrylic-sidebar :deep(.cho-scrollbar::-webkit-scrollbar) { width: 6px; }
+.acrylic-sidebar :deep(.cho-scrollbar::-webkit-scrollbar-thumb) {
+  background: var(--color-border);
+  border-radius: 3px;
 }
 </style>

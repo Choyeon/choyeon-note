@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import path from 'node:path'
-import { validatePath, safeJoin } from '../electron/path-safety.js'
+import { validatePath, safeJoin } from '../electron/path-safety.cjs'
 
 const BASE = path.resolve('/home/user/notes')
 const PARENT = path.resolve('/home/user')

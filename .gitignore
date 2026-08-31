@@ -1,26 +1,19 @@
-node_modules
-dist
-dist-ssr
-*.local
-.vscode/*
-!.vscode/extensions.json
-.idea
-.DS_Store
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
+node_modules/
 
-# Electron
-out
-release
-build
-dist-electron
-dist-electron-new
+# Build output
+dist/
+dist-ssr/
+dist-electron/
+out/
+
+# Electron builder output
+release/
+win-unpacked/
+*.blockmap
+latest.yml
 
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -33,5 +26,38 @@ lerna-debug.log*
 .env.local
 .env.*.local
 
+# IDE
+.vscode/*
+!.vscode/extensions.json
+.idea/
+.trae/
+
 # OS
+.DS_Store
 Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# Editors
+*.swp
+*.swo
+*~
+
+# Test
+test-results/
+coverage/
+.nyc_output/
+
+# Misc
+*.local
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.bak
+*.tmp
+*.orig
+*.rej
+
+# Electron builder cache
+.electron-builder-cache/

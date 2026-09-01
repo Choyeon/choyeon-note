@@ -91,6 +91,14 @@
         @wheel="onWheel"
         :style="{ cursor: isPanning ? 'grabbing' : 'grab' }"
       >
+        <div
+          v-if="nodes.length === 0"
+          class="absolute inset-0 flex flex-col items-center justify-center gap-2 pointer-events-none"
+        >
+          <Network class="w-10 h-10 opacity-30" :style="{ color: 'var(--color-text-tertiary)' }" />
+          <span class="text-[13px] font-medium" :style="{ color: 'var(--color-text-tertiary)' }">暂无笔记</span>
+          <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">创建笔记并添加双链或标签后，这里会生成关系图</span>
+        </div>
         <svg class="w-full h-full">
           <defs>
             <radialGradient id="nodeGlow" cx="50%" cy="50%" r="50%">
@@ -264,7 +272,7 @@
 
     <div class="cho-statusbar justify-between">
       <span class="cho-statusbar-hint">
-        点击节点跳转笔记 · 滚轮缩放 · 拖拽画布平移
+        单击选中 · 双击打开笔记 · 滚轮缩放 · 拖拽画布平移
       </span>
       <span class="cho-statusbar-meta">
         {{ nodes.length }} 节点 · {{ links.length }} 链接
@@ -794,7 +802,18 @@ function getPreview(content) {
   return text.length > 100 ? text.substring(0, 100) + '...' : text
 }
 
-watch(searchQuery, () => {})
+// 笔记增删或内容变化后自动重建图谱（防抖，避免频繁重排）
+let graphRegenTimer = null
+watch(
+  () => noteStore.notes.map(n => `${n.id}:${n.title}:${(n.content || '').length}`).join('|'),
+  () => {
+    if (graphRegenTimer) clearTimeout(graphRegenTimer)
+    graphRegenTimer = setTimeout(() => {
+      generateGraph()
+      startSimulation()
+    }, 600)
+  }
+)
 
 onMounted(() => {
   nextTick(() => {
@@ -806,6 +825,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (graphRegenTimer) {
+    clearTimeout(graphRegenTimer)
+    graphRegenTimer = null
+  }
   if (animationFrame) {
     cancelAnimationFrame(animationFrame)
   }

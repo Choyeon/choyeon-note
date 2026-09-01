@@ -61,3 +61,7 @@ coverage/
 
 # Electron builder cache
 .electron-builder-cache/
+
+# Assistant workspace data
+tmp/
+.workbuddy/

@@ -25,6 +25,12 @@
         }"
       >
         <div class="flex items-center gap-2">
+          <img
+            src="/icon.png"
+            alt=""
+            class="titlebar-icon"
+            draggable="false"
+          />
           <span class="text-[12px] font-medium" :style="{ color: 'var(--color-text-secondary)' }">
             Choyeon Note
           </span>
@@ -120,6 +126,7 @@ import Sidebar from './components/Sidebar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import QuickSwitcher from './components/QuickSwitcher.vue'
 import { setCodeTheme as setHljsTheme } from './utils/markdown'
+import { SHORTCUTS, eventToBinding } from './constants/shortcuts'
 
 const appStore = useAppStore()
 const noteStore = useNoteStore()
@@ -216,8 +223,34 @@ function handleMenuAction(event) {
   }
 }
 
+/**
+ * 全局快捷键：单一数据源来自 shortcuts 注册表（scope = 'app'）。
+ * 用户在设置页改键后立即生效，无需改动这里任何代码。
+ * 编辑器内部快捷键（scope = 'editor'）由 CodeMirror 的 keymap 处理。
+ */
+const APP_ACTIONS = {
+  'app.newNote': () => {
+    const note = noteStore.createNote('', '新笔记')
+    router.push(`/editor/${note.id}`)
+  },
+  'app.save': () => {
+    if (noteStore.currentNote?.id) noteStore.flushSave?.(noteStore.currentNote.id)
+  },
+  'app.quickSwitcher': () => appStore.openQuickSwitcher(),
+  'app.commandPalette': () => appStore.toggleCommandPalette(),
+  'app.vault': () => router.push('/vault'),
+  'app.settings': () => router.push('/settings'),
+  'view.toggleSidebar': () => appStore.toggleSidebar(),
+  'view.graph': () => router.push('/graph'),
+  'view.calendar': () => router.push('/calendar'),
+  'view.search': () => router.push('/search'),
+  'view.toggleTheme': () => appStore.toggleTheme()
+}
+
+/** 需要 focus 不在输入框内才触发的动作（避免输入时误触发） */
+const APP_ACTIONS_NEED_UNFOCUSED = new Set(['app.newNote', 'view.toggleSidebar'])
+
 function onGlobalKeydown(e) {
-  // 忽略 input / textarea / contenteditable 内部（除了 ESC 和特殊组合）
   const target = e.target
   const inEditable =
     target &&
@@ -225,59 +258,28 @@ function onGlobalKeydown(e) {
       target.tagName === 'TEXTAREA' ||
       target.isContentEditable)
 
-  // 命令面板 / 快速切换器打开时的 ESC 由各自组件接管
-  const mod = e.ctrlKey || e.metaKey
-  const shift = e.shiftKey
-  const k = e.key
-
-  // Ctrl/Cmd + Shift + P → 命令面板
-  if (mod && shift && (k === 'p' || k === 'P')) {
-    e.preventDefault()
-    appStore.toggleCommandPalette()
-    return
-  }
-  // Ctrl/Cmd + O → 快速切换器
-  if (mod && !shift && (k === 'o' || k === 'O')) {
-    e.preventDefault()
-    appStore.toggleQuickSwitcher()
-    return
-  }
-  // Ctrl/Cmd + K → 快速切换器（和侧边栏搜索按钮展示的一致）
-  if (mod && !shift && (k === 'k' || k === 'K')) {
-    e.preventDefault()
-    appStore.openQuickSwitcher()
-    return
-  }
-  // Ctrl/Cmd + N → 新建笔记
-  if (mod && !shift && (k === 'n' || k === 'N') && !inEditable) {
-    e.preventDefault()
-    const note = noteStore.createNote('', '新笔记')
-    router.push(`/editor/${note.id}`)
-    return
-  }
-  // Ctrl/Cmd + S → 保存当前
-  if (mod && !shift && (k === 's' || k === 'S')) {
-    e.preventDefault()
-    if (noteStore.currentNote?.id) noteStore.flushSave?.(noteStore.currentNote.id)
-    return
-  }
-  // Ctrl/Cmd + , → 设置
-  if (mod && (k === ',')) {
-    e.preventDefault()
-    router.push('/settings')
-    return
-  }
-  // Ctrl/Cmd + B → 切换侧边栏
-  if (mod && !shift && (k === 'b' || k === 'B') && !inEditable) {
-    e.preventDefault()
-    appStore.toggleSidebar()
-    return
-  }
-  // 未在可编辑区时的 Escape：关闭任意模态
-  if (k === 'Escape' && !inEditable) {
+  // 未聚焦时的 Escape：关闭任意模态
+  if (e.key === 'Escape' && !inEditable) {
     if (appStore.commandPaletteOpen) appStore.closeCommandPalette()
     if (appStore.quickSwitcherOpen) appStore.closeQuickSwitcher()
+    return
   }
+
+  const binding = eventToBinding(e)
+  if (!binding) return
+
+  // 按绑定串反查 app 作用域的命令（与设置页展示完全一致）
+  const matched = SHORTCUTS.find(s =>
+    s.scope === 'app' &&
+    !s.hidden &&
+    APP_ACTIONS[s.id] &&
+    String(appStore.getBinding(s.id) || '').trim().toLowerCase() === binding
+  )
+  if (!matched) return
+  if (APP_ACTIONS_NEED_UNFOCUSED.has(matched.id) && inEditable) return
+
+  e.preventDefault()
+  APP_ACTIONS[matched.id]()
 }
 
 watch(() => route.name, () => {
@@ -357,6 +359,15 @@ function detectPlatform() {
 .sidebar-open {
   width: 260px;
   opacity: 1;
+}
+
+.titlebar-icon {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  pointer-events: none;
+  -webkit-app-region: no-drag;
+  /* 防止非 Electron 环境下 404 出现 broken image 图标 */
 }
 
 .titlebar-electron {

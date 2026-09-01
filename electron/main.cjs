@@ -15,6 +15,31 @@ let notesPath = null
 
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 const spellDataFile = () => path.join(app.getPath('userData'), 'spell-data.json')
+const workspacesFile = () => path.join(app.getPath('userData'), 'workspaces.json')
+const vaultsDir = () => path.join(app.getPath('userData'), 'vaults')
+
+let activeWorkspaceId = null
+
+async function readJson(file, fallback) {
+  try {
+    const raw = await fs.readFile(file, 'utf-8')
+    const parsed = JSON.parse(raw)
+    return parsed ?? fallback
+  } catch (error) {
+    return fallback
+  }
+}
+
+async function writeJson(file, data) {
+  try {
+    await fs.mkdir(path.dirname(file), { recursive: true })
+    await fs.writeFile(file, JSON.stringify(data, null, 2), 'utf-8')
+    return true
+  } catch (error) {
+    console.error(`Error writing ${file}:`, error.message)
+    return false
+  }
+}
 
 async function loadSettings() {
   try {
@@ -23,6 +48,9 @@ async function loadSettings() {
     if (settings.notesPath) {
       notesPath = settings.notesPath
     }
+    if (settings.activeWorkspaceId) {
+      activeWorkspaceId = settings.activeWorkspaceId
+    }
   } catch (error) {
     // Settings file doesn't exist yet
   }
@@ -30,12 +58,91 @@ async function loadSettings() {
 
 async function saveSettings() {
   try {
-    const settings = { notesPath }
+    const settings = { notesPath, activeWorkspaceId }
     await fs.writeFile(settingsFile(), JSON.stringify(settings, null, 2), 'utf-8')
   } catch (error) {
     console.error('Error saving settings:', error.message)
   }
 }
+
+// ============================================================================
+// 工作空间（Workspace）：多笔记库管理
+// 为什么独立成文件：notesPath 只保存"当前"路径，无法支撑「最近工作空间列表 /
+// 快速切换 / 失效路径标记」。工作空间元数据属于应用级配置，放 userData 而不是
+// 笔记目录内，避免污染用户的 Markdown 库。
+// ============================================================================
+ipcMain.handle('workspace:list', async () => {
+  return await readJson(workspacesFile(), [])
+})
+
+ipcMain.handle('workspace:save', async (_, workspaces) => {
+  const list = Array.isArray(workspaces) ? workspaces : []
+  return await writeJson(workspacesFile(), list)
+})
+
+ipcMain.handle('workspace:set-active', async (_, id) => {
+  activeWorkspaceId = id || null
+  await saveSettings()
+  return true
+})
+
+ipcMain.handle('workspace:get-active', () => activeWorkspaceId)
+
+ipcMain.handle('workspace:probe', async (_, dirPath) => {
+  // 返回该路径下 .md 文件数量与是否可读写，供 UI 显示元信息 / 标记失效
+  try {
+    const stats = await fs.stat(dirPath)
+    if (!stats.isDirectory()) return { exists: false, count: 0, writable: false }
+    let count = 0
+    let folders = 0
+    const stack = [dirPath]
+    while (stack.length) {
+      const current = stack.pop()
+      const entries = await fs.readdir(current, { withFileTypes: true })
+      for (const entry of entries) {
+        if (entry.name.startsWith('.')) continue
+        if (entry.isDirectory()) {
+          folders++
+          stack.push(path.join(current, entry.name))
+        } else if (entry.isFile() && path.extname(entry.name).toLowerCase() === '.md') {
+          count++
+        }
+      }
+    }
+    let writable = true
+    try {
+      await fs.access(dirPath, fsConstants.constants.W_OK)
+    } catch {
+      writable = false
+    }
+    return { exists: true, count, folders, writable }
+  } catch (error) {
+    return { exists: false, count: 0, folders: 0, writable: false, error: error.message }
+  }
+})
+
+// ============================================================================
+// 键值备忘录（KV Vault）
+// 存放位置：userData/vaults/<workspaceId>.json —— 刻意不放进 notesPath。
+// 原因：1) 内容多为账号/密码/Token，不应与可能被同步到云盘的 Markdown 混在一起；
+//      2) notesPath 的 fs IPC 全部走 validatePath 白名单，扩展新目录会放宽安全边界。
+// 注意：这是本地明文存储，仅提供基础的「掩码显示 + 不进搜索索引」保护，
+//      不等价于加密保险库。
+// ============================================================================
+const vaultFileFor = (workspaceId) => path.join(vaultsDir(), `${workspaceId || 'default'}.json`)
+
+ipcMain.handle('vault:load', async (_, workspaceId) => {
+  const data = await readJson(vaultFileFor(workspaceId), { entries: [] })
+  return Array.isArray(data.entries) ? data.entries : []
+})
+
+ipcMain.handle('vault:save', async (_, workspaceId, entries) => {
+  return await writeJson(vaultFileFor(workspaceId), {
+    version: 1,
+    updatedAt: new Date().toISOString(),
+    entries: Array.isArray(entries) ? entries : []
+  })
+})
 
 function safeJoinWithNotes(...parts) {
   return safeJoin(notesPath, ...parts)

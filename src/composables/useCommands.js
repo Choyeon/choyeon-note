@@ -78,6 +78,17 @@ export function useCommands({ appStore, noteStore, router, openQuickSwitcher, cl
       }
     })
     items.push({
+      id: 'view:vault',
+      section: '视图',
+      label: '打开键值备忘录',
+      keywords: 'vault kv 备忘录 密码 服务器 ip token 账号 secret password',
+      icon: Bookmark,
+      action: () => {
+        router.push('/vault')
+        closePalette?.()
+      }
+    })
+    items.push({
       id: 'view:search',
       section: '视图',
       label: '全局搜索',

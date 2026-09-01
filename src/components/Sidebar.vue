@@ -21,7 +21,7 @@
       >
         <Search class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
         <span class="text-[13px] flex-1" :style="{ color: 'var(--color-text-tertiary)' }">搜索笔记...</span>
-        <kbd class="text-[10px] px-1.5 py-0.5 rounded" :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border-light)' }">⌘K</kbd>
+        <kbd class="text-[10px] px-1.5 py-0.5 rounded" :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border-light)' }">{{ quickSwitcherHint }}</kbd>
       </button>
     </div>
 
@@ -264,19 +264,25 @@ import { computed, reactive, ref, nextTick, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import {
-  PenLine, Search, CalendarDays, GitBranch, Tag,
+  PenLine, Search, CalendarDays, GitBranch, Tag, KeyRound,
   Folder, FolderOpen, FileText,
   Plus, Settings, PanelLeft, FolderPlus,
   Pencil, Copy, Trash2
 } from 'lucide-vue-next'
 import FolderNode from './FolderNode.vue'
 import { dndCtxKey, createDndCtx } from '@/composables/folderDnd.js'
+import { formatBinding } from '@/constants/shortcuts'
+import { useAppStore } from '@/stores/app'
 
 defineEmits(['toggle-sidebar'])
 
 const route = useRoute()
 const router = useRouter()
 const noteStore = useNoteStore()
+const appStore = useAppStore()
+
+/** 快速跳转提示与注册表保持一致（设置页改键后这里同步变化） */
+const quickSwitcherHint = formatBinding(appStore.getBinding('app.quickSwitcher'))
 
 // =====================================================================
 // 给 FolderNode 递归树注入真实 DnD/Rename 上下文。
@@ -307,7 +313,8 @@ const viewItems = [
   { id: 'notes', label: '所有笔记', icon: FolderOpen, route: '/notes' },
   { id: 'calendar', label: '日历', icon: CalendarDays, route: '/calendar' },
   { id: 'graph', label: '图谱', icon: GitBranch, route: '/graph' },
-  { id: 'tags', label: '标签', icon: Tag, route: '/tags' }
+  { id: 'tags', label: '标签', icon: Tag, route: '/tags' },
+  { id: 'vault', label: '键值备忘录', icon: KeyRound, route: '/vault' }
 ]
 
 const rootNotes = computed(() => noteStore.notes.filter(n => !n.folder))

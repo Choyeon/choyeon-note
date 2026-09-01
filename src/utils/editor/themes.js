@@ -210,6 +210,101 @@ const darkTheme = EditorView.theme({
   }
 }, { dark: true })
 
+/**
+ * 实时预览装饰层样式（与预览模式 .markdown-body 共用同一套 CSS 变量），
+ * 两种模式因此拥有一致的字号 / 间距 / 颜色 —— 「编辑即所得」。
+ * 主题无关，light / dark 共用一份。
+ */
+const mdDecorationsTheme = EditorView.theme({
+  // ---- 标题 ----
+  '.cm-md-heading': { fontWeight: '700', lineHeight: '1.3' },
+  '.cm-md-h1': { fontSize: '1.9em', marginTop: '0.9em', marginBottom: '0.45em', letterSpacing: '-0.01em' },
+  '.cm-md-h2': { fontSize: '1.5em', marginTop: '0.8em', marginBottom: '0.4em' },
+  '.cm-md-h3': { fontSize: '1.25em', marginTop: '0.7em', marginBottom: '0.35em', fontWeight: '600' },
+  '.cm-md-h4': { fontSize: '1.1em', marginTop: '0.6em', marginBottom: '0.3em', fontWeight: '600' },
+  '.cm-md-h5, .cm-md-h6': { fontSize: '1em', marginTop: '0.5em', marginBottom: '0.25em', fontWeight: '600', color: 'var(--color-text-secondary)' },
+  // ---- 行内强调 ----
+  '.cm-md-strong': { fontWeight: '700', color: 'var(--color-text-primary)' },
+  '.cm-md-em': { fontStyle: 'italic' },
+  '.cm-md-highlight': {
+    background: 'rgba(255, 213, 79, 0.4)',
+    color: 'inherit',
+    borderRadius: '3px',
+    padding: '0 1px'
+  },
+  '.cm-md-strike': { textDecoration: 'line-through', color: 'var(--color-text-tertiary)' },
+  '.cm-md-inline-code': {
+    fontFamily: 'var(--font-mono), Consolas, monospace',
+    fontSize: '0.9em',
+    background: 'var(--color-bg-tertiary)',
+    border: '1px solid var(--color-border-light)',
+    borderRadius: '5px',
+    padding: '1px 5px',
+    color: 'var(--state-error)'
+  },
+  // ---- 链接 / 双链 / 标签 ----
+  '.cm-md-wikilink': {
+    color: 'var(--color-primary)',
+    cursor: 'pointer',
+    textDecoration: 'none',
+    fontWeight: '500',
+    borderRadius: '3px'
+  },
+  '.cm-md-wikilink:hover': { background: 'var(--color-primary-surface)' },
+  '.cm-md-link, .cm-md-bare-url': {
+    color: 'var(--color-primary)',
+    textDecoration: 'underline',
+    textUnderlineOffset: '2px',
+    cursor: 'pointer'
+  },
+  '.cm-md-tag': {
+    color: 'var(--color-primary)',
+    background: 'var(--color-primary-surface)',
+    borderRadius: '999px',
+    padding: '1px 8px',
+    fontSize: '0.86em',
+    fontWeight: '500'
+  },
+  // ---- 列表 / 任务 ----
+  '.cm-md-list-line': { paddingLeft: '6px' },
+  '.cm-md-list-marker': {
+    color: 'var(--color-primary)',
+    fontWeight: '600',
+    display: 'inline-block',
+    minWidth: '1.1em'
+  },
+  '.cm-md-task-line': { paddingLeft: '2px' },
+  '.cm-md-checkbox-wrap': { display: 'inline-flex', alignItems: 'center', marginRight: '2px', verticalAlign: 'middle' },
+  '.cm-md-checkbox': {
+    width: '15px',
+    height: '15px',
+    accentColor: 'var(--color-primary)',
+    cursor: 'pointer'
+  },
+  // ---- 引用 / callout ----
+  '.cm-md-quote-line': {
+    borderLeft: '3px solid var(--color-border)',
+    paddingLeft: '12px',
+    color: 'var(--color-text-secondary)'
+  },
+  '.cm-md-callout': { borderLeftWidth: '3px', paddingLeft: '12px' },
+  '.cm-md-callout-note': { borderLeftColor: 'var(--color-primary)' },
+  '.cm-md-callout-warning': { borderLeftColor: 'var(--state-warning, #f59e0b)' },
+  '.cm-md-callout-tip': { borderLeftColor: 'var(--state-success, #22c55e)' },
+  '.cm-md-callout-danger, .cm-md-callout-error': { borderLeftColor: 'var(--state-error)' },
+  '.cm-md-callout-title': { fontWeight: '700' },
+  // ---- 代码块 / frontmatter / 分隔线 ----
+  '.cm-md-code-fence': { fontFamily: 'var(--font-mono), Consolas, monospace', fontSize: '0.9em' },
+  '.cm-md-code-lang': { color: 'var(--color-text-tertiary)', fontStyle: 'italic' },
+  '.cm-md-raw-block': { fontFamily: 'var(--font-mono), Consolas, monospace', fontSize: '0.9em' },
+  '.cm-md-frontmatter-fence': { color: 'var(--color-text-tertiary)', opacity: '0.7' },
+  '.cm-md-hr': {
+    border: 'none',
+    borderTop: '1px solid var(--color-border)',
+    margin: '14px 0'
+  }
+}, { dark: false })
+
 function safeTag(tagExpr) {
   try {
     const result = typeof tagExpr === 'function' ? tagExpr() : tagExpr
@@ -311,5 +406,8 @@ const darkHighlightStyle = buildHighlightStyle([
 ])
 
 export function getEditorTheme(isDark) {
-  return isDark ? [darkTheme, syntaxHighlighting(darkHighlightStyle)] : [lightTheme, syntaxHighlighting(lightHighlightStyle)]
+  const base = isDark
+    ? [darkTheme, syntaxHighlighting(darkHighlightStyle)]
+    : [lightTheme, syntaxHighlighting(lightHighlightStyle)]
+  return [...base, mdDecorationsTheme]
 }

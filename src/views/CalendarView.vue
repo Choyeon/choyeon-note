@@ -75,6 +75,15 @@
             }"
             @click="selectDate(day)"
           >
+            <button
+              class="day-add-btn absolute top-1 right-1 w-5 h-5 rounded-md flex items-center justify-center opacity-0 cursor-pointer transition-all duration-150 hover:bg-[var(--color-primary-surface)] active:scale-90"
+              :style="{ color: 'var(--color-primary)' }"
+              title="在此日期创建笔记"
+              @click.stop="createNoteForDate(new Date(day.year, day.month, day.date))"
+            >
+              <Plus class="w-3 h-3" />
+            </button>
+
             <div class="day-content flex flex-col items-center justify-start pt-1.5 pb-1.5 px-1">
               <div 
                 class="day-number flex items-center justify-center w-6 h-6 rounded-full text-[12px] font-medium transition-all duration-200"
@@ -413,9 +422,22 @@ function openNote(id) {
   router.push(`/editor/${id}`)
 }
 
-async function createNoteForDate() {
-  const dateStr = selectedDate.value.toISOString().split('T')[0]
+function localDateStr(d) {
+  const y = d.getFullYear()
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const day = String(d.getDate()).padStart(2, '0')
+  return `${y}-${m}-${day}`
+}
+
+async function createNoteForDate(date = selectedDate.value) {
+  const dateStr = localDateStr(date)
   const title = `${dateStr} 的笔记`
+  // 已有同名日记则直接打开，避免重复创建
+  const existing = noteStore.notes.find(n => n.title === title)
+  if (existing) {
+    openNote(existing.id)
+    return
+  }
   const note = noteStore.createNote('', title)
   router.push(`/editor/${note.id}`)
 }
@@ -461,6 +483,10 @@ async function createNoteForDate() {
 
 .day-cell:hover .day-number:not(.day-number-today):not(.day-number-selected) {
   background: var(--color-bg-tertiary);
+}
+
+.day-cell:hover .day-add-btn {
+  opacity: 1;
 }
 
 .day-note {

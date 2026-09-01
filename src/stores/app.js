@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { isCommonEnglishWord, getSpellErrors as getSpellErrorsPure } from '@/utils/spellcheck'
+import { createDefaultBindings, SHORTCUT_MAP, SHORTCUTS } from '@/constants/shortcuts'
 
 export const useAppStore = defineStore('app', () => {
   const theme = ref('system')
@@ -24,6 +25,13 @@ export const useAppStore = defineStore('app', () => {
   const bingWallpaperUrl = ref('')
   const autoCheckUpdates = ref(true)
   const appVersion = ref('')
+  // 可自定义快捷键：{ [shortcutId]: binding }，缺省回落到内置默认值
+  const hotkeys = ref(createDefaultBindings())
+  // 编辑器模式：source(纯源码) / live(实时预览) / preview(阅读)
+  const editorMode = ref('live')
+  // 右栏面板
+  const rightPanelTab = ref('outline')
+  const rightPanelVisible = ref(true)
   // 全局模态：命令面板 & 快速切换器
   const commandPaletteOpen = ref(false)
   const quickSwitcherOpen = ref(false)
@@ -92,6 +100,10 @@ export const useAppStore = defineStore('app', () => {
     const savedCodeTheme = localStorage.getItem('choyeon-code-theme')
     const savedBingWallpaper = localStorage.getItem('choyeon-bing-wallpaper')
     const savedAutoCheckUpdates = localStorage.getItem('choyeon-auto-check-updates')
+    const savedHotkeys = localStorage.getItem('choyeon-hotkeys')
+    const savedEditorMode = localStorage.getItem('choyeon-editor-mode')
+    const savedRightPanelTab = localStorage.getItem('choyeon-right-panel-tab')
+    const savedRightPanelVisible = localStorage.getItem('choyeon-right-panel-visible')
     
     setupSystemThemeListener()
     
@@ -167,11 +179,106 @@ export const useAppStore = defineStore('app', () => {
       autoCheckUpdates.value = savedAutoCheckUpdates === 'true'
     }
 
+    hotkeys.value = mergeBindings(savedHotkeys)
+
+    if (savedEditorMode && ['source', 'live', 'preview'].includes(savedEditorMode)) {
+      editorMode.value = savedEditorMode
+    }
+    if (savedRightPanelTab) {
+      rightPanelTab.value = savedRightPanelTab
+    }
+    if (savedRightPanelVisible !== null) {
+      rightPanelVisible.value = savedRightPanelVisible === 'true'
+    }
+
     applyTheme()
     applyAccentColor()
     applyGlassEffect()
     applyFontSize()
     initialized.value = true
+  }
+
+  /**
+   * 合并已保存的快捷键。直接 JSON.parse 会丢掉后续版本新增的命令，
+   * 所以以默认表为底、用用户覆盖项打补丁；非字符串或空串视为"未设置"。
+   */
+  function mergeBindings(raw) {
+    const base = createDefaultBindings()
+    if (!raw) return base
+    try {
+      const parsed = JSON.parse(raw)
+      if (!parsed || typeof parsed !== 'object') return base
+      for (const [id, binding] of Object.entries(parsed)) {
+        if (!(id in base)) continue
+        base[id] = typeof binding === 'string' ? binding : ''
+      }
+    } catch {
+      /* 损坏的配置直接回退默认值 */
+    }
+    return base
+  }
+
+  function persistHotkeys() {
+    localStorage.setItem('choyeon-hotkeys', JSON.stringify(hotkeys.value))
+  }
+
+  /** 取某命令的当前绑定（用户自定义优先） */
+  function getBinding(id) {
+    const custom = hotkeys.value[id]
+    return custom === undefined ? SHORTCUT_MAP[id]?.default || '' : custom
+  }
+
+  function setHotkey(id, binding) {
+    if (!(id in hotkeys.value)) return { ok: false, reason: 'unknown' }
+    const next = String(binding || '').trim()
+    if (next) {
+      const conflict = findConflict(id, next)
+      if (conflict) return { ok: false, reason: 'conflict', conflict }
+    }
+    hotkeys.value = { ...hotkeys.value, [id]: next }
+    persistHotkeys()
+    return { ok: true }
+  }
+
+  function resetHotkey(id) {
+    if (!(id in hotkeys.value)) return false
+    hotkeys.value = { ...hotkeys.value, [id]: SHORTCUT_MAP[id]?.default || '' }
+    persistHotkeys()
+    return true
+  }
+
+  function resetAllHotkeys() {
+    hotkeys.value = createDefaultBindings()
+    persistHotkeys()
+  }
+
+  /** 返回与给定绑定串冲突的其它命令（同 scope 才算冲突） */
+  function findConflict(id, binding, scope) {
+    const self = SHORTCUT_MAP[id]
+    const targetScope = scope || self?.scope
+    const normalized = String(binding || '').trim().toLowerCase()
+    if (!normalized) return null
+    return SHORTCUTS.find(s => {
+      if (s.id === id) return false
+      if (s.scope !== targetScope) return false
+      return String(getBinding(s.id) || '').trim().toLowerCase() === normalized
+    }) || null
+  }
+
+  function setEditorMode(mode) {
+    if (!['source', 'live', 'preview'].includes(mode)) return
+    editorMode.value = mode
+    localStorage.setItem('choyeon-editor-mode', mode)
+  }
+
+  function setRightPanelTab(tab) {
+    rightPanelTab.value = tab
+    localStorage.setItem('choyeon-right-panel-tab', tab)
+  }
+
+  function toggleRightPanel() {
+    rightPanelVisible.value = !rightPanelVisible.value
+    localStorage.setItem('choyeon-right-panel-visible', rightPanelVisible.value)
   }
 
   function saveNotesLocation(path) {
@@ -198,6 +305,10 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-code-theme')
     localStorage.removeItem('choyeon-bing-wallpaper')
     localStorage.removeItem('choyeon-auto-check-updates')
+    localStorage.removeItem('choyeon-hotkeys')
+    localStorage.removeItem('choyeon-editor-mode')
+    localStorage.removeItem('choyeon-right-panel-tab')
+    localStorage.removeItem('choyeon-right-panel-visible')
     
     if (mediaQueryListener) {
       const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
@@ -226,6 +337,10 @@ export const useAppStore = defineStore('app', () => {
     bingWallpaper.value = false
     bingWallpaperUrl.value = ''
     autoCheckUpdates.value = true
+    hotkeys.value = createDefaultBindings()
+    editorMode.value = 'live'
+    rightPanelTab.value = 'outline'
+    rightPanelVisible.value = true
     
     applyTheme()
     applyAccentColor()
@@ -515,6 +630,10 @@ export const useAppStore = defineStore('app', () => {
     bingWallpaperUrl,
     autoCheckUpdates,
     appVersion,
+    hotkeys,
+    editorMode,
+    rightPanelTab,
+    rightPanelVisible,
     commandPaletteOpen,
     quickSwitcherOpen,
     initTheme,
@@ -545,6 +664,14 @@ export const useAppStore = defineStore('app', () => {
     toggleBingWallpaper,
     setBingWallpaperUrl,
     toggleAutoCheckUpdates,
+    getBinding,
+    setHotkey,
+    resetHotkey,
+    resetAllHotkeys,
+    findConflict,
+    setEditorMode,
+    setRightPanelTab,
+    toggleRightPanel,
     openCommandPalette,
     closeCommandPalette,
     toggleCommandPalette,

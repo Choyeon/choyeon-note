@@ -23,6 +23,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadSpellData: () => ipcRenderer.invoke('spell:load'),
   saveSpellData: (payload) => ipcRenderer.invoke('spell:save', payload),
 
+  // ===== 工作空间 =====
+  listWorkspaces: () => ipcRenderer.invoke('workspace:list'),
+  saveWorkspaces: (list) => ipcRenderer.invoke('workspace:save', list),
+  setActiveWorkspace: (id) => ipcRenderer.invoke('workspace:set-active', id),
+  getActiveWorkspace: () => ipcRenderer.invoke('workspace:get-active'),
+  probeWorkspace: (dirPath) => ipcRenderer.invoke('workspace:probe', dirPath),
+
+  // ===== 键值备忘录 =====
+  loadVault: (workspaceId) => ipcRenderer.invoke('vault:load', workspaceId),
+  saveVault: (workspaceId, entries) => ipcRenderer.invoke('vault:save', workspaceId, entries),
+
   onMenuAction: (callback) => {
     const events = [
       'menu:new-note',

@@ -33,6 +33,11 @@ const routes = [
     component: () => import('@/views/TagsView.vue')
   },
   {
+    path: '/vault',
+    name: 'vault',
+    component: () => import('@/views/VaultView.vue')
+  },
+  {
     path: '/settings',
     name: 'settings',
     component: () => import('@/views/SettingsView.vue')

@@ -1,11 +1,12 @@
 <template>
   <div class="h-full flex flex-col overflow-hidden editor-page-wrapper">
-    <div 
-      class="flex flex-col border-b z-10 relative"
+    <!-- ================= 顶栏：面包屑 + 模式切换 ================= -->
+    <div
+      class="flex flex-col border-b z-10 relative shrink-0"
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
       <div class="min-h-11 px-6 py-2 flex items-center gap-3">
-        <button 
+        <button
           v-if="currentNote"
           class="w-8 h-8 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
           @click="$router.push('/notes')"
@@ -18,26 +19,26 @@
         <div class="flex-1"></div>
 
         <div class="segmented-control">
-          <button 
+          <button
             class="segment-btn"
             :class="{ active: editorMode === 'edit' }"
-            title="编辑模式"
+            title="源码编辑模式"
             @click="setMode('edit')"
           >
             <Pencil class="w-[18px] h-[18px]" />
           </button>
-          <button 
+          <button
             class="segment-btn"
             :class="{ active: editorMode === 'live' }"
-            title="实时渲染模式"
+            title="实时预览模式（Obsidian 风格）"
             @click="setMode('live')"
           >
             <Zap class="w-[18px] h-[18px]" />
           </button>
-          <button 
+          <button
             class="segment-btn"
             :class="{ active: editorMode === 'preview' }"
-            title="预览模式"
+            title="阅读预览模式"
             @click="setMode('preview')"
           >
             <Eye class="w-[18px] h-[18px]" />
@@ -45,89 +46,106 @@
         </div>
       </div>
 
-      <div class="px-6 pb-2 flex items-center gap-0.5">
+      <div class="px-6 pb-2 flex items-center gap-0.5 flex-wrap">
         <template v-for="tool in formatTools" :key="tool.id">
-          <div 
-            v-if="tool.type === 'divider'" 
+          <div
+            v-if="tool.type === 'divider'"
             class="w-px h-5 mx-1"
             :style="{ background: 'var(--color-border)' }"
           ></div>
-          <button 
+          <button
             v-else
             class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
             :title="tool.title"
-            @click="applyFormat(tool.id)"
+            @click="onToolbarAction(tool.id)"
           >
             <component :is="tool.icon" class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
           </button>
         </template>
+
+        <div class="w-px h-5 mx-1" :style="{ background: 'var(--color-border)' }"></div>
+        <button
+          class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-35 disabled:cursor-default"
+          title="撤销 (Ctrl+Z)"
+          :disabled="!editorApi?.canUndo"
+          @click="editorApi?.undo()"
+        >
+          <Undo2 class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
+        </button>
+        <button
+          class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-35 disabled:cursor-default"
+          title="重做 (Ctrl+Y)"
+          :disabled="!editorApi?.canRedo"
+          @click="editorApi?.redo()"
+        >
+          <Redo2 class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
+        </button>
       </div>
     </div>
 
+    <!-- ================= 主体：编辑 / 实时 / 预览 + 右栏 ================= -->
     <div class="flex-1 min-h-0 flex overflow-hidden">
-      <div v-if="editorMode === 'edit'" class="flex-1 min-w-0 flex flex-col overflow-hidden acrylic-content" @mousemove="onMouseMove" @click="onEditClick" @mousedown="onEditMouseDown">
+      <!-- edit / live 共用同一个 CodeMirror 实例：
+           live 只是把装饰层打开（Obsidian 方案），底层始终是同一份文档，
+           因此「实时编辑」与「源码编辑」「预览」三模式看到的内容永远一致，
+           撤销栈、光标位置、搜索、补全在模式切换间全部保留。 -->
+      <div
+        v-show="editorMode !== 'preview'"
+        class="flex-1 min-w-0 flex flex-col overflow-hidden acrylic-content"
+        @mousedown="onEditMouseDown"
+      >
         <MarkdownEditor
           ref="mdEditorRef"
           v-model="content"
           class="flex-1 min-h-0"
           :read-only="false"
+          :live-preview="editorMode === 'live'"
+          :doc-key="currentNote?.id || ''"
+          :placeholder="editorPlaceholder"
           :completion-context="completionContext"
           @change="onContentChange"
           @save="saveNote"
-          @focus="onEditorFocus"
-          @blur="onEditorBlur"
           @open-note="openNoteById"
-          @create-note="onEditorCreateNote"
+          @spell-click="onSpellClick"
+          @selection-change="onSelectionChange"
+          @context-menu="onContextMenu"
         />
       </div>
 
-      <div v-else-if="editorMode === 'live'" class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content" ref="liveScrollRef" @click="onPreviewClick">
-        <div class="max-w-[780px] mx-auto py-10 px-8 pb-32">
-          <div
-            ref="liveEditorRef"
-            class="live-editor outline-none min-h-[500px] focus:outline-none notion-editor unified-editor"
-            contenteditable="true"
-            :spellcheck="spellCheckEnabled"
-            :data-placeholder="editorPlaceholder"
-            @input="onLiveInput"
-            @keydown="onLiveKeydown"
-            @keyup="onLiveKeyup"
-            @paste="onLivePaste"
-            @contextmenu="onContextMenu"
-            @mouseup="onLiveMouseup"
-            @mousemove="onLiveMousemove"
-          ></div>
-        </div>
-      </div>
-
-      <div v-else class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content" @click="onPreviewClick">
+      <!-- 预览模式：与 live 装饰层共用同一渲染规则（同一套 CSS 变量） -->
+      <div
+        v-if="editorMode === 'preview'"
+        class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content"
+        @click="onPreviewClick"
+      >
         <div class="max-w-[780px] mx-auto py-10 px-8 pb-32">
           <div v-if="!content" class="text-center py-20" :style="{ color: 'var(--color-text-tertiary)' }">
             <FileText class="w-14 h-14 mx-auto mb-4 opacity-40" />
             <p class="text-base">这篇笔记还是空的</p>
             <p class="text-sm mt-2">切换到编辑或实时模式开始创作</p>
           </div>
-          <div v-else class="markdown-body notion-preview unified-editor" v-html="renderedContent"></div>
+          <div v-else ref="previewBodyRef" class="markdown-body notion-preview unified-editor" v-html="renderedContent"></div>
         </div>
       </div>
 
-      <aside 
+      <!-- ================= 右栏 ================= -->
+      <aside
         class="w-[300px] min-w-[300px] h-full acrylic-sidebar flex flex-col overflow-hidden border-l"
         :style="{ borderColor: 'var(--sidebar-border)' }"
       >
-        <div 
+        <div
           class="flex items-stretch h-10 min-h-10 border-b px-2 gap-1 overflow-x-auto cho-scrollbar"
           :style="{ borderColor: 'var(--color-border)' }"
         >
           <template v-for="tab in rightPanelTabs" :key="tab.key">
-            <div 
+            <div
               class="flex items-center px-2 cursor-pointer border-b-2 transition-colors whitespace-nowrap shrink-0"
               :style="rightPanelTab === tab.key ? { borderColor: 'var(--color-primary)' } : { borderColor: 'transparent' }"
               @click="rightPanelTab = tab.key"
             >
               <component :is="tab.icon" class="w-3.5 h-3.5 mr-1" :style="{ color: rightPanelTab === tab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
               <span class="text-[12px] font-medium" :style="{ color: rightPanelTab === tab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">{{ tab.label }}</span>
-              <span 
+              <span
                 v-if="tab.badge !== undefined && tab.badge > 0"
                 class="ml-1 text-[10px] px-1.5 rounded-full"
                 :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
@@ -139,17 +157,17 @@
         <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar p-2" ref="rightPanelRef">
           <!-- ============= 大纲 ============= -->
           <div v-if="rightPanelTab === 'outline'" class="flex flex-col gap-0.5">
-            <div 
-              v-for="(item, index) in outlineItems" 
+            <div
+              v-for="(item, index) in outlineItems"
               :key="'o'+index"
               class="outline-item flex items-center h-7 px-2 rounded-md cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
               :class="{ 'outline-item-active': index === 0 }"
               :style="{ paddingLeft: `${8 + (item.level - 1) * 12}px` }"
               @click="scrollToHeading(item)"
             >
-              <span 
+              <span
                 class="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
-                :style="{ 
+                :style="{
                   fontWeight: item.level === 1 ? '600' : '500',
                   color: index === 0 ? 'var(--color-primary)' : 'var(--color-text-secondary)'
                 }"
@@ -167,7 +185,7 @@
             </div>
             <template v-else>
               <div v-for="group in groupedBacklinks" :key="group.id" class="rounded-lg overflow-hidden" :style="{ border: '1px solid var(--color-border-light)' }">
-                <div 
+                <div
                   class="flex items-center justify-between px-2.5 h-8 cursor-pointer transition-colors"
                   :style="{ background: 'var(--color-surface)' }"
                   @click="openNoteById(group.id)"
@@ -180,8 +198,8 @@
                   </div>
                   <ChevronRight class="w-3.5 h-3.5 shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
                 </div>
-                <div 
-                  v-for="(m, idx) in group.matches" 
+                <div
+                  v-for="(m, idx) in group.matches"
                   :key="idx"
                   class="px-3 py-2 text-[12px] border-t cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
                   :style="{ borderColor: 'var(--color-border-light)', color: 'var(--color-text-secondary)' }"
@@ -202,8 +220,8 @@
               <div class="rounded-lg px-2.5 py-1.5 mb-1" :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border-light)' }">
                 <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">已解析 {{ outgoingList.length }} 个链接 · {{ unresolvedOutgoing.length }} 个未找到</span>
               </div>
-              <div 
-                v-for="(link, idx) in outgoingList" 
+              <div
+                v-for="(link, idx) in outgoingList"
                 :key="'out'+idx"
                 class="flex items-center justify-between px-2.5 h-9 rounded-lg cursor-pointer transition-colors"
                 :class="{ 'opacity-70': !link.resolvedId }"
@@ -213,10 +231,10 @@
                 @mouseleave="($event.currentTarget.style.background='transparent')"
               >
                 <div class="flex items-center min-w-0 flex-1">
-                  <component 
-                    :is="link.embed ? Image : ExternalLink" 
-                    class="w-3.5 h-3.5 mr-2 shrink-0" 
-                    :style="{ color: link.resolvedId ? 'var(--color-primary)' : 'var(--state-warning)' }" 
+                  <component
+                    :is="link.embed ? ImageIcon : ExternalLink"
+                    class="w-3.5 h-3.5 mr-2 shrink-0"
+                    :style="{ color: link.resolvedId ? 'var(--color-primary)' : 'var(--state-warning)' }"
                   />
                   <div class="min-w-0">
                     <div class="text-[13px] font-medium truncate" :style="{ color: 'var(--color-text-primary)' }">
@@ -227,8 +245,8 @@
                     </div>
                   </div>
                 </div>
-                <span 
-                  v-if="link.embed" 
+                <span
+                  v-if="link.embed"
                   class="text-[10px] px-1.5 rounded shrink-0 ml-2"
                   :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
                 >嵌入</span>
@@ -240,7 +258,7 @@
           <div v-else-if="rightPanelTab === 'properties'" class="flex flex-col gap-1.5 px-0.5">
             <div class="flex items-center justify-between px-2 py-1.5">
               <span class="text-[11px] font-medium tracking-wide uppercase" :style="{ color: 'var(--color-text-tertiary)' }">属性 Frontmatter</span>
-              <button 
+              <button
                 class="text-[11px] px-2 py-0.5 rounded-md transition-colors"
                 :style="{ color: 'var(--color-primary)' }"
                 @click="ensureFrontmatter"
@@ -250,8 +268,8 @@
               还没有设置属性，点击右上「添加」或直接在文档顶部写 YAML。
             </div>
             <template v-else>
-              <div 
-                v-for="(value, key) in frontmatter" 
+              <div
+                v-for="(value, key) in frontmatter"
                 :key="key"
                 class="flex flex-col rounded-lg px-2.5 py-1.5 transition-colors"
                 :style="{ border: '1px solid var(--color-border-light)' }"
@@ -260,13 +278,13 @@
               >
                 <div class="flex items-center justify-between">
                   <span class="text-[11px] font-medium" :style="{ color: 'var(--color-text-tertiary)' }">{{ key }}</span>
-                  <button 
+                  <button
                     class="text-[11px] opacity-60 hover:opacity-100"
                     :style="{ color: 'var(--state-error)' }"
                     @click="removeProperty(key)"
                   >删除</button>
                 </div>
-                <input 
+                <input
                   v-if="!Array.isArray(value)"
                   type="text"
                   class="mt-0.5 text-[13px] bg-transparent outline-none"
@@ -276,18 +294,18 @@
                 />
                 <div v-else class="mt-0.5 flex flex-wrap gap-1.5">
                   <template v-for="(tag, i) in value" :key="i">
-                    <span 
+                    <span
                       class="inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full"
                       :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
                     >
                       {{ tag }}
-                      <button 
+                      <button
                         class="opacity-60 hover:opacity-100"
                         @click="removeArrayItem(key, i)"
                       >×</button>
                     </span>
                   </template>
-                  <input 
+                  <input
                     type="text"
                     placeholder="+ 新值"
                     class="text-[12px] bg-transparent outline-none w-16"
@@ -299,21 +317,21 @@
               <div class="mt-2">
                 <div class="text-[11px] px-2 mb-1" :style="{ color: 'var(--color-text-tertiary)' }">新建属性</div>
                 <div class="flex items-center gap-1.5 px-2">
-                  <input 
+                  <input
                     v-model="newProp.key"
                     type="text"
                     placeholder="Key"
                     class="flex-1 text-[12px] px-2 py-1 rounded-md outline-none"
                     :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
                   />
-                  <input 
+                  <input
                     v-model="newProp.value"
                     type="text"
                     placeholder="Value"
                     class="flex-1 text-[12px] px-2 py-1 rounded-md outline-none"
                     :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
                   />
-                  <button 
+                  <button
                     class="text-[12px] px-2 py-1 rounded-md"
                     :style="{ background: 'var(--color-primary)', color: 'white' }"
                     @click="addNewProperty"
@@ -326,27 +344,92 @@
       </aside>
     </div>
 
+    <!-- ================= 状态栏 ================= -->
     <div class="cho-statusbar justify-between">
       <span class="cho-statusbar-hint">
-        {{ currentNote?.wordCount || 0 }} 字 &middot; {{ currentNote?.charCount || 0 }} 字符 &middot; {{ currentNote?.lineCount || 0 }} 行 &middot; 最后编辑: {{ formatDate(currentNote?.updatedAt) }}
+        {{ editorApi?.stats?.words ?? 0 }} 字 &middot; {{ editorApi?.stats?.chars ?? 0 }} 字符 &middot; {{ editorApi?.stats?.lines ?? 0 }} 行
+        &middot; Ln {{ editorApi?.cursorLine ?? 1 }}, Col {{ editorApi?.cursorColumn ?? 1 }}
+        &middot; 最后编辑: {{ formatDate(currentNote?.updatedAt) }}
       </span>
       <span class="cho-statusbar-meta">
         {{ modeLabel }}
       </span>
     </div>
 
+    <!-- ================= 拼写检查菜单（点击红波浪线触发） ================= -->
+    <SpellMenu
+      :show="spellMenu.show"
+      :rect="spellMenu.rect"
+      :word="spellMenu.word"
+      :suggestions="spellMenu.suggestions"
+      :occurrences="spellMenu.occurrences"
+      @close="spellMenu.show = false"
+      @replace="(w) => replaceSpellWord(w)"
+      @replace-all="(w) => replaceSpellWordAll(w)"
+      @ignore="(w) => ignoreSpellWord(w)"
+      @add-dictionary="(w) => addSpellWordToDictionary(w)"
+      @copy="(w) => copyText(w)"
+    />
+
+    <!-- ================= 浮动选区工具栏 ================= -->
     <Teleport to="body">
       <Transition name="fade">
-        <div 
-          v-if="contextMenu.show" 
+        <div
+          v-if="floatingToolbar.show"
+          class="fixed z-50"
+          :style="{
+            left: floatingToolbar.x + 'px',
+            top: floatingToolbar.y + 'px',
+            transform: floatingToolbar.placement === 'top'
+              ? 'translate(-50%, -100%)'
+              : 'translate(-50%, 0)'
+          }"
+          @mousedown.prevent
+        >
+          <div
+            class="floating-toolbar flex items-center gap-0.5 rounded-lg overflow-hidden shadow-lg"
+            :style="{
+              background: 'var(--card-bg)',
+              border: '1px solid var(--card-border)',
+              padding: '4px'
+            }"
+          >
+            <button class="ft-btn" title="加粗" @mousedown.prevent="editorApi?.applyCommand('format.bold')">
+              <Bold class="w-3.5 h-3.5" />
+            </button>
+            <button class="ft-btn" title="斜体" @mousedown.prevent="editorApi?.applyCommand('format.italic')">
+              <Italic class="w-3.5 h-3.5" />
+            </button>
+            <button class="ft-btn" title="删除线" @mousedown.prevent="editorApi?.applyCommand('format.strikethrough')">
+              <Strikethrough class="w-3.5 h-3.5" />
+            </button>
+            <button class="ft-btn" title="行内代码" @mousedown.prevent="editorApi?.applyCommand('format.code')">
+              <Code class="w-3.5 h-3.5" />
+            </button>
+            <button class="ft-btn" title="高亮" @mousedown.prevent="editorApi?.applyCommand('format.highlight')">
+              <Highlighter class="w-3.5 h-3.5" />
+            </button>
+            <button class="ft-btn" title="链接" @mousedown.prevent="editorApi?.applyCommand('format.link')">
+              <Link class="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+      </Transition>
+    </Teleport>
+
+    <!-- ================= 右键菜单 ================= -->
+    <Teleport to="body">
+      <Transition name="fade">
+        <div
+          v-if="contextMenu.show"
           class="fixed inset-0 z-50"
           @click="closeContextMenu"
           @contextmenu.prevent="closeContextMenu"
         >
-          <div 
+          <div
             class="context-menu absolute rounded-lg overflow-hidden shadow-lg"
-            :style="{ 
-              left: contextMenu.x + 'px', 
+            :style="{
+              left: contextMenu.x + 'px',
               top: contextMenu.y + 'px',
               background: 'var(--color-surface-elevated)',
               border: '1px solid var(--color-border)',
@@ -359,247 +442,93 @@
           >
             <template v-if="contextMenu.hasSelection">
               <div class="context-menu-label">格式化</div>
-              <button class="context-menu-item" @click="contextMenuAction('bold')">
+              <button class="context-menu-item" @click="contextMenuAction('format.bold')">
                 <Bold class="w-3.5 h-3.5" />
                 <span>粗体</span>
-                <span class="context-menu-shortcut">Ctrl+B</span>
+                <span class="context-menu-shortcut">{{ shortcutHint('format.bold') }}</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('italic')">
+              <button class="context-menu-item" @click="contextMenuAction('format.italic')">
                 <Italic class="w-3.5 h-3.5" />
                 <span>斜体</span>
-                <span class="context-menu-shortcut">Ctrl+I</span>
+                <span class="context-menu-shortcut">{{ shortcutHint('format.italic') }}</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('code')">
+              <button class="context-menu-item" @click="contextMenuAction('format.code')">
                 <Code class="w-3.5 h-3.5" />
                 <span>行内代码</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('link')">
+              <button class="context-menu-item" @click="contextMenuAction('format.link')">
                 <Link class="w-3.5 h-3.5" />
                 <span>链接</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('highlight')">
+              <button class="context-menu-item" @click="contextMenuAction('format.highlight')">
                 <Highlighter class="w-3.5 h-3.5" />
                 <span>高亮</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('strikethrough')">
+              <button class="context-menu-item" @click="contextMenuAction('format.strikethrough')">
                 <Strikethrough class="w-3.5 h-3.5" />
                 <span>删除线</span>
               </button>
               <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="contextMenuAction('h1')">
+              <button class="context-menu-item" @click="contextMenuAction('format.h1')">
                 <Heading1 class="w-3.5 h-3.5" />
                 <span>一级标题</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('h2')">
+              <button class="context-menu-item" @click="contextMenuAction('format.h2')">
                 <Heading2 class="w-3.5 h-3.5" />
                 <span>二级标题</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('h3')">
+              <button class="context-menu-item" @click="contextMenuAction('format.h3')">
                 <Heading3 class="w-3.5 h-3.5" />
                 <span>三级标题</span>
               </button>
               <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="contextMenuAction('quote')">
+              <button class="context-menu-item" @click="contextMenuAction('format.quote')">
                 <Quote class="w-3.5 h-3.5" />
                 <span>引用</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('list')">
+              <button class="context-menu-item" @click="contextMenuAction('format.bulletList')">
                 <List class="w-3.5 h-3.5" />
                 <span>无序列表</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('todo')">
+              <button class="context-menu-item" @click="contextMenuAction('format.taskList')">
                 <CheckSquare class="w-3.5 h-3.5" />
                 <span>待办事项</span>
               </button>
               <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="contextMenuAction('copy')">
+              <button class="context-menu-item" @click="copySelection">
                 <Copy class="w-3.5 h-3.5" />
                 <span>复制</span>
                 <span class="context-menu-shortcut">Ctrl+C</span>
               </button>
-              <button class="context-menu-item" @click="contextMenuAction('cut')">
+              <button class="context-menu-item" @click="cutSelection">
                 <Scissors class="w-3.5 h-3.5" />
                 <span>剪切</span>
                 <span class="context-menu-shortcut">Ctrl+X</span>
               </button>
             </template>
             <template v-else>
-              <button class="context-menu-item" @click="contextMenuAction('paste')">
+              <button class="context-menu-item" @click="pasteFromClipboard">
                 <ClipboardPaste class="w-3.5 h-3.5" />
                 <span>粘贴</span>
                 <span class="context-menu-shortcut">Ctrl+V</span>
               </button>
               <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="contextMenuAction('selectAll')">
+              <button class="context-menu-item" @click="contextMenuAction('edit.selectAll')">
                 <Check class="w-3.5 h-3.5" />
                 <span>全选</span>
                 <span class="context-menu-shortcut">Ctrl+A</span>
               </button>
+              <button class="context-menu-item" @click="contextMenuAction('edit.undo')">
+                <Undo2 class="w-3.5 h-3.5" />
+                <span>撤销</span>
+                <span class="context-menu-shortcut">Ctrl+Z</span>
+              </button>
+              <button class="context-menu-item" @click="contextMenuAction('edit.redo')">
+                <Redo2 class="w-3.5 h-3.5" />
+                <span>重做</span>
+                <span class="context-menu-shortcut">Ctrl+Y</span>
+              </button>
             </template>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <Teleport to="body">
-      <Transition name="fade">
-        <div 
-          v-if="spellTooltip.show" 
-          class="fixed z-[9999] spell-tooltip-wrapper"
-          :style="{ 
-            left: spellTooltip.x + 'px', 
-            top: spellTooltip.y + 'px',
-            pointerEvents: 'auto'
-          }"
-          @mousedown.prevent
-          @click.stop
-          @mouseenter="onSpellTooltipEnter"
-          @mouseleave="onSpellTooltipLeave"
-        >
-          <div 
-            class="spell-tooltip rounded-xl overflow-hidden shadow-2xl"
-            :style="{ 
-              background: 'var(--color-surface-elevated)',
-              border: '1px solid var(--color-border)',
-              minWidth: '230px',
-              padding: '8px',
-              backdropFilter: 'none'
-            }"
-          >
-            <div class="spell-tooltip-header">
-              <span class="text-[12px] font-semibold tracking-wide" :style="{ color: 'var(--state-error)' }">拼写错误</span>
-            </div>
-            <div class="spell-tooltip-word">
-              <span class="text-[15px] font-semibold font-mono break-all" :style="{ color: 'var(--color-text-primary)' }">{{ spellTooltip.word }}</span>
-            </div>
-            <div class="context-menu-divider" style="margin: 6px 4px;"></div>
-            <button 
-              class="context-menu-item spell-action-btn"
-              :data-spell-action="true"
-              @click.stop.prevent="handleIgnoreWord"
-            >
-              <EyeOff class="w-[18px] h-[18px]" />
-              <span class="flex-1">忽略此单词</span>
-            </button>
-            <button 
-              class="context-menu-item spell-action-btn"
-              :data-spell-action="true"
-              @click.stop.prevent="handleAddToDictionary"
-            >
-              <BookPlus class="w-[18px] h-[18px]" />
-              <span class="flex-1">添加到词典</span>
-            </button>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <Teleport to="body">
-      <Transition name="fade">
-        <div 
-          v-if="floatingToolbar.show" 
-          class="fixed z-50"
-          :style="{ 
-            left: floatingToolbar.x + 'px', 
-            top: floatingToolbar.y + 'px',
-            transform: floatingToolbar.placement === 'top' 
-              ? 'translate(-50%, -100%)' 
-              : 'translate(-50%, 0)'
-          }"
-          @mousedown.prevent
-        >
-          <div 
-            class="floating-toolbar flex items-center gap-0.5 rounded-lg overflow-hidden shadow-lg"
-            :style="{ 
-              background: 'var(--card-bg)',
-              border: '1px solid var(--card-border)',
-              padding: '4px'
-            }"
-          >
-            <button class="ft-btn" title="粗体" @mousedown.prevent="applyFormat('bold')">
-              <Bold class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="斜体" @mousedown.prevent="applyFormat('italic')">
-              <Italic class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="下划线" @mousedown.prevent="applyFormat('underline')">
-              <Underline class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="删除线" @mousedown.prevent="applyFormat('strikethrough')">
-              <Strikethrough class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="行内代码" @mousedown.prevent="applyFormat('code')">
-              <Code class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="高亮" @mousedown.prevent="applyFormat('highlight')">
-              <Highlighter class="w-3.5 h-3.5" />
-            </button>
-            <div class="ft-divider"></div>
-            <button class="ft-btn" title="一级标题" @mousedown.prevent="applyFormat('h1')">
-              <Heading1 class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="二级标题" @mousedown.prevent="applyFormat('h2')">
-              <Heading2 class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="三级标题" @mousedown.prevent="applyFormat('h3')">
-              <Heading3 class="w-3.5 h-3.5" />
-            </button>
-            <div class="ft-divider"></div>
-            <button class="ft-btn" title="链接" @mousedown.prevent="applyFormat('link')">
-              <Link class="w-3.5 h-3.5" />
-            </button>
-          </div>
-          <div class="floating-toolbar-arrow" :class="{ 'arrow-bottom': floatingToolbar.placement === 'bottom' }"></div>
-        </div>
-      </Transition>
-    </Teleport>
-
-    <Teleport to="body">
-      <Transition name="fade">
-        <div 
-          v-if="slashMenu.show" 
-          class="fixed z-50 slash-menu rounded-lg overflow-hidden shadow-lg"
-          :style="{ 
-            left: slashMenu.x + 'px', 
-            top: slashMenu.y + 'px',
-            background: 'var(--card-bg)',
-            border: '1px solid var(--card-border)',
-            width: '280px',
-            maxHeight: '320px'
-          }"
-          @click.stop
-        >
-          <div class="slash-menu-search">
-            <Search class="w-3.5 h-3.5" />
-            <input
-              ref="slashSearchRef"
-              v-model="slashMenu.query"
-              type="text"
-              class="slash-search-input"
-              placeholder="筛选命令..."
-              @keydown="onSlashKeydown"
-            />
-          </div>
-          <div class="slash-menu-list cho-scrollbar">
-            <div 
-              v-for="(item, index) in filteredSlashCommands" 
-              :key="item.id"
-              class="slash-menu-item"
-              :class="{ active: index === slashMenu.activeIndex }"
-              @click="executeSlashCommand(item)"
-              @mouseenter="slashMenu.activeIndex = index"
-            >
-              <div class="slash-menu-icon">
-                <component :is="item.icon" class="w-4 h-4" />
-              </div>
-              <div class="slash-menu-text">
-                <div class="slash-menu-title">{{ item.title }}</div>
-                <div class="slash-menu-desc">{{ item.desc }}</div>
-              </div>
-            </div>
-            <div v-if="filteredSlashCommands.length === 0" class="slash-menu-empty">
-              没有匹配的命令
-            </div>
           </div>
         </div>
       </Transition>
@@ -608,21 +537,22 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, shallowRef } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
 import { renderMarkdown, renderMermaidInContainer } from '@/utils/markdown'
+import { suggestCorrections } from '@/utils/spellcheck'
+import { formatBinding } from '@/constants/shortcuts'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
-import { 
-  Bold, Italic, Code, Link, List, CheckSquare, ArrowLeft, 
-  Heading1, Heading2, Heading3, Quote, Minus, Highlighter, 
+import SpellMenu from '@/components/editor/SpellMenu.vue'
+import {
+  Bold, Italic, Code, Link, List, CheckSquare, ArrowLeft,
+  Heading1, Heading2, Heading3, Quote, Minus, Highlighter,
   Strikethrough, Copy, Scissors, ClipboardPaste, Check,
-  EyeOff, BookPlus, Underline, FileText, Search, Eye,
-  Type, Pilcrow, ListOrdered, ListTodo, Table as TableIcon,
-  Image as ImageIcon, Code2, Square, Heading, Hash, Pencil,
-  PieChart, GitBranch, Clock, BarChart3, Zap, ChevronRight,
-  ExternalLink, ListTree, Link2, Settings2
+  FileText, Eye, Pencil, Zap, ChevronRight, ExternalLink,
+  ListTree, Link2, Settings2, Undo2, Redo2,
+  Image as ImageIcon, Code2, GitBranch, PieChart, BarChart3
 } from 'lucide-vue-next'
 import { parseFrontmatter, extractOutline } from '@/composables/useLinks.js'
 
@@ -631,168 +561,135 @@ const router = useRouter()
 const noteStore = useNoteStore()
 const appStore = useAppStore()
 
-const editorMode = ref('edit')
+// =========================== 基础状态 ===========================
+const editorMode = ref('edit') // edit | live | preview（edit/live 共用同一 CM 实例）
 const rightPanelTab = ref('outline')
 const newProp = ref({ key: '', value: '' })
 const rightPanelRef = ref(null)
 const content = ref('')
-const editorRef = ref(null)
 const mdEditorRef = ref(null)
-const liveEditorRef = ref(null)
-const editorScrollRef = ref(null)
-const liveScrollRef = ref(null)
-const spellOverlayRef = ref(null)
-const isLiveEditing = ref(false)
-let liveInputTimeout = null
-let spellUpdateTimeout = null
-let spellTooltipHideTimeout = null
-let canvasMeasureCtx = null
-// 拼写检查缓存：鼠标在同一个单词偏移上移动时不重复计算错误
-let lastSpellOffset = -1
-let lastSpellCacheKey = ''
-let lastSpellErrors = null
+const previewBodyRef = ref(null)
 
-const contextMenu = ref({
-  show: false,
-  x: 0,
-  y: 0,
-  hasSelection: false
-})
+/** 模板直接读取的编辑器响应式 API（stats / canUndo / cursor 等） */
+const editorApi = shallowRef(null)
 
-const spellTooltip = ref({
+const contextMenu = ref({ show: false, x: 0, y: 0, hasSelection: false })
+
+const floatingToolbar = ref({ show: false, x: 0, y: 0, placement: 'top' })
+
+const spellMenu = ref({
   show: false,
-  pinned: false,
-  x: 0,
-  y: 0,
+  rect: null,
   word: '',
-  placement: 'bottom'
+  from: 0,
+  to: 0,
+  suggestions: [],
+  occurrences: 1
 })
 
-let isMouseInSpellTooltip = false
-
-const floatingToolbar = ref({
-  show: false,
-  x: 0,
-  y: 0,
-  placement: 'top'
-})
-
-const isMouseDown = ref(false)
-
-const slashMenu = ref({
-  show: false,
-  x: 0,
-  y: 0,
-  query: '',
-  activeIndex: 0,
-  range: null
-})
-
-const slashSearchRef = ref(null)
-
-const slashCommands = [
-  { id: 'text', title: '文本', desc: '普通段落文本', icon: Pilcrow, format: 'text', keywords: ['text', 'paragraph', 'p', '文本', '段落'] },
-  { id: 'h1', title: '一级标题', desc: '大标题', icon: Heading1, format: 'h1', keywords: ['h1', 'title', 'heading', '标题'] },
-  { id: 'h2', title: '二级标题', desc: '中标题', icon: Heading2, format: 'h2', keywords: ['h2', 'subtitle', 'heading', '标题'] },
-  { id: 'h3', title: '三级标题', desc: '小标题', icon: Heading3, format: 'h3', keywords: ['h3', 'heading', '标题'] },
-  { id: 'bold', title: '粗体', desc: '强调文本', icon: Bold, format: 'bold', keywords: ['bold', 'strong', '粗体', '加粗'] },
-  { id: 'italic', title: '斜体', desc: '斜体文本', icon: Italic, format: 'italic', keywords: ['italic', 'em', '斜体'] },
-  { id: 'highlight', title: '高亮', desc: '高亮文本', icon: Highlighter, format: 'highlight', keywords: ['highlight', 'mark', '高亮'] },
-  { id: 'code', title: '行内代码', desc: '行内代码片段', icon: Code, format: 'code', keywords: ['code', 'inline', '代码'] },
-  { id: 'codeblock', title: '代码块', desc: '多行代码块', icon: Code2, format: 'codeblock', keywords: ['codeblock', 'pre', 'code', '代码块'] },
-  { id: 'quote', title: '引用', desc: '引用文本', icon: Quote, format: 'quote', keywords: ['quote', 'blockquote', '引用'] },
-  { id: 'list', title: '无序列表', desc: '项目列表', icon: List, format: 'list', keywords: ['list', 'ul', 'bullet', '列表'] },
-  { id: 'ordered', title: '有序列表', desc: '编号列表', icon: ListOrdered, format: 'ordered', keywords: ['ordered', 'ol', 'number', '编号'] },
-  { id: 'todo', title: '待办事项', desc: '可勾选任务', icon: ListTodo, format: 'todo', keywords: ['todo', 'task', 'check', '待办', '任务'] },
-  { id: 'hr', title: '分隔线', desc: '水平分隔线', icon: Minus, format: 'hr', keywords: ['hr', 'divider', 'separator', '分隔线'] },
-  { id: 'link', title: '链接', desc: '插入链接', icon: Link, format: 'link', keywords: ['link', 'url', 'a', '链接'] }
-]
-
-const filteredSlashCommands = computed(() => {
-  const q = slashMenu.value.query.toLowerCase().trim()
-  if (!q) return slashCommands
-  return slashCommands.filter(cmd => 
-    cmd.title.toLowerCase().includes(q) || 
-    cmd.desc.toLowerCase().includes(q) ||
-    cmd.keywords.some(k => k.toLowerCase().includes(q))
-  )
-})
-
-const editorPlaceholder = computed(() => {
-  return content.value ? '' : "按 / 输入命令，或直接开始书写你的想法..."
-})
-
-const modeLabel = computed(() => {
-  const labels = {
-    edit: '纯文本编辑模式',
-    live: '实时渲染编辑模式',
-    preview: '预览模式'
-  }
-  return labels[editorMode.value]
-})
-
-const fontSize = computed(() => {
-  // 对齐到 appStore 统一字号变量，三模式使用同一份 CSS 变量
-  const map = {
-    small: 'var(--font-size-body)',
-    medium: 'var(--font-size-body)',
-    large: 'var(--font-size-body)'
-  }
-  return map[appStore.fontSize] || 'var(--font-size-body)'
-})
-
-const showLineNumbers = computed(() => appStore.showLineNumbers)
-const wordWrap = computed(() => appStore.wordWrap)
-const spellCheckEnabled = computed(() => appStore.spellCheck)
-
-const lineCount = computed(() => {
-  return content.value.split('\n').length
-})
-
+// =========================== 工具栏定义 ===========================
 const formatTools = [
-  { id: 'h1', icon: Heading1, title: '一级标题' },
-  { id: 'h2', icon: Heading2, title: '二级标题' },
-  { id: 'h3', icon: Heading3, title: '三级标题' },
+  { id: 'format.h1', icon: Heading1, title: '一级标题' },
+  { id: 'format.h2', icon: Heading2, title: '二级标题' },
+  { id: 'format.h3', icon: Heading3, title: '三级标题' },
   { type: 'divider' },
-  { id: 'bold', icon: Bold, title: '粗体' },
-  { id: 'italic', icon: Italic, title: '斜体' },
-  { id: 'code', icon: Code, title: '代码' },
+  { id: 'format.bold', icon: Bold, title: '粗体' },
+  { id: 'format.italic', icon: Italic, title: '斜体' },
+  { id: 'format.code', icon: Code, title: '行内代码' },
   { type: 'divider' },
-  { id: 'quote', icon: Quote, title: '引用' },
-  { id: 'list', icon: List, title: '列表' },
-  { id: 'todo', icon: CheckSquare, title: '待办' },
-  { id: 'link', icon: Link, title: '链接' },
-  { id: 'hr', icon: Minus, title: '分隔线' },
+  { id: 'format.quote', icon: Quote, title: '引用' },
+  { id: 'format.bulletList', icon: List, title: '无序列表' },
+  { id: 'format.taskList', icon: CheckSquare, title: '待办列表' },
+  { id: 'format.link', icon: Link, title: '链接' },
+  { id: 'insert.divider', icon: Minus, title: '分隔线' },
   { type: 'divider' },
-  { id: 'codeblock', icon: Code2, title: '代码块' },
-  { id: 'mermaid-flow', icon: GitBranch, title: '流程图' },
-  { id: 'mermaid-pie', icon: PieChart, title: '饼图' },
-  { id: 'mermaid-gantt', icon: BarChart3, title: '甘特图' }
+  { id: 'insert.codeBlock', icon: Code2, title: '代码块' },
+  { id: 'insert.mermaid-flow', icon: GitBranch, title: '流程图' },
+  { id: 'insert.mermaid-pie', icon: PieChart, title: '饼图' },
+  { id: 'insert.mermaid-gantt', icon: BarChart3, title: '甘特图' }
 ]
 
+const MERMAID_TEMPLATES = {
+  'insert.mermaid-flow': '```mermaid\nflowchart TD\n    A[开始] --> B{判断}\n    B -->|是| C[处理]\n    B -->|否| D[结束]\n    C --> D\n```',
+  'insert.mermaid-pie': '```mermaid\npie title 项目分布\n    "前端" : 40\n    "后端" : 30\n    "设计" : 20\n    "测试" : 10\n```',
+  'insert.mermaid-gantt': '```mermaid\ngantt\n    title 项目计划\n    dateFormat YYYY-MM-DD\n    section 设计\n    需求分析 :a1, 2026-01-01, 7d\n    UI设计 :a2, after a1, 5d\n    section 开发\n    前端开发 :b1, after a2, 14d\n```'
+}
+
+function onToolbarAction(id) {
+  if (MERMAID_TEMPLATES[id]) {
+    mdEditorRef.value?.insertAtCursor(`\n${MERMAID_TEMPLATES[id]}\n`)
+    return
+  }
+  mdEditorRef.value?.applyCommand(id)
+}
+
+function shortcutHint(id) {
+  return formatBinding(appStore.getBinding(id))
+}
+
+// =========================== 笔记载入 / 内容同步 ===========================
 const currentNote = computed(() => noteStore.currentNote)
 
-const renderedContent = computed(() => {
-  return renderMarkdown(content.value || '')
-})
+const renderedContent = computed(() => renderMarkdown(content.value || ''))
 
 const outlineItems = computed(() => {
   try { return extractOutline(content.value || '') } catch { return [] }
 })
 
-// =========================== 右栏 Tabs 元数据 ===========================
-const rightPanelTabs = computed(() => [
-  { key: 'outline', label: '大纲', icon: ListTree, badge: outlineItems.value.length || undefined },
-  { key: 'backlinks', label: '反向链接', icon: Link2, badge: backlinksList.value.length || undefined },
-  { key: 'outgoing', label: '出站链接', icon: ExternalLink, badge: outgoingList.value.length || undefined },
-  { key: 'properties', label: '属性', icon: Settings2 }
-])
+const editorPlaceholder = '开始书写你的想法...'
 
-// =========================== Frontmatter ===========================
-const parsedFrontmatter = computed(() => parseFrontmatter(content.value || ''))
-const frontmatter = computed(() => parsedFrontmatter.value.frontmatter || {})
+const modeLabel = computed(() => ({
+  edit: '源码编辑模式',
+  live: '实时预览模式',
+  preview: '阅读模式'
+}[editorMode.value] || ''))
 
-// =========================== 自动补全上下文 ===========================
+function onContentChange(newContent) {
+  const val = typeof newContent === 'string' ? newContent : content.value
+  if (currentNote.value?.id) {
+    noteStore.updateNoteContent(currentNote.value.id, val)
+  }
+}
+
+function saveNote() {
+  if (currentNote.value?.id) {
+    noteStore.updateNoteContent(currentNote.value.id, content.value)
+  }
+}
+
+function setMode(mode) {
+  if (!['edit', 'live', 'preview'].includes(mode)) return
+  editorMode.value = mode
+  if (mode !== 'preview') {
+    floatingToolbar.value.show = false
+    nextTick(() => mdEditorRef.value?.focus())
+  }
+}
+
+/** Mod-Shift-E：编辑（源码/实时） ↔ 预览 */
+function toggleReadingMode() {
+  setMode(editorMode.value === 'preview' ? (appStore.livePreview === false ? 'edit' : 'live') : 'preview')
+}
+
+// =========================== 编辑器 API 装配 ===========================
+function onEditorReady() {
+  const api = mdEditorRef.value
+  if (!api) return
+  // MarkdownEditor defineExpose 的响应式成员（stats/canUndo/cursorLine...）
+  // 直接取 ref 对象本身，模板里即可实时读取
+  editorApi.value = {
+    get stats() { return api.stats },
+    get canUndo() { return api.canUndo },
+    get canRedo() { return api.canRedo },
+    get cursorLine() { return api.cursorLine },
+    get cursorColumn() { return api.cursorColumn },
+    undo: () => api.undo(),
+    redo: () => api.redo(),
+    applyCommand: (id) => api.applyCommand(id)
+  }
+}
+
+// =========================== 补全上下文 ===========================
 const completionContext = computed(() => {
   const notes = (noteStore.notes || []).map(n => ({
     id: n.id,
@@ -811,6 +708,60 @@ const completionContext = computed(() => {
     }
   }
 })
+
+// =========================== 右栏 Tabs ===========================
+const rightPanelTabs = computed(() => [
+  { key: 'outline', label: '大纲', icon: ListTree, badge: outlineItems.value.length || undefined },
+  { key: 'backlinks', label: '反向链接', icon: Link2, badge: backlinksList.value.length || undefined },
+  { key: 'outgoing', label: '出站链接', icon: ExternalLink, badge: outgoingList.value.length || undefined },
+  { key: 'properties', label: '属性', icon: Settings2 }
+])
+
+// =========================== Frontmatter ===========================
+const parsedFrontmatter = computed(() => parseFrontmatter(content.value || ''))
+const frontmatter = computed(() => parsedFrontmatter.value.frontmatter || {})
+
+function ensureFrontmatter() {
+  const { body, hasFrontmatter } = parsedFrontmatter.value
+  if (hasFrontmatter) return
+  const preamble = '---\ntitle: ' + JSON.stringify(currentNote.value?.title || '无标题') + '\ntags: []\ndate: ' + new Date().toISOString().slice(0, 10) + '\n---\n\n'
+  content.value = preamble + (body || content.value || '')
+  onContentChange(content.value)
+}
+
+function updateProperty(key, value) {
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: value })
+}
+
+function removeProperty(key) {
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: undefined })
+}
+
+function addNewProperty() {
+  const k = newProp.value.key?.trim()
+  if (!k) return
+  let v = newProp.value.value
+  if (k === 'tags' || k === 'tag' || k === 'categories' || k === 'category') {
+    v = v ? String(v).split(',').map(s => s.trim()).filter(Boolean) : []
+  }
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [k]: v })
+  newProp.value = { key: '', value: '' }
+}
+
+function appendArrayItem(key, inputEl) {
+  const v = (inputEl.value || '').trim()
+  if (!v) return
+  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
+  if (!arr.includes(v)) arr.push(v)
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
+  inputEl.value = ''
+}
+
+function removeArrayItem(key, index) {
+  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
+  arr.splice(index, 1)
+  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
+}
 
 // =========================== 反向 / 出站链接 ===========================
 const backlinksList = computed(() => {
@@ -869,87 +820,20 @@ function openOutgoingLink(link) {
   if (link.resolvedId) {
     openNoteById(link.resolvedId)
     if (link.hash) {
-      nextTick(() => {
-        if (editorMode.value === 'edit' && mdEditorRef.value?.scrollToHeadingText) {
-          mdEditorRef.value.scrollToHeadingText(link.hash)
-        } else {
-          scrollToHeadingTextFallback(link.hash)
-        }
-      })
+      nextTick(() => scrollToHeadingAnyMode(link.hash))
     }
     return
   }
-  // 未解析：创建新笔记
   const folder = currentNote.value?.folder || ''
   const created = noteStore.createNoteFromWikiTarget?.(link.target, folder) || noteStore.createNote(folder, link.target)
   if (created?.id) openNoteById(created.id)
 }
 
-function scrollToHeadingTextFallback(text) {
-  if (editorMode.value === 'preview') {
-    const els = document.querySelectorAll('.markdown-body h1,.markdown-body h2,.markdown-body h3,.markdown-body h4,.markdown-body h5,.markdown-body h6')
-    for (const el of els) {
-      if (el.textContent.includes(text)) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); return }
-    }
-  }
-}
-
-function onEditorCreateNote({ target, resolve }) {
-  const folder = currentNote.value?.folder || ''
-  const created = noteStore.createNoteFromWikiTarget?.(target, folder) || noteStore.createNote(folder, target)
-  resolve?.(created)
-  return created
-}
-
-// =========================== 属性编辑 API ===========================
-function ensureFrontmatter() {
-  const { body, hasFrontmatter } = parsedFrontmatter.value
-  if (hasFrontmatter) return
-  const preamble = '---\ntitle: ' + JSON.stringify(currentNote.value?.title || '无标题') + '\ntags: []\ndate: ' + new Date().toISOString().slice(0, 10) + '\n---\n\n'
-  content.value = preamble + (body || content.value || '')
-  onContentChange()
-}
-
-function updateProperty(key, value) {
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: value })
-}
-
-function removeProperty(key) {
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: undefined })
-}
-
-function addNewProperty() {
-  const k = newProp.value.key?.trim()
-  if (!k) return
-  let v = newProp.value.value
-  if (k === 'tags' || k === 'tag' || k === 'categories' || k === 'category') {
-    v = v ? String(v).split(',').map(s => s.trim()).filter(Boolean) : []
-  }
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [k]: v })
-  newProp.value = { key: '', value: '' }
-}
-
-function appendArrayItem(key, inputEl) {
-  const v = (inputEl.value || '').trim()
-  if (!v) return
-  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
-  if (!arr.includes(v)) arr.push(v)
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
-  inputEl.value = ''
-}
-
-function removeArrayItem(key, index) {
-  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
-  arr.splice(index, 1)
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
-}
-
-// =========================== 预览 / Live 模式 wikilink 点击跳转 ===========================
+// =========================== 预览区 wikilink 点击 ===========================
 function onPreviewClick(e) {
   if (!e) return
   const a = e.target?.closest?.('a.wikilink, a[data-wiki-target]')
   if (!a) {
-    // 嵌入块点击（预览卡片）也可打开对应笔记
     const embedCard = e.target?.closest?.('.embed-card, .wikilink-embed')
     if (!embedCard) return
     const target = embedCard.getAttribute('data-wiki-target') || embedCard.getAttribute('data-note-id')
@@ -968,38 +852,26 @@ function onPreviewClick(e) {
 }
 
 function handleGenericWikilinkClick({ target, id, hash }) {
-  // 仅有锚点：滚动到当前文档标题
   if (!target && hash) {
-    if (editorMode.value === 'edit' && mdEditorRef.value?.scrollToHeadingText) {
-      mdEditorRef.value.scrollToHeadingText(hash)
-    } else {
-      scrollToHeadingTextFallback(hash)
-    }
+    scrollToHeadingAnyMode(hash)
     return
   }
   if (id) {
     openNoteById(id)
-    if (hash) setTimeout(() => {
-      if (editorMode.value === 'edit' && mdEditorRef.value?.scrollToHeadingText) {
-        mdEditorRef.value.scrollToHeadingText(hash)
-      } else {
-        scrollToHeadingTextFallback(hash)
-      }
-    }, 80)
+    if (hash) setTimeout(() => scrollToHeadingAnyMode(hash), 80)
     return
   }
-  // 根据 target 查找
   if (target) {
     const exact = (noteStore.notes || []).find(n => n.title === target)
     if (exact) {
       openNoteById(exact.id)
-      if (hash) setTimeout(() => scrollToHeadingTextFallback(hash), 80)
+      if (hash) setTimeout(() => scrollToHeadingAnyMode(hash), 80)
       return
     }
     const fuzzy = (noteStore.notes || []).find(n => n.title.toLowerCase().includes(target.toLowerCase()))
     if (fuzzy) {
       openNoteById(fuzzy.id)
-      if (hash) setTimeout(() => scrollToHeadingTextFallback(hash), 80)
+      if (hash) setTimeout(() => scrollToHeadingAnyMode(hash), 80)
       return
     }
     const created = noteStore.createNoteFromWikiTarget?.(target, currentNote.value?.folder || '') || noteStore.createNote(currentNote.value?.folder || '', target)
@@ -1007,976 +879,191 @@ function handleGenericWikilinkClick({ target, id, hash }) {
   }
 }
 
-const spellErrors = computed(() => {
-  appStore.spellVersion
-  if (!spellCheckEnabled.value || editorMode.value !== 'edit') return []
-  return appStore.getSpellErrors(content.value)
-})
-
-function setMode(mode) {
-  const previousMode = editorMode.value
-  editorMode.value = mode
-  if (mode === 'live' && previousMode !== 'live') {
-    nextTick(() => {
-      updateLiveEditor()
-    })
-  }
-}
-
-async function updateLiveEditor() {
-  if (!liveEditorRef.value) return
-  liveEditorRef.value.innerHTML = renderedContent.value
-  await nextTick()
-  renderMermaidInContainer(liveEditorRef.value)
-}
-
-function onContentChange(newContent) {
-  if (currentNote.value?.id) {
-    noteStore.updateNoteContent(currentNote.value.id, newContent || content.value)
-  }
-}
-
-function saveNote() {
-  if (currentNote.value?.id) {
-    noteStore.updateNoteContent(currentNote.value.id, content.value)
-  }
-}
-
-function onEditorFocus() {
-}
-
-function onEditorBlur() {
-}
-
-function autoResizeTextarea() {
-  const textarea = editorRef.value
-  if (!textarea) return
-  textarea.style.height = 'auto'
-  textarea.style.height = (textarea.scrollHeight + 2) + 'px'
-}
-
-function onEditorKeydown(e) {
-  if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'b') {
-      e.preventDefault()
-      applyFormat('bold')
-    } else if (e.key === 'i') {
-      e.preventDefault()
-      applyFormat('italic')
-    } else if (e.key === 'k') {
-      e.preventDefault()
-      applyFormat('link')
-    }
-  }
-  
-  if (e.key === 'Tab') {
-    e.preventDefault()
-    const textarea = editorRef.value
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const selectedText = content.value.substring(start, end)
-    const indentedText = selectedText.split('\n').map(line => '  ' + line).join('\n')
-    content.value = content.value.substring(0, start) + indentedText + content.value.substring(end)
-    nextTick(() => {
-      textarea.selectionStart = start + 2
-      textarea.selectionEnd = end + selectedText.split('\n').length * 2
-    })
-    onContentChange()
-  }
-}
-
-function onLiveInput(e) {
-  isLiveEditing.value = true
-  if (liveInputTimeout) {
-    clearTimeout(liveInputTimeout)
-  }
-  liveInputTimeout = setTimeout(() => {
-    const html = e.target.innerHTML
-    const text = htmlToMarkdown(html)
-    if (text !== content.value) {
-      content.value = text
-      onContentChange()
-    }
-    isLiveEditing.value = false
-  }, 300)
-}
-
-function onLiveKeydown(e) {
-  if (slashMenu.value.show) {
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      closeSlashMenu()
-      return
-    }
-    if (e.key === 'ArrowDown') {
-      e.preventDefault()
-      slashMenu.value.activeIndex = Math.min(
-        slashMenu.value.activeIndex + 1,
-        filteredSlashCommands.value.length - 1
-      )
-      return
-    }
-    if (e.key === 'ArrowUp') {
-      e.preventDefault()
-      slashMenu.value.activeIndex = Math.max(slashMenu.value.activeIndex - 1, 0)
-      return
-    }
-    if (e.key === 'Enter') {
-      e.preventDefault()
-      const cmd = filteredSlashCommands.value[slashMenu.value.activeIndex]
-      if (cmd) executeSlashCommand(cmd)
-      return
-    }
-  }
-  
-  if (e.ctrlKey || e.metaKey) {
-    if (e.key === 'b') {
-      e.preventDefault()
-      applyFormat('bold')
-    } else if (e.key === 'i') {
-      e.preventDefault()
-      applyFormat('italic')
-    } else if (e.key === 'k') {
-      e.preventDefault()
-      applyFormat('link')
-    } else if (e.key === 'e') {
-      e.preventDefault()
-      applyFormat('highlight')
-    }
-  }
-  
-  if (e.key === 'Tab') {
-    e.preventDefault()
-    document.execCommand('insertText', false, '  ')
-  }
-  
-  if (e.key === 'Escape' && floatingToolbar.value.show) {
-    floatingToolbar.value.show = false
-  }
-}
-
-function onLiveKeyup(e) {
-  if (e.key === '/' && !slashMenu.value.show) {
-    const sel = window.getSelection()
-    if (sel && sel.rangeCount > 0 && sel.toString() === '') {
-      const range = sel.getRangeAt(0)
-      const text = range.startContainer.textContent || ''
-      const offset = range.startOffset
-      if (offset > 0 && text[offset - 1] === '/') {
-        const rect = range.getBoundingClientRect()
-        slashMenu.value = {
-          show: true,
-          x: rect.left,
-          y: rect.bottom + 6,
-          query: '',
-          activeIndex: 0,
-          range: range.cloneRange()
-        }
-        nextTick(() => {
-          if (slashSearchRef.value) slashSearchRef.value.focus()
-        })
+// =========================== 滚动 / 定位 ===========================
+function scrollToHeadingAnyMode(text) {
+  if (editorMode.value === 'preview' && previewBodyRef.value) {
+    const els = previewBodyRef.value.querySelectorAll('h1, h2, h3, h4, h5, h6')
+    const needle = String(text).trim().toLowerCase()
+    for (const el of els) {
+      if (el.textContent.trim().toLowerCase() === needle) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
       }
     }
+    for (const el of els) {
+      if (el.textContent.includes(text)) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        return
+      }
+    }
+    return
+  }
+  mdEditorRef.value?.scrollToHeadingText(text)
+}
+
+function scrollToHeading(item) {
+  if (!item?.text) return
+  if (editorMode.value === 'preview') {
+    scrollToHeadingAnyMode(item.text)
+    return
+  }
+  // 大纲条目按标题文本定位（与 wikilink 锚点一致的匹配规则）
+  mdEditorRef.value?.scrollToHeadingText(item.text)
+}
+
+// =========================== 拼写检查菜单 ===========================
+function onSpellClick(hit) {
+  if (!hit) return
+  const rect = mdEditorRef.value?.spellRect(hit) || null
+  const suggestions = suggestCorrections(hit.word, appStore.customDictionary instanceof Set ? appStore.customDictionary : new Set(), 5)
+  spellMenu.value = {
+    show: true,
+    rect,
+    word: hit.word,
+    from: hit.from,
+    to: hit.to,
+    suggestions,
+    occurrences: countOccurrences(content.value, hit.word)
   }
 }
 
-function onLiveMouseup() {
-  setTimeout(() => {
-    updateFloatingToolbar()
-  }, 10)
+function countOccurrences(text, word) {
+  if (!word) return 0
+  let count = 0
+  let idx = text.indexOf(word)
+  while (idx !== -1) {
+    count++
+    idx = text.indexOf(word, idx + word.length)
+  }
+  return count
 }
 
-function onLiveMousemove(e) {
-  if (!floatingToolbar.value.show) return
-  updateFloatingToolbar()
+function closeSpellMenu() {
+  spellMenu.value.show = false
 }
 
-function updateFloatingToolbar() {
-  if (editorMode.value !== 'live') {
+function replaceSpellWord(word) {
+  const { from, to } = spellMenu.value
+  if (typeof from === 'number' && typeof to === 'number' && to > from) {
+    mdEditorRef.value?.replaceRange(from, to, word)
+  }
+  closeSpellMenu()
+}
+
+function replaceSpellWordAll(word) {
+  const target = spellMenu.value.word
+  if (!target) return
+  const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  content.value = content.value.replace(new RegExp(escaped, 'g'), word)
+  onContentChange(content.value)
+  closeSpellMenu()
+}
+
+function ignoreSpellWord(word) {
+  appStore.ignoreWord(word)
+  closeSpellMenu()
+}
+
+function addSpellWordToDictionary(word) {
+  appStore.addToDictionary(word)
+  closeSpellMenu()
+}
+
+async function copyText(text) {
+  try {
+    await navigator.clipboard.writeText(String(text || ''))
+  } catch { /* 剪贴板不可用时静默失败 */ }
+  closeSpellMenu()
+}
+
+// =========================== 浮动选区工具栏 ===========================
+function onSelectionChange(info) {
+  if (editorMode.value === 'preview') {
     floatingToolbar.value.show = false
     return
   }
-  const sel = window.getSelection()
-  if (!sel || sel.rangeCount === 0) {
+  if (!info?.hasSelection || !info?.coords) {
     floatingToolbar.value.show = false
     return
   }
-  const text = sel.toString()
-  if (!text || text.trim().length === 0) {
-    floatingToolbar.value.show = false
-    return
-  }
-  const range = sel.getRangeAt(0)
-  const rect = range.getBoundingClientRect()
-  
-  // 如果选区在视口顶部，工具栏显示在下方；否则显示在上方
-  const showBelow = rect.top < 60
-  const toolbarHeight = 40
-  
+  const { coords } = info
+  const width = 268
+  const height = 40
+  const margin = 8
+  let x = (coords.left + coords.right) / 2
+  x = Math.max(margin + width / 2, Math.min(window.innerWidth - margin - width / 2, x))
+  const showBelow = coords.top < height + 60
   floatingToolbar.value = {
     show: true,
-    x: rect.left + rect.width / 2,
-    y: showBelow ? rect.bottom + 10 : rect.top - 10,
+    x,
+    y: showBelow ? coords.bottom + 10 : coords.top - 10,
     placement: showBelow ? 'bottom' : 'top'
   }
 }
 
-function closeSlashMenu() {
-  slashMenu.value.show = false
-  slashMenu.value.query = ''
-  slashMenu.value.activeIndex = 0
-  if (liveEditorRef.value) liveEditorRef.value.focus()
-}
-
-function onSlashKeydown(e) {
-  if (e.key === 'Escape') {
-    e.preventDefault()
-    closeSlashMenu()
-  } else if (e.key === 'ArrowDown') {
-    e.preventDefault()
-    slashMenu.value.activeIndex = Math.min(
-      slashMenu.value.activeIndex + 1,
-      filteredSlashCommands.value.length - 1
-    )
-  } else if (e.key === 'ArrowUp') {
-    e.preventDefault()
-    slashMenu.value.activeIndex = Math.max(slashMenu.value.activeIndex - 1, 0)
-  } else if (e.key === 'Enter') {
-    e.preventDefault()
-    const cmd = filteredSlashCommands.value[slashMenu.value.activeIndex]
-    if (cmd) executeSlashCommand(cmd)
-  }
-}
-
-function executeSlashCommand(cmd) {
-  if (slashMenu.value.range) {
-    const range = slashMenu.value.range
-    range.deleteContents()
-    
-    let html = ''
-    switch (cmd.format) {
-      case 'text':
-        html = '<p><br></p>'
-        break
-      case 'h1':
-        html = '<h1>标题</h1>'
-        break
-      case 'h2':
-        html = '<h2>标题</h2>'
-        break
-      case 'h3':
-        html = '<h3>标题</h3>'
-        break
-      case 'bold':
-        html = '<p><strong>粗体文本</strong></p>'
-        break
-      case 'italic':
-        html = '<p><em>斜体文本</em></p>'
-        break
-      case 'highlight':
-        html = '<p><mark>高亮文本</mark></p>'
-        break
-      case 'code':
-        html = '<p><code>代码</code></p>'
-        break
-      case 'codeblock':
-        html = '<pre><code>代码块</code></pre>'
-        break
-      case 'quote':
-        html = '<blockquote>引用文本</blockquote>'
-        break
-      case 'list':
-        html = '<ul><li>列表项</li></ul>'
-        break
-      case 'ordered':
-        html = '<ol><li>编号项</li></ol>'
-        break
-      case 'todo':
-        html = '<ul><li><input type="checkbox" disabled> 待办事项</li></ul>'
-        break
-      case 'hr':
-        html = '<hr>'
-        break
-      case 'link':
-        html = '<p><a href="https://">链接文本</a></p>'
-        break
-    }
-    
-    const fragment = range.createContextualFragment(html)
-    range.insertNode(fragment)
-    
-    closeSlashMenu()
-    nextTick(() => {
-      if (liveEditorRef.value) {
-        liveEditorRef.value.dispatchEvent(new Event('input', { bubbles: true }))
-      }
-    })
-  } else {
-    closeSlashMenu()
-  }
-}
-
-function onLivePaste(e) {
-  e.preventDefault()
-  const text = e.clipboardData.getData('text/html') || e.clipboardData.getData('text/plain')
-  if (text) {
-    document.execCommand('insertHTML', false, text)
-  }
-}
-
-function onContextMenu(e) {
-  e.preventDefault()
-  
-  const hasSelection = checkHasSelection()
-  const estimatedWidth = 280
-  const estimatedHeight = hasSelection ? 520 : 120
-  
-  let x = e.clientX
-  let y = e.clientY
-  
-  if (x + estimatedWidth > window.innerWidth - 8) {
-    x = window.innerWidth - estimatedWidth - 8
-  }
+// =========================== 右键菜单 ===========================
+function onContextMenu(event) {
+  if (!event) return
+  event.preventDefault()
+  const hasSelection = !!mdEditorRef.value?.getSelection?.() && mdEditorRef.value.getSelection().from !== mdEditorRef.value.getSelection().to
+  const estimatedWidth = 260
+  const estimatedHeight = hasSelection ? 480 : 160
+  let x = event.clientX
+  let y = event.clientY
+  if (x + estimatedWidth > window.innerWidth - 8) x = window.innerWidth - estimatedWidth - 8
   if (y + estimatedHeight > window.innerHeight - 8) {
-    y = e.clientY - estimatedHeight
+    y = event.clientY - estimatedHeight
     if (y < 8) y = 8
   }
-  
-  contextMenu.value = {
-    show: true,
-    x: x,
-    y: y,
-    hasSelection: hasSelection
-  }
-}
-
-function checkHasSelection() {
-  if (editorMode.value === 'edit' && mdEditorRef.value) {
-    const sel = mdEditorRef.value.getSelection()
-    return sel && sel.from !== sel.to
-  } else if (editorMode.value === 'live') {
-    const selection = window.getSelection()
-    return selection && selection.toString().length > 0
-  }
-  return false
+  floatingToolbar.value.show = false
+  contextMenu.value = { show: true, x, y, hasSelection }
 }
 
 function closeContextMenu() {
   contextMenu.value.show = false
 }
 
-function contextMenuAction(action) {
+function contextMenuAction(commandId) {
   closeContextMenu()
   nextTick(() => {
-    if (action === 'copy') {
-      document.execCommand('copy')
-    } else if (action === 'cut') {
-      document.execCommand('cut')
-    } else if (action === 'paste') {
-      document.execCommand('paste')
-    } else if (action === 'selectAll') {
-      if (editorMode.value === 'edit' && mdEditorRef.value) {
-        mdEditorRef.value.selectAll()
-      } else if (editorMode.value === 'live' && liveEditorRef.value) {
-        const range = document.createRange()
-        range.selectNodeContents(liveEditorRef.value)
-        const selection = window.getSelection()
-        selection.removeAllRanges()
-        selection.addRange(range)
-      }
+    if (commandId === 'edit.selectAll') {
+      mdEditorRef.value?.selectAll()
     } else {
-      applyFormat(action)
+      mdEditorRef.value?.applyCommand(commandId)
     }
   })
 }
 
-function onMouseMove(e) {
-  if (!spellCheckEnabled.value || (editorMode.value !== 'edit' && editorMode.value !== 'live')) {
-    scheduleHideSpellTooltip()
-    return
-  }
-  
-  if (contextMenu.value.show) return
-  
-  // 已"锁定"显示（通过点击）时，鼠标移动不再自动隐藏
-  if (spellTooltip.value.pinned) return
-
-  if (isMouseInSpellTooltip) return
-  
-  let offset = -1
-  
-  if (editorMode.value === 'edit') {
-    if (!mdEditorRef.value) {
-      scheduleHideSpellTooltip()
-      return
-    }
-    offset = mdEditorRef.value.posAtCoords(e.clientX, e.clientY)
-  } else {
-    const textarea = liveEditorRef.value
-    if (!textarea) {
-      scheduleHideSpellTooltip()
-      return
-    }
-    
-    const rect = textarea.getBoundingClientRect()
-    const style = window.getComputedStyle(textarea)
-    
-    const paddingLeft = parseFloat(style.paddingLeft) || 0
-    const paddingTop = parseFloat(style.paddingTop) || 0
-    const borderWidth = parseFloat(style.borderTopWidth) || 0
-    
-    const relX = e.clientX - rect.left - paddingLeft - (parseFloat(style.borderLeftWidth) || 0)
-    const relY = e.clientY - rect.top - paddingTop - borderWidth
-    
-    if (relX < 0 || relY < 0 || relX > rect.width || relY > rect.height) {
-      scheduleHideSpellTooltip()
-      return
-    }
-    
-    offset = getOffsetFromPoint(textarea, relX, relY)
-  }
-  
-  if (offset < 0) {
-    scheduleHideSpellTooltip()
-    return
-  }
-  
-  // 缓存错误：内容或偏移不变时复用上一次结果，避免每次 mousemove 都重算
-  const key = content.value
-  if (lastSpellOffset !== offset || lastSpellCacheKey !== key) {
-    lastSpellOffset = offset
-    lastSpellCacheKey = key
-    lastSpellErrors = appStore.getSpellErrors(content.value)
-  }
-  const errors = lastSpellErrors
-  if (!errors || errors.length === 0) {
-    scheduleHideSpellTooltip()
-    return
-  }
-  
-  for (const error of errors) {
-    if (offset >= error.start && offset <= error.end) {
-      showSpellTooltip(error.word, e.clientX, e.clientY, false)
-      return
-    }
-  }
-  
-  scheduleHideSpellTooltip()
+async function copySelection() {
+  closeContextMenu()
+  const sel = mdEditorRef.value?.getSelection?.()
+  if (sel?.text) await copyText(sel.text)
 }
 
-function onEditMouseDown(e) {
-  // 如果点击不在 spell tooltip 上，点击编辑区前清除"锁定"，让新一轮交互接管
-  if (spellTooltip.value.pinned) {
-    const path = e.composedPath?.() || []
-    const hit = path.some(el => el && el.classList && (el.classList.contains('spell-tooltip-wrapper') || el.closest && el.closest('.spell-tooltip-wrapper')))
-    if (!hit) {
-      spellTooltip.value.pinned = false
-    }
+async function cutSelection() {
+  closeContextMenu()
+  const sel = mdEditorRef.value?.getSelection?.()
+  if (sel?.text) {
+    await copyText(sel.text)
+    mdEditorRef.value?.replaceRange(sel.from, sel.to, '')
   }
 }
 
-function onEditClick(e) {
-  if (!spellCheckEnabled.value || editorMode.value !== 'edit') return
-  if (!mdEditorRef.value) return
-  const offset = mdEditorRef.value.posAtCoords(e.clientX, e.clientY)
-  if (offset < 0) return
-  const errors = appStore.getSpellErrors(content.value)
-  for (const error of errors) {
-    if (offset >= error.start && offset <= error.end) {
-      showSpellTooltip(error.word, e.clientX, e.clientY, true)
-      return
-    }
-  }
-  // 没命中则关闭
-  hideSpellTooltip()
+async function pasteFromClipboard() {
+  closeContextMenu()
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text) mdEditorRef.value?.insertAtCursor(text)
+  } catch { /* 剪贴板权限被拒时静默失败 */ }
 }
 
-function showSpellTooltip(word, clientX, clientY, pinned = false) {
-  if (spellTooltipHideTimeout) {
-    clearTimeout(spellTooltipHideTimeout)
-    spellTooltipHideTimeout = null
-  }
-  
-  const tooltipWidth = 240
-  const tooltipHeight = 150
-  const margin = 10
-  
-  let x = clientX - tooltipWidth / 2
-  let y = clientY + 16
-  let placement = 'bottom'
-  
-  if (x < margin) x = margin
-  if (x + tooltipWidth > window.innerWidth - margin) {
-    x = window.innerWidth - tooltipWidth - margin
-  }
-  
-  if (y + tooltipHeight > window.innerHeight - margin) {
-    y = clientY - tooltipHeight - 16
-    placement = 'top'
-  }
-  
-  if (y < margin) {
-    y = margin
-  }
-  
-  // pinned=true 则"锁定"：不再被 500ms 定时器关闭
-  spellTooltip.value = {
-    show: true,
-    pinned: !!pinned,
-    x,
-    y,
-    word,
-    placement
-  }
+// =========================== 编辑区鼠标 ===========================
+function onEditMouseDown() {
+  // 点击编辑区任意位置时收起浮动工具栏（spellMenu 自行管理关闭逻辑）
+  if (floatingToolbar.value.show) floatingToolbar.value.show = false
 }
 
-function scheduleHideSpellTooltip() {
-  // 已锁定状态不自动隐藏
-  if (spellTooltip.value.pinned) return
-  if (spellTooltipHideTimeout) return
-  spellTooltipHideTimeout = setTimeout(() => {
-    spellTooltip.value.show = false
-    spellTooltip.value.pinned = false
-    spellTooltipHideTimeout = null
-  }, 500)
-}
-
-function onSpellTooltipEnter() {
-  isMouseInSpellTooltip = true
-  if (spellTooltipHideTimeout) {
-    clearTimeout(spellTooltipHideTimeout)
-    spellTooltipHideTimeout = null
-  }
-}
-
-function onSpellTooltipLeave() {
-  isMouseInSpellTooltip = false
-  scheduleHideSpellTooltip()
-}
-
-function getOffsetFromPoint(textarea, x, y) {
-  const style = window.getComputedStyle(textarea)
-  const lineHeight = parseFloat(style.lineHeight) || (parseFloat(style.fontSize) * 1.7)
-  const fontSize = parseFloat(style.fontSize)
-  const fontFamily = style.fontFamily
-  
-  const scrollTop = textarea.scrollTop
-  const scrollLeft = textarea.scrollLeft
-  
-  const adjustedY = y + scrollTop
-  const adjustedX = x + scrollLeft
-  
-  const lines = textarea.value.split('\n')
-  const lineIndex = Math.floor(adjustedY / lineHeight)
-  
-  if (lineIndex < 0 || lineIndex >= lines.length) return -1
-  
-  const line = lines[lineIndex]
-  
-  if (!canvasMeasureCtx) {
-    const canvas = document.createElement('canvas')
-    canvasMeasureCtx = canvas.getContext('2d')
-  }
-  canvasMeasureCtx.font = `${fontSize}px ${fontFamily}`
-  
-  let colIndex = 0
-  let width = 0
-  for (let i = 0; i < line.length; i++) {
-    const charWidth = canvasMeasureCtx.measureText(line[i]).width
-    if (width + charWidth / 2 > adjustedX) {
-      colIndex = i
-      break
-    }
-    width += charWidth
-    colIndex = i + 1
-  }
-  
-  let offset = 0
-  for (let i = 0; i < lineIndex; i++) {
-    offset += lines[i].length + 1
-  }
-  offset += colIndex
-  
-  return offset
-}
-
-function hideSpellTooltip() {
-  if (spellTooltip.value.show) spellTooltip.value.show = false
-}
-
-function updateSpellOverlay() {
-  if (!spellOverlayRef.value) return
-  if (editorMode.value !== 'edit' || !spellCheckEnabled.value) {
-    spellOverlayRef.value.innerHTML = ''
-    return
-  }
-  
-  const text = content.value
-  const errors = appStore.getSpellErrors(text)
-  
-  if (errors.length === 0) {
-    spellOverlayRef.value.innerHTML = ''
-    return
-  }
-  
-  const escapeHtml = (str) => {
-    return str
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-  }
-  
-  let html = ''
-  let lastEnd = 0
-  
-  const sortedErrors = [...errors].sort((a, b) => a.start - b.start)
-  
-  for (const error of sortedErrors) {
-    if (error.start < lastEnd) continue
-    html += escapeHtml(text.substring(lastEnd, error.start))
-    html += `<span class="spell-error">${escapeHtml(error.word)}</span>`
-    lastEnd = error.end
-  }
-  html += escapeHtml(text.substring(lastEnd))
-  
-  spellOverlayRef.value.innerHTML = html
-}
-
-function syncSpellOverlay() {
-  if (spellOverlayRef.value && editorRef.value) {
-    spellOverlayRef.value.scrollTop = editorRef.value.scrollTop
-    spellOverlayRef.value.scrollLeft = editorRef.value.scrollLeft
-  }
-}
-
-function ignoreWord(word) {
-  appStore.ignoreWord(word)
-  spellTooltip.value.show = false
-  nextTick(() => updateSpellOverlay())
-}
-
-function addToDictionary(word) {
-  appStore.addToDictionary(word)
-  spellTooltip.value.show = false
-  nextTick(() => updateSpellOverlay())
-}
-
-function handleIgnoreWord() {
-  if (spellTooltipHideTimeout) {
-    clearTimeout(spellTooltipHideTimeout)
-    spellTooltipHideTimeout = null
-  }
-  ignoreWord(spellTooltip.value.word)
-}
-
-function handleAddToDictionary() {
-  if (spellTooltipHideTimeout) {
-    clearTimeout(spellTooltipHideTimeout)
-    spellTooltipHideTimeout = null
-  }
-  addToDictionary(spellTooltip.value.word)
-}
-
-function htmlToMarkdown(html) {
-  let text = html
-    .replace(/<h1[^>]*>/gi, '# ')
-    .replace(/<\/h1>/gi, '\n\n')
-    .replace(/<h2[^>]*>/gi, '## ')
-    .replace(/<\/h2>/gi, '\n\n')
-    .replace(/<h3[^>]*>/gi, '### ')
-    .replace(/<\/h3>/gi, '\n\n')
-    .replace(/<h4[^>]*>/gi, '#### ')
-    .replace(/<\/h4>/gi, '\n\n')
-    .replace(/<h5[^>]*>/gi, '##### ')
-    .replace(/<\/h5>/gi, '\n\n')
-    .replace(/<h6[^>]*>/gi, '###### ')
-    .replace(/<\/h6>/gi, '\n\n')
-    .replace(/<p[^>]*>/gi, '')
-    .replace(/<\/p>/gi, '\n\n')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<strong[^>]*>/gi, '**')
-    .replace(/<\/strong>/gi, '**')
-    .replace(/<b[^>]*>/gi, '**')
-    .replace(/<\/b>/gi, '**')
-    .replace(/<em[^>]*>/gi, '*')
-    .replace(/<\/em>/gi, '*')
-    .replace(/<i[^>]*>/gi, '*')
-    .replace(/<\/i>/gi, '*')
-    .replace(/<mark[^>]*>/gi, '==')
-    .replace(/<\/mark>/gi, '==')
-    .replace(/<del[^>]*>/gi, '~~')
-    .replace(/<\/del>/gi, '~~')
-    .replace(/<s[^>]*>/gi, '~~')
-    .replace(/<\/s>/gi, '~~')
-    .replace(/<code[^>]*>/gi, '`')
-    .replace(/<\/code>/gi, '`')
-    .replace(/<pre[^>]*>/gi, '\n```\n')
-    .replace(/<\/pre>/gi, '\n```\n')
-    .replace(/<ul[^>]*>/gi, '\n')
-    .replace(/<\/ul>/gi, '\n')
-    .replace(/<ol[^>]*>/gi, '\n')
-    .replace(/<\/ol>/gi, '\n')
-    .replace(/<li[^>]*>/gi, '- ')
-    .replace(/<\/li>/gi, '\n')
-    .replace(/<blockquote[^>]*>/gi, '> ')
-    .replace(/<\/blockquote>/gi, '\n')
-    .replace(/<hr[^>]*>/gi, '\n---\n')
-    .replace(/<input[^>]*checked[^>]*type="checkbox"[^>]*>/gi, '- [x] ')
-    .replace(/<input[^>]*type="checkbox"[^>]*>/gi, '- [ ] ')
-    .replace(/<a[^>]*href="([^"]+)"[^>]*>([^<]+)<\/a>/gi, '[$2]($1)')
-    .replace(/<img[^>]*src="([^"]+)"[^>]*>/gi, '![]($1)')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&amp;/g, '&')
-    .replace(/\n{3,}/g, '\n\n')
-    .trim()
-  
-  return text
-}
-
-function applyFormat(format) {
-  if (editorMode.value === 'edit') {
-    if (mdEditorRef.value) {
-      mdEditorRef.value.applyFormat(format)
-    }
-  } else if (editorMode.value === 'live') {
-    applyFormatToLive(format)
-  }
-}
-
-function applyFormatToTextarea(format) {
-  const textarea = editorRef.value
-  if (!textarea) return
-  
-  const start = textarea.selectionStart
-  const end = textarea.selectionEnd
-  const selectedText = content.value.substring(start, end)
-  let newText = ''
-  let cursorOffset = 0
-  
-  switch (format) {
-    case 'h1':
-      newText = `# ${selectedText || '标题'}`
-      cursorOffset = selectedText ? 0 : 3
-      break
-    case 'h2':
-      newText = `## ${selectedText || '标题'}`
-      cursorOffset = selectedText ? 0 : 4
-      break
-    case 'h3':
-      newText = `### ${selectedText || '标题'}`
-      cursorOffset = selectedText ? 0 : 5
-      break
-    case 'bold':
-      newText = `**${selectedText || '粗体文本'}**`
-      cursorOffset = selectedText ? 0 : 2
-      break
-    case 'italic':
-      newText = `*${selectedText || '斜体文本'}*`
-      cursorOffset = selectedText ? 0 : 1
-      break
-    case 'underline':
-      newText = `<u>${selectedText || '下划线文本'}</u>`
-      cursorOffset = selectedText ? 0 : 3
-      break
-    case 'code':
-      newText = `\`${selectedText || '代码'}\``
-      cursorOffset = selectedText ? 0 : 1
-      break
-    case 'quote':
-      newText = `> ${selectedText || '引用文本'}`
-      cursorOffset = selectedText ? 0 : 2
-      break
-    case 'link':
-      newText = `[${selectedText || '链接文本'}](url)`
-      cursorOffset = selectedText ? 0 : 1
-      break
-    case 'list':
-      newText = `- ${selectedText || '列表项'}`
-      cursorOffset = selectedText ? 0 : 2
-      break
-    case 'ordered':
-      newText = `1. ${selectedText || '编号项'}`
-      cursorOffset = selectedText ? 0 : 3
-      break
-    case 'todo':
-      newText = `- [ ] ${selectedText || '待办事项'}`
-      cursorOffset = selectedText ? 0 : 6
-      break
-    case 'highlight':
-      newText = `==${selectedText || '高亮文本'}==`
-      cursorOffset = selectedText ? 0 : 2
-      break
-    case 'strikethrough':
-      newText = `~~${selectedText || '删除线文本'}~~`
-      cursorOffset = selectedText ? 0 : 2
-      break
-    case 'codeblock':
-      newText = `\n\`\`\`\n${selectedText || '代码块'}\n\`\`\`\n`
-      cursorOffset = selectedText ? 0 : 5
-      break
-    case 'hr':
-      newText = '\n---\n'
-      cursorOffset = 4
-      break
-    case 'mermaid-flow':
-      newText = `\n\`\`\`mermaid
-flowchart TD
-    A[开始] --> B{判断}
-    B -->|是| C[处理]
-    B -->|否| D[结束]
-    C --> D
-\`\`\`\n`
-      cursorOffset = 5
-      break
-    case 'mermaid-pie':
-      newText = `\n\`\`\`mermaid
-pie title 项目分布
-    "前端" : 40
-    "后端" : 30
-    "设计" : 20
-    "测试" : 10
-\`\`\`\n`
-      cursorOffset = 5
-      break
-    case 'mermaid-gantt':
-      newText = `\n\`\`\`mermaid
-gantt
-    title 项目计划
-    dateFormat YYYY-MM-DD
-    section 设计
-    需求分析 :a1, 2024-01-01, 7d
-    UI设计 :a2, after a1, 5d
-    section 开发
-    前端开发 :b1, after a2, 14d
-    后端开发 :b2, after a2, 14d
-\`\`\`\n`
-      cursorOffset = 5
-      break
-  }
-  
-  const lineStart = content.value.lastIndexOf('\n', start - 1) + 1
-  const lineEnd = content.value.indexOf('\n', end)
-  
-  if ((format === 'list' || format === 'ordered' || format === 'quote' || format === 'todo') && !selectedText) {
-    content.value = content.value.substring(0, lineStart) + newText + content.value.substring(lineEnd === -1 ? content.value.length : lineEnd)
-  } else {
-    content.value = content.value.substring(0, start) + newText + content.value.substring(end)
-  }
-  
-  nextTick(() => {
-    textarea.focus()
-    const pos = start + (selectedText ? newText.length : cursorOffset)
-    textarea.setSelectionRange(pos, pos)
-  })
-  
-  onContentChange()
-}
-
-function applyFormatToLive(format) {
-  const editor = liveEditorRef.value
-  if (!editor) return
-  
-  editor.focus()
-  
-  switch (format) {
-    case 'h1':
-      document.execCommand('formatBlock', false, 'h1')
-      break
-    case 'h2':
-      document.execCommand('formatBlock', false, 'h2')
-      break
-    case 'h3':
-      document.execCommand('formatBlock', false, 'h3')
-      break
-    case 'bold':
-      document.execCommand('bold', false)
-      break
-    case 'italic':
-      document.execCommand('italic', false)
-      break
-    case 'underline':
-      document.execCommand('underline', false)
-      break
-    case 'code':
-      document.execCommand('formatBlock', false, 'code')
-      break
-    case 'quote':
-      document.execCommand('formatBlock', false, 'blockquote')
-      break
-    case 'link':
-      const url = prompt('请输入链接地址:', 'https://')
-      if (url) {
-        document.execCommand('createLink', false, url)
-      }
-      break
-    case 'list':
-      document.execCommand('insertUnorderedList', false)
-      break
-    case 'ordered':
-      document.execCommand('insertOrderedList', false)
-      break
-    case 'todo':
-      document.execCommand('insertHTML', false, '<input type="checkbox" disabled> ')
-      break
-    case 'highlight':
-      document.execCommand('hiliteColor', false, '#fff3cd')
-      break
-    case 'strikethrough':
-      document.execCommand('strikeThrough', false)
-      break
-    case 'hr':
-      document.execCommand('insertHTML', false, '<hr>')
-      break
-    case 'codeblock':
-    case 'mermaid-flow':
-    case 'mermaid-pie':
-    case 'mermaid-gantt':
-      applyFormatToTextarea(format)
-      return
-  }
-  
-  setTimeout(() => {
-    if (floatingToolbar.value.show) {
-      nextTick(() => updateFloatingToolbar())
-    }
-    onContentChange()
-  }, 50)
-}
-
-function scrollToHeading(item) {
-  if (editorMode.value === 'edit' && mdEditorRef.value) {
-    const lines = content.value.split('\n')
-    for (let i = 0; i < lines.length; i++) {
-      if (lines[i].includes(item.text)) {
-        mdEditorRef.value.scrollToLine(i + 1)
-        break
-      }
-    }
-  } else if (editorMode.value === 'preview') {
-    const headings = document.querySelectorAll('.markdown-body h1, .markdown-body h2, .markdown-body h3, .markdown-body h4, .markdown-body h5, .markdown-body h6')
-    for (const h of headings) {
-      if (h.textContent.includes(item.text)) {
-        h.scrollIntoView({ behavior: 'smooth', block: 'start' })
-        break
-      }
-    }
-  } else if (editorMode.value === 'live') {
-    const headings = liveEditorRef.value?.querySelectorAll('h1, h2, h3, h4, h5, h6')
-    if (headings) {
-      for (const h of headings) {
-        if (h.textContent.includes(item.text)) {
-          h.scrollIntoView({ behavior: 'smooth', block: 'start' })
-          break
-        }
-      }
-    }
-  }
-}
-
+// =========================== 生命周期 / 路由 ===========================
 function formatDate(date) {
   if (!date) return ''
   const d = new Date(date)
@@ -1988,69 +1075,7 @@ function formatDate(date) {
   return `${year}-${month}-${day} ${hours}:${minutes}`
 }
 
-function handleGlobalClick(e) {
-  // 如果点击发生在拼写 popover 上，不要关闭
-  const target = e && e.target
-  if (target && typeof target.closest === 'function') {
-    if (target.closest('.spell-tooltip-wrapper')) return
-  }
-  if (spellTooltip.value.show && !spellTooltip.value.pinned) spellTooltip.value.show = false
-  // 锁定的 popover 只在点击其它区域时关闭
-  if (spellTooltip.value.show && spellTooltip.value.pinned) {
-    // 点击其它区域 → 解锁并关闭
-    spellTooltip.value.pinned = false
-    spellTooltip.value.show = false
-  }
-  if (floatingToolbar.value.show) floatingToolbar.value.show = false
-  if (slashMenu.value.show) closeSlashMenu()
-}
-
-let toolbarTimeout = null
-
-function handleGlobalSelectionChange() {
-  if (slashMenu.value.show) return
-  if (editorMode.value !== 'live') return
-  if (isMouseDown.value) return
-  
-  if (toolbarTimeout) clearTimeout(toolbarTimeout)
-  toolbarTimeout = setTimeout(() => updateFloatingToolbar(), 150)
-}
-
-watch(() => route.params.id, (newId) => {
-  if (newId) {
-    noteStore.selectNote(newId)
-  } else if (noteStore.notes && noteStore.notes.length > 0) {
-    const firstNote = noteStore.notes[0]
-    if (firstNote && firstNote.id) {
-      noteStore.selectNote(firstNote.id)
-      router.replace(`/editor/${firstNote.id}`)
-    }
-  }
-})
-
-watch(currentNote, (note) => {
-  if (note) {
-    content.value = note.content
-  }
-}, { deep: true })
-
-watch(content, (newContent) => {
-  if (editorMode.value === 'live' && liveEditorRef.value && !isLiveEditing.value) {
-    updateLiveEditor()
-  }
-})
-
-watch(editorMode, (newMode) => {
-  if (newMode === 'live' && liveEditorRef.value) {
-    nextTick(() => updateLiveEditor())
-  }
-})
-
-watch(() => appStore.spellVersion, () => {
-  nextTick(() => updateSpellOverlay())
-})
-
-onMounted(() => {
+function loadFromRoute() {
   const routeId = route.params.id
   if (routeId) {
     noteStore.selectNote(routeId)
@@ -2061,43 +1086,54 @@ onMounted(() => {
       router.replace(`/editor/${firstNote.id}`)
     }
   }
-  
   if (currentNote.value) {
     content.value = currentNote.value.content
   }
-  
-  nextTick(() => {
-    if (editorMode.value === 'live' && liveEditorRef.value) {
-      updateLiveEditor()
-    }
-  })
-  
-  document.addEventListener('click', handleGlobalClick)
-  document.addEventListener('selectionchange', handleGlobalSelectionChange)
-  document.addEventListener('mousedown', handleMouseDown)
-  document.addEventListener('mouseup', handleMouseUp)
+}
+
+watch(() => route.params.id, () => {
+  loadFromRoute()
+})
+
+watch(currentNote, (note) => {
+  if (note && typeof note.content === 'string') {
+    content.value = note.content
+  }
+}, { deep: true })
+
+// 预览模式下内容变化时重渲染 mermaid
+watch([content, editorMode], async () => {
+  if (editorMode.value === 'preview') {
+    await nextTick()
+    if (previewBodyRef.value) renderMermaidInContainer(previewBodyRef.value)
+  }
+})
+
+/** 阅读模式快捷键（Mod-Shift-E）：从注册表读取，用户改键后立即生效 */
+function onModeKeydown(e) {
+  const readingKey = String(appStore.getBinding('view.readingMode') || '').toLowerCase()
+  if (!readingKey) return
+  const mod = e.ctrlKey || e.metaKey
+  const k = (e.key || '').toLowerCase()
+  // Mod-Shift-e → 匹配 readingKey
+  const needShift = readingKey.includes('shift')
+  const keyPart = readingKey.split('-').pop()
+  if (mod && e.shiftKey === needShift && k === keyPart.toLowerCase()) {
+    e.preventDefault()
+    toggleReadingMode()
+  }
+}
+
+onMounted(() => {
+  loadFromRoute()
+  nextTick(onEditorReady)
+  window.addEventListener('keydown', onModeKeydown, true)
 })
 
 onUnmounted(() => {
-  document.removeEventListener('click', handleGlobalClick)
-  document.removeEventListener('selectionchange', handleGlobalSelectionChange)
-  document.removeEventListener('mousedown', handleMouseDown)
-  document.removeEventListener('mouseup', handleMouseUp)
-  if (spellUpdateTimeout) clearTimeout(spellUpdateTimeout)
-  if (liveInputTimeout) clearTimeout(liveInputTimeout)
-  if (toolbarTimeout) clearTimeout(toolbarTimeout)
+  window.removeEventListener('keydown', onModeKeydown, true)
 })
-
-function handleMouseDown(e) {
-  isMouseDown.value = true
-}
-
-function handleMouseUp(e) {
-  isMouseDown.value = false
-  if (editorMode.value === 'live' && !slashMenu.value.show) {
-    setTimeout(() => updateFloatingToolbar(), 100)
-  }
-}</script>
+</script>
 
 <style scoped>
 .editor-page-wrapper {
@@ -2119,10 +1155,8 @@ function handleMouseUp(e) {
   background: var(--color-primary-surface);
 }
 
-/* ===== 三模式统一排版：live / preview / edit (CodeMirror 使用 themes.js) ===== */
+/* ===== 预览排版：与实时预览装饰层共用同一套变量（编辑/预览一致性） ===== */
 .unified-editor,
-.live-editor,
-.notion-preview,
 .markdown-body {
   font-size: var(--font-size-body) !important;
   line-height: 1.72 !important;
@@ -2131,75 +1165,9 @@ function handleMouseUp(e) {
   word-break: break-word;
 }
 
-.live-editor {
-  font-family: var(--font-body);
-  outline: none;
-}
-
-.live-editor:focus {
-  outline: none;
-}
-
-/* 标题字号统一（live） */
-.live-editor :deep(h1),
-.live-editor.notion-editor :deep(h1) {
-  font-size: var(--font-size-h1) !important;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  margin: 32px 0 12px;
-  line-height: 1.25;
-  letter-spacing: -0.01em;
-}
-.live-editor :deep(h2),
-.live-editor.notion-editor :deep(h2) {
-  font-size: var(--font-size-h2) !important;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  margin: 24px 0 8px;
-  line-height: 1.3;
-  letter-spacing: -0.005em;
-}
-.live-editor :deep(h3),
-.live-editor.notion-editor :deep(h3) {
-  font-size: var(--font-size-h3) !important;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 20px 0 6px;
-  line-height: 1.4;
-}
-.live-editor :deep(h4),
-.live-editor :deep(h5),
-.live-editor :deep(h6),
-.live-editor.notion-editor :deep(h4),
-.live-editor.notion-editor :deep(h5),
-.live-editor.notion-editor :deep(h6) {
-  font-size: var(--font-size-h4) !important;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 14px 0 6px;
-  line-height: 1.4;
-}
-
-.live-editor :deep(p),
-.live-editor.notion-editor :deep(p) {
-  font-size: var(--font-size-body) !important;
-  margin: 0 0 12px;
-  line-height: 1.72;
-  color: var(--color-text-primary);
-}
-
-.live-editor :deep(strong) {
-  font-weight: 700;
-}
-
-.live-editor :deep(em) {
-  font-style: italic;
-}
-
-.live-editor :deep(code),
-.live-editor.notion-editor :deep(code) {
+.markdown-body :deep(code) {
   font-family: var(--font-mono);
-  font-size: var(--font-size-sm) !important;
+  font-size: 0.9em !important;
   background: var(--color-bg-tertiary);
   padding: 2px 6px;
   border-radius: 6px;
@@ -2207,8 +1175,7 @@ function handleMouseUp(e) {
   color: var(--state-error);
 }
 
-.live-editor :deep(pre),
-.live-editor.notion-editor :deep(pre) {
+.markdown-body :deep(pre) {
   background: var(--color-bg-secondary);
   border-radius: 10px;
   border: 1px solid var(--color-border-light);
@@ -2217,779 +1184,79 @@ function handleMouseUp(e) {
   overflow-x: auto;
 }
 
-.live-editor :deep(pre code),
-.live-editor.notion-editor :deep(pre code) {
+.markdown-body :deep(pre code) {
   background: transparent;
   padding: 0;
   border: none;
   color: var(--color-text-primary);
-  font-size: var(--font-size-sm) !important;
 }
 
-.live-editor :deep(mark),
-.live-editor.notion-editor :deep(mark) {
+.markdown-body :deep(mark) {
   background: rgba(255, 213, 79, 0.4);
   color: inherit;
   padding: 1px 4px;
   border-radius: 4px;
 }
 
-.live-editor :deep(del),
-.live-editor :deep(s) {
-  text-decoration: line-through;
-  color: var(--color-text-tertiary);
-}
-
-.live-editor :deep(ul),
-.live-editor :deep(ol),
-.live-editor.notion-editor :deep(ul),
-.live-editor.notion-editor :deep(ol) {
-  margin: 6px 0 12px;
-  padding-left: 28px;
-}
-
-.live-editor :deep(li),
-.live-editor.notion-editor :deep(li) {
-  font-size: var(--font-size-body);
-  margin: 2px 0;
-  line-height: 1.72;
-}
-
-.live-editor :deep(blockquote),
-.live-editor.notion-editor :deep(blockquote) {
-  padding: 4px 14px;
-  border-left: 3px solid var(--color-text-tertiary);
-  background: transparent;
-  margin: 10px 0;
-  color: var(--color-text-secondary);
-  font-style: normal;
-}
-
-.live-editor :deep(blockquote p) {
-  margin: 0;
-}
-
-.live-editor :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 22px 0;
-}
-
-.live-editor :deep(input[type="checkbox"]),
-.live-editor.notion-editor :deep(input[type="checkbox"]) {
-  margin-right: 8px;
-  width: 16px;
-  height: 16px;
-  vertical-align: middle;
-  accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
-.live-editor :deep(a),
-.live-editor.notion-editor :deep(a) {
+.markdown-body :deep(a) {
   color: var(--color-primary);
   text-decoration: none;
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s ease;
 }
-.live-editor :deep(a:hover),
-.live-editor.notion-editor :deep(a:hover) {
+.markdown-body :deep(a:hover) {
   border-bottom-color: var(--color-primary);
 }
 
-.live-editor :deep(img) {
-  max-width: 100%;
-  border-radius: 10px;
-  box-shadow: var(--shadow-sm);
-}
-
-.live-editor :deep(table),
-.live-editor.notion-editor :deep(table) {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: var(--font-size-sm);
-  margin-bottom: 20px;
-  box-shadow: var(--shadow-xs);
-  border-radius: 10px;
-  overflow: hidden;
-}
-.live-editor :deep(th),
-.live-editor.notion-editor :deep(th) {
-  text-align: left;
-  padding: 8px 12px;
-  font-weight: 600;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-light);
-  border-top: none;
-  border-left: none;
-}
-.live-editor :deep(td),
-.live-editor.notion-editor :deep(td) {
-  padding: 8px 12px;
-  border: 1px solid var(--color-border-light);
-  border-top: none;
-  border-left: none;
-  color: var(--color-text-primary);
-}
-
-/* 预览模式标题字号与 live 对齐 */
-.notion-preview h1 { font-size: var(--font-size-h1) !important; margin: 36px 0 16px; font-weight: 700; letter-spacing: -0.015em; line-height: 1.25; }
-.notion-preview h2 { font-size: var(--font-size-h2) !important; margin: 28px 0 10px; font-weight: 700; letter-spacing: -0.01em; line-height: 1.3; }
-.notion-preview h3 { font-size: var(--font-size-h3) !important; margin: 22px 0 8px; font-weight: 600; line-height: 1.4; }
-.notion-preview h4 { font-size: var(--font-size-h4) !important; margin: 16px 0 6px; font-weight: 600; }
-.notion-preview h5 { font-size: var(--font-size-base) !important; margin: 12px 0 4px; font-weight: 600; }
-.notion-preview h6 { font-size: var(--font-size-sm) !important; margin: 10px 0 4px; font-weight: 600; color: var(--color-text-secondary); }
-.notion-preview p  { font-size: var(--font-size-body) !important; margin: 0 0 12px; line-height: 1.72; }
-.notion-preview code { font-size: var(--font-size-sm) !important; }
-.notion-preview pre  { font-size: var(--font-size-sm) !important; }
-.notion-preview li   { font-size: var(--font-size-body) !important; margin: 2px 0; line-height: 1.72; }
-
-.notion-preview blockquote {
+.markdown-body :deep(blockquote) {
+  padding: 4px 14px;
   border-left: 3px solid var(--color-text-tertiary);
   background: transparent;
-  padding: 4px 14px;
-  margin: 12px 0;
-  font-style: normal;
-  border-radius: 0 8px 8px 0;
-}
-
-.notion-preview ul,
-.notion-preview ol {
-  margin: 6px 0 12px;
-  padding-left: 28px;
-}
-
-/* 暗色模式代码块背景统一 */
-[data-theme='dark'] .live-editor.notion-editor pre,
-[data-theme='dark'] .notion-preview pre {
-  background: rgba(30, 30, 45, 0.6);
-}
-
-/* 暗色模式下 notion preview 代码块背景（与主题变量一致） */
-[data-theme='dark'] .notion-preview pre {
-  background: rgba(30, 30, 45, 0.6);
-}
-
-.context-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  padding: 6px 10px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: 13px;
-  text-align: left;
-  cursor: pointer;
-  border-radius: 6px;
-  transition: background-color 0.15s ease;
-}
-
-.context-menu-item:hover {
-  background: var(--color-surface-hover);
-}
-
-.context-menu-item svg {
+  margin: 10px 0;
   color: var(--color-text-secondary);
-  flex-shrink: 0;
 }
 
-.context-menu-shortcut {
-  margin-left: auto;
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  font-family: var(--font-mono);
+.markdown-body :deep(hr) {
+  border: none;
+  border-top: 1px solid var(--color-border);
+  margin: 22px 0;
 }
 
-.context-menu-label {
-  padding: 6px 10px 4px;
-  font-size: 10px;
-  font-weight: 500;
-  color: var(--color-text-tertiary);
-  text-transform: uppercase;
-  letter-spacing: 0.5px;
+.markdown-body :deep(input[type="checkbox"]) {
+  margin-right: 8px;
+  width: 16px;
+  height: 16px;
+  vertical-align: middle;
+  accent-color: var(--color-primary);
 }
 
-.context-menu-divider {
-  height: 1px;
-  background: var(--color-border-light);
-  margin: 4px 6px;
-}
-
-/* 拼写 popover 按钮：高对比度 + hover 可视度保证 */
-.spell-action-btn {
+/* ===== 浮动工具栏 ===== */
+.ft-btn {
+  width: 30px;
+  height: 30px;
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 9px 12px;
-  border-radius: 8px;
-  border: 1px solid transparent;
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: 14px;
-  font-weight: 500;
+  justify-content: center;
+  border-radius: 6px;
   cursor: pointer;
-  text-align: left;
-  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+  color: var(--color-text-secondary);
+  background: transparent;
+  border: none;
+  transition: background 0.15s ease;
 }
-.spell-action-btn:hover {
-  background: var(--color-primary-surface);
+
+.ft-btn:hover {
+  background: var(--color-surface-hover);
   color: var(--color-primary);
-  border-color: color-mix(in srgb, var(--color-primary) 30%, transparent);
-}
-.spell-action-btn:active {
-  transform: translateY(1px);
-}
-.spell-action-btn svg {
-  color: currentColor;
-  flex-shrink: 0;
-}
-.spell-tooltip-header {
-  padding: 4px 10px;
-}
-.spell-tooltip-word {
-  padding: 2px 10px 8px;
-  border-bottom: 1px solid var(--color-border-light);
-  margin-bottom: 6px;
-}
-
-.spell-overlay {
-  pointer-events: none;
-  user-select: none;
-  -webkit-user-select: none;
-  white-space: pre-wrap;
-  word-break: break-word;
-  overflow: hidden;
-  letter-spacing: normal;
-  text-rendering: optimizeSpeed;
-  tab-size: 4;
-  -moz-tab-size: 4;
-}
-
-.spell-overlay .spell-error {
-  background: transparent;
-  cursor: pointer;
 }
 
 .fade-enter-active,
 .fade-leave-active {
-  transition: opacity 0.15s ease;
+  transition: opacity 0.14s ease;
 }
 
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-
-/* Notion 风格占位符 */
-.notion-editor:empty::before {
-  content: attr(data-placeholder);
-  color: var(--color-text-tertiary);
-  pointer-events: none;
-  display: block;
-  position: absolute;
-  top: 0;
-  left: 0;
-}
-
-/* 悬浮工具栏 */
-.floating-toolbar {
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-}
-
-/* 悬浮工具栏 - 图标尺寸放大，可视度提升 */
-.ft-btn {
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: var(--color-text-secondary);
-  cursor: pointer;
-  border-radius: 8px;
-  transition: all 0.15s ease;
-}
-.ft-btn svg { width: 18px; height: 18px; }
-.ft-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-text-primary);
-}
-.ft-btn:active {
-  transform: scale(0.95);
-}
-
-.ft-divider {
-  width: 1px;
-  height: 16px;
-  background: var(--color-border);
-  margin: 0 2px;
-}
-
-.floating-toolbar-arrow {
-  position: absolute;
-  bottom: -5px;
-  left: 50%;
-  transform: translateX(-50%) rotate(45deg);
-  width: 10px;
-  height: 10px;
-  background: var(--card-bg);
-  border-right: 1px solid var(--card-border);
-  border-bottom: 1px solid var(--card-border);
-}
-
-.floating-toolbar-arrow.arrow-bottom {
-  bottom: auto;
-  top: -5px;
-  border-right: none;
-  border-bottom: none;
-  border-left: 1px solid var(--card-border);
-  border-top: 1px solid var(--card-border);
-}
-
-/* 斜杠命令菜单 */
-.slash-menu {
-  backdrop-filter: blur(20px) saturate(180%);
-  -webkit-backdrop-filter: blur(20px) saturate(180%);
-  display: flex;
-  flex-direction: column;
-}
-
-.slash-menu-search {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--color-border-light);
-  color: var(--color-text-tertiary);
-}
-
-.slash-search-input {
-  flex: 1;
-  border: none;
-  outline: none;
-  background: transparent;
-  font-size: 13px;
-  color: var(--color-text-primary);
-  font-family: var(--font-body);
-}
-
-.slash-search-input::placeholder {
-  color: var(--color-text-tertiary);
-}
-
-.slash-menu-list {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px;
-  max-height: 260px;
-}
-
-.slash-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background-color 0.12s ease;
-}
-
-.slash-menu-item.active {
-  background: var(--color-surface-hover);
-}
-
-.slash-menu-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--color-bg-tertiary);
-  color: var(--color-text-secondary);
-  flex-shrink: 0;
-}
-
-.slash-menu-item.active .slash-menu-icon {
-  background: var(--color-primary-surface);
-  color: var(--color-primary);
-}
-
-.slash-menu-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.slash-menu-title {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--color-text-primary);
-  line-height: 1.3;
-}
-
-.slash-menu-desc {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-  margin-top: 2px;
-}
-
-.slash-menu-empty {
-  padding: 24px;
-  text-align: center;
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-}
-
-/* Notion 风格 live editor 优化 */
-.live-editor.notion-editor {
-  caret-color: var(--color-primary);
-}
-
-.live-editor.notion-editor :deep(h1) {
-  font-size: 28px;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  margin: 32px 0 12px;
-  line-height: 1.3;
-  letter-spacing: -0.01em;
-}
-
-.live-editor.notion-editor :deep(h2) {
-  font-size: 22px;
-  font-weight: 700;
-  color: var(--color-text-primary);
-  margin: 24px 0 8px;
-  line-height: 1.35;
-  letter-spacing: -0.005em;
-}
-
-.live-editor.notion-editor :deep(h3) {
-  font-size: 17px;
-  font-weight: 600;
-  color: var(--color-text-primary);
-  margin: 20px 0 6px;
-  line-height: 1.4;
-}
-
-.live-editor.notion-editor :deep(p) {
-  margin: 0 0 8px;
-  line-height: 1.7;
-}
-
-.live-editor.notion-editor :deep(p:last-child) {
-  margin-bottom: 0;
-}
-
-.live-editor.notion-editor :deep(blockquote) {
-  border-left: 3px solid var(--color-text-tertiary);
-  background: transparent;
-  padding: 4px 14px;
-  margin: 8px 0;
-  color: var(--color-text-secondary);
-  font-style: normal;
-}
-
-.live-editor.notion-editor :deep(blockquote p) {
-  margin: 0;
-}
-
-.live-editor.notion-editor :deep(ul),
-.live-editor.notion-editor :deep(ol) {
-  margin: 4px 0 8px;
-  padding-left: 28px;
-}
-
-.live-editor.notion-editor :deep(li) {
-  margin: 2px 0;
-  padding-left: 2px;
-}
-
-.live-editor.notion-editor :deep(input[type="checkbox"]) {
-  margin-right: 8px;
-  width: 14px;
-  height: 14px;
-  vertical-align: middle;
-  accent-color: var(--color-primary);
-  cursor: pointer;
-}
-
-.live-editor.notion-editor :deep(code) {
-  font-family: var(--font-mono);
-  font-size: 0.85em;
-  background: var(--color-bg-tertiary);
-  color: var(--state-error);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-border-light);
-}
-
-.live-editor.notion-editor :deep(pre) {
-  background: rgba(247, 246, 243, 0.95);
-  border: 1px solid var(--color-border-light);
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin: 8px 0;
-  overflow-x: auto;
-  font-size: 13px;
-}
-
-.live-editor.notion-editor :deep(pre code) {
-  background: transparent;
-  color: var(--color-text-primary);
-  padding: 0;
-  border: none;
-  font-size: 13px;
-}
-
-.live-editor.notion-editor :deep(mark) {
-  background: rgba(255, 213, 79, 0.4);
-  color: inherit;
-  padding: 1px 4px;
-  border-radius: 3px;
-}
-
-.live-editor.notion-editor :deep(u) {
-  text-decoration-color: var(--color-primary);
-  text-decoration-thickness: 1.5px;
-}
-
-.live-editor.notion-editor :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 24px 0;
-}
-
-.live-editor.notion-editor :deep(a) {
-  color: var(--color-primary);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.15s ease;
-}
-
-.live-editor.notion-editor :deep(a:hover) {
-  border-bottom-color: var(--color-primary);
-}
-
-/* Notion 预览模式 */
-.notion-preview h1 {
-  font-size: 32px;
-  font-weight: 700;
-  letter-spacing: -0.015em;
-  margin: 36px 0 16px;
-}
-
-.notion-preview h2 {
-  font-size: 24px;
-  font-weight: 700;
-  letter-spacing: -0.01em;
-  margin: 28px 0 10px;
-}
-
-.notion-preview h3 {
-  font-size: 18px;
-  font-weight: 600;
-  margin: 22px 0 8px;
-}
-
-.notion-preview p {
-  margin: 0 0 12px;
-}
-
-.notion-preview blockquote {
-  border-left: 3px solid var(--color-text-tertiary);
-  background: transparent;
-  padding: 4px 14px;
-  margin: 12px 0;
-  font-style: normal;
-}
-
-.notion-preview code {
-  font-size: 0.85em;
-  background: var(--color-bg-tertiary);
-  color: var(--state-error);
-  padding: 2px 6px;
-  border-radius: 4px;
-  border: 1px solid var(--color-border-light);
-}
-
-.notion-preview pre {
-  background: rgba(247, 246, 243, 0.95);
-  border: 1px solid var(--color-border-light);
-  border-radius: 8px;
-  padding: 14px 16px;
-  margin: 12px 0;
-}
-
-.notion-preview ul,
-.notion-preview ol {
-  margin: 8px 0 12px;
-  padding-left: 28px;
-}
-
-.notion-preview li {
-  margin: 4px 0;
-}
-
-/* 暗色模式调整 */
-[data-theme='dark'] .live-editor.notion-editor pre {
-  background: rgba(30, 30, 45, 0.6);
-}
-
-[data-theme='dark'] .notion-preview pre {
-  background: rgba(30, 30, 45, 0.6);
-}
-
-/* =================== Wikilink 样式 (edit: CodeMirror 在 themes.js; preview/live 这里) =================== */
-.live-editor :deep(a.wikilink),
-.notion-preview a.wikilink {
-  color: var(--color-primary);
-  background: color-mix(in srgb, var(--color-primary) 8%, transparent);
-  padding: 1px 6px;
-  border-radius: 4px;
-  margin: 0 1px;
-  text-decoration: none;
-  border-bottom: 1px dashed color-mix(in srgb, var(--color-primary) 40%, transparent);
-  transition: all 0.15s ease;
-  cursor: pointer;
-  font-weight: 500;
-}
-.live-editor :deep(a.wikilink:hover),
-.notion-preview a.wikilink:hover {
-  background: color-mix(in srgb, var(--color-primary) 18%, transparent);
-  border-bottom-style: solid;
-}
-.live-editor :deep(a.wikilink.is-unresolved),
-.notion-preview a.wikilink.is-unresolved {
-  color: var(--state-warning);
-  background: color-mix(in srgb, var(--state-warning) 8%, transparent);
-  border-bottom-color: color-mix(in srgb, var(--state-warning) 40%, transparent);
-}
-.live-editor :deep(a.wikilink.is-unresolved:hover),
-.notion-preview a.wikilink.is-unresolved:hover {
-  background: color-mix(in srgb, var(--state-warning) 16%, transparent);
-}
-
-/* =================== Callouts =================== */
-.callout-block {
-  border: 1px solid var(--color-border-light);
-  border-radius: 10px;
-  padding: 12px 14px 12px 12px;
-  margin: 12px 0;
-  background: var(--color-surface);
-  transition: background 0.15s ease;
-}
-.callout-block:hover { background: var(--color-surface-hover); }
-.callout-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 6px;
-  cursor: pointer;
-  user-select: none;
-}
-.callout-icon {
-  width: 22px;
-  height: 22px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  font-size: 14px;
-  background: var(--color-bg-tertiary);
-  flex-shrink: 0;
-}
-.callout-title {
-  flex: 1;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--color-text-primary);
-}
-.callout-fold {
-  width: 18px; height: 18px;
-  color: var(--color-text-tertiary);
-  transition: transform 0.2s ease;
-}
-.callout-fold.is-open { transform: rotate(90deg); }
-.callout-body {
-  padding-left: 30px;
-  font-size: 14px;
-  color: var(--color-text-secondary);
-  line-height: 1.7;
-  transition: max-height 0.25s ease, opacity 0.2s ease;
-  overflow: hidden;
-}
-.callout-body.is-collapsed {
-  max-height: 0 !important;
-  opacity: 0;
-  pointer-events: none;
-}
-/* 不同 callout 类型颜色 */
-.callout-block.type-note    { border-left: 4px solid #60a5fa; }
-.callout-block.type-info    { border-left: 4px solid #22d3ee; }
-.callout-block.type-tip     { border-left: 4px solid #34d399; }
-.callout-block.type-success { border-left: 4px solid #34d399; }
-.callout-block.type-question{ border-left: 4px solid #fbbf24; }
-.callout-block.type-warning { border-left: 4px solid #f59e0b; }
-.callout-block.type-failure { border-left: 4px solid #f87171; }
-.callout-block.type-danger  { border-left: 4px solid #ef4444; }
-.callout-block.type-bug     { border-left: 4px solid #ec4899; }
-.callout-block.type-example { border-left: 4px solid #a78bfa; }
-.callout-block.type-quote   { border-left: 4px solid var(--color-text-tertiary); }
-.callout-block.type-todo    { border-left: 4px solid var(--color-primary); }
-.callout-block.type-summary { border-left: 4px solid #a3e635; }
-.callout-block.type-abstract{ border-left: 4px solid #a3e635; }
-
-/* =================== Wikilink embed cards =================== */
-.embed-card {
-  border: 1px solid var(--color-border-light);
-  border-radius: 10px;
-  padding: 10px 14px;
-  margin: 10px 0;
-  background: var(--color-surface);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.embed-card:hover {
-  background: var(--color-surface-hover);
-  border-color: var(--color-primary);
-  transform: translateY(-1px);
-}
-.embed-card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--color-text-primary);
-  margin-bottom: 4px;
-}
-.embed-card-excerpt {
-  font-size: 12px;
-  color: var(--color-text-tertiary);
-  line-height: 1.6;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-.embed-hint {
-  display: block;
-  margin-top: 4px;
-  font-size: 11px;
-  color: var(--color-text-tertiary);
-}
-.embed-hint.embed-missing { color: var(--state-warning); }
-
-/* =================== Right panel tweak: scrollbar subtle =================== */
-.acrylic-sidebar :deep(.cho-scrollbar::-webkit-scrollbar) { width: 6px; }
-.acrylic-sidebar :deep(.cho-scrollbar::-webkit-scrollbar-thumb) {
-  background: var(--color-border);
-  border-radius: 3px;
 }
 </style>

@@ -99,7 +99,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     writeLocal(LS_WORKSPACES, workspaces.value)
     writeLocal(LS_ACTIVE_WS, activeId.value)
     if (isElectron) {
-      await window.electronAPI.saveWorkspaces(workspaces.value)
+      // 传给 IPC 的必须是纯对象：Vue 响应式代理无法被结构化克隆
+      await window.electronAPI.saveWorkspaces(JSON.parse(JSON.stringify(workspaces.value)))
       await window.electronAPI.setActiveWorkspace(activeId.value)
     }
   }

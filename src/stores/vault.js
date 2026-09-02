@@ -125,7 +125,8 @@ export const useVaultStore = defineStore('vault', () => {
       /* 忽略配额错误 */
     }
     if (isElectron) {
-      window.electronAPI.saveVault(workspaceId.value, entries.value)
+      // 传给 IPC 的必须是纯对象：Vue 响应式代理无法被结构化克隆
+      window.electronAPI.saveVault(workspaceId.value, JSON.parse(JSON.stringify(entries.value)))
     }
   }
 
@@ -324,6 +325,7 @@ export const useVaultStore = defineStore('vault', () => {
     activeGroup,
     workspaceId,
     isLoading,
+    revealed,
     groups,
     filteredEntries,
     favoriteCount,

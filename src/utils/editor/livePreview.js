@@ -176,7 +176,9 @@ function scanEmphasis(text, occupied) {
     if (text[i] !== '*' && text[i] !== '_') continue
     const ch = text[i]
     if (text[i - 1] === ch || text[i + 1] === ch) continue
-    if (i > 0 && /[\w\u4e00-\u9fa5]/.test(text[i - 1])) continue
+    // `_` 遵循 CommonMark 严格规则（左侧不能是字母/数字/汉字）；
+    // `*` 只要求左侧非空白即可开启 —— 「和*斜体*和」这类中文相邻必须生效
+    if (ch === '_' && i > 0 && /[\w\u4e00-\u9fa5]/.test(text[i - 1])) continue
     let close = -1
     for (let j = i + 1; j < text.length; j++) {
       if (text[j] === '\n') break
@@ -438,8 +440,12 @@ function scanInline(text, from, decos, startAt = 0) {
   }
 
   // --- 强调类：隐藏定界符 + 内容加类 ---
+  // 注意：这里只能检查 protectedRanges（code/wikilink/link/tag/url 的区间），
+  // 且必须排除区间自身 —— 否则每个区间都会「与自己重叠」而被跳过：
+  // 旧代码用 isProtected（额外匹配 occupied）导致粗体/斜体/高亮/删除线全部失效；
+  // 若不自排除，行内代码（code 同样在 protectedRanges 中）会失效。
   for (const r of occupied) {
-    if (isProtected(r.start, r.end) && !protectedRanges.includes(r)) continue
+    if (protectedRanges.some(pr => pr !== r && r.start < pr.end && pr.start < r.end)) continue
     const cls = INLINE_CLASS[r.cls]
     if (!cls) continue
     decos.push(Decoration.replace({}).range(from + r.start, from + r.start + r.markerLen))
@@ -465,12 +471,18 @@ export function createLivePreviewPlugin(getEnabled) {
       }
 
       update(update) {
+        // 注意：ViewUpdate 没有 effects 属性（@codemirror/view 6.x），
+        // update.effects 永远是 undefined —— 直接 .some() 会抛错且可选链后永远不触发，
+        // 必须遍历 transactions 才能拿到事务携带的 effect（如 toggleLivePreview）
+        const toggled = update.transactions.some(tr =>
+          tr.effects.some(e => e.is(toggleLivePreview))
+        )
         if (
           update.docChanged ||
           update.selectionSet ||
           update.viewportChanged ||
           update.geometryChanged ||
-          update.effects.some(e => e.is(toggleLivePreview))
+          toggled
         ) {
           this.decorations = this.build(update.view)
         }
@@ -527,6 +539,17 @@ export function createLivePreviewPlugin(getEnabled) {
             const line = state.doc.lineAt(pos)
             if (codeBlockLines.has(line.number) || frontmatterLines.has(line.number)) {
               decos.push(Decoration.line({ class: 'cm-md-raw-block' }).range(line.from))
+              // 围栏行额外标记语言区（themes 里 .cm-md-code-fence / .cm-md-code-lang 生效）
+              const fence = line.text.match(FENCE_RE)
+              if (fence) {
+                decos.push(Decoration.line({ class: 'cm-md-code-fence' }).range(line.from))
+                if (fence[2]) {
+                  decos.push(
+                    Decoration.mark({ class: 'cm-md-code-lang' })
+                      .range(line.from + fence[0].length - fence[2].length, line.to)
+                  )
+                }
+              }
             } else {
               buildForLine(state, line, decos, activeLines)
             }

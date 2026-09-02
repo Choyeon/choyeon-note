@@ -87,6 +87,16 @@ export function spellCheckExtension(config) {
       const hit = hitTest(view, event)
       if (!hit) return false
       event.preventDefault()
+      // 附上点击元素自身的屏幕矩形。view.coordsAtPos 在位置滚出视口（或视图
+      // 尚未完成 measure）时返回 null，会导致菜单定位失效而不可见；而用户能
+      // 点中的元素必有有效 getBoundingClientRect，用它作为菜单锚点最可靠。
+      const target = event.target
+      if (target && target.nodeType === 1) {
+        const r = target.getBoundingClientRect()
+        if (r.width > 0 || r.height > 0) {
+          hit.rect = { left: r.left, right: r.right, top: r.top, bottom: r.bottom }
+        }
+      }
       state.onSpellClick?.(hit)
       return true
     }

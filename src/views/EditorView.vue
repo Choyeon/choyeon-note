@@ -914,7 +914,7 @@ function scrollToHeading(item) {
 // =========================== 拼写检查菜单 ===========================
 function onSpellClick(hit) {
   if (!hit) return
-  const rect = mdEditorRef.value?.spellRect(hit) || null
+  const rect = hit.rect || mdEditorRef.value?.spellRect(hit) || null
   const suggestions = suggestCorrections(hit.word, appStore.customDictionary instanceof Set ? appStore.customDictionary : new Set(), 5)
   spellMenu.value = {
     show: true,

@@ -368,13 +368,17 @@ export const useNoteStore = defineStore('note', () => {
       const newPath = `${folderPath}/${newFileName}`
       const oldPath = note.filePath
       if (newPath !== oldPath) {
+        // 乐观更新 filePath：避免「重命名后立刻删除」时 filePath 仍是旧路径，
+        // 导致 deleteFile 删旧文件、而重命名后的新文件变成磁盘孤儿
+        note.filePath = newPath
         if (window.electronAPI.moveFile) {
           window.electronAPI.moveFile(oldPath, newPath).then(ok => {
-            if (ok) note.filePath = newPath
+            if (!ok) note.filePath = oldPath // 移动失败回滚
           })
         } else {
           window.electronAPI.writeFile(newPath, note.content).then(ok => {
-            if (ok) { note.filePath = newPath; window.electronAPI.deleteFile(oldPath) }
+            if (ok) { window.electronAPI.deleteFile(oldPath) }
+            else note.filePath = oldPath
           })
         }
       } else {
@@ -495,8 +499,20 @@ export const useNoteStore = defineStore('note', () => {
     const index = notes.value.findIndex(n => n.id === id)
     if (index > -1) {
       const note = notes.value[index]
-      if (note.filePath && window.electronAPI) {
-        window.electronAPI.deleteFile(note.filePath)
+      // 先取消该笔记待执行的 debounce 写入，避免删除后定时器把文件写回
+      if (saveTimers.has(id)) {
+        clearTimeout(saveTimers.get(id))
+        saveTimers.delete(id)
+      }
+      if (window.electronAPI) {
+        // 收集所有可能的磁盘路径，避免 filePath 滞后时删错文件留下孤儿
+        const candidates = new Set()
+        if (note.filePath) candidates.add(note.filePath)
+        if (notesPath.value && note.title) {
+          const folderPath = note.folder ? `${notesPath.value}/${note.folder}` : notesPath.value
+          candidates.add(`${folderPath}/${String(note.title).replace(/[\\/:*?"<>|]/g, '_')}.md`)
+        }
+        candidates.forEach(p => window.electronAPI.deleteFile(p))
       }
       notes.value.splice(index, 1)
       if (currentNoteId.value === id) {
@@ -652,6 +668,11 @@ export const useNoteStore = defineStore('note', () => {
     }
     
     const success = await window.electronAPI.writeFile(filePath, note.content)
+    // 写入期间若笔记已被删除，回滚刚写出的文件，避免磁盘孤儿
+    if (success && !notes.value.some(n => n.id === note.id)) {
+      window.electronAPI.deleteFile(filePath)
+      return false
+    }
     if (success) {
       note.filePath = filePath
     }

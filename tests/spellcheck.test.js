@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isCommonEnglishWord, getSpellErrors } from '../src/utils/spellcheck.js'
+import { isCommonEnglishWord, getSpellErrors, suggestCorrections } from '../src/utils/spellcheck.js'
 
 describe('isCommonEnglishWord', () => {
   it('returns true for common English words', () => {
@@ -68,5 +68,22 @@ describe('getSpellErrors', () => {
 
   it('does not flag common words', () => {
     expect(getSpellErrors('the hello world text', opts)).toEqual([])
+  })
+})
+
+describe('suggestCorrections', () => {
+  it('suggests correct word for adjacent transposition typos', () => {
+    // "teh" -> "the" 是相邻转置，Damerau 距离应为 1（而非标准 Levenshtein 的 2）
+    expect(suggestCorrections('teh', new Set(), 5)).toContain('the')
+    expect(suggestCorrections('recieve', new Set(), 5)).toContain('receive')
+  })
+
+  it('suggests correct word for single-edit misspellings', () => {
+    expect(suggestCorrections('sentance', new Set(), 5)).toContain('sentence')
+    expect(suggestCorrections('necessaryy', new Set(), 5)).toContain('necessary')
+  })
+
+  it('returns empty for short gibberish', () => {
+    expect(suggestCorrections('xx', new Set(), 5)).toEqual([])
   })
 })

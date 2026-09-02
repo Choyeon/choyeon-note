@@ -99,26 +99,43 @@ export function getSpellErrors(text, options = {}) {
 // 纠错建议
 // ---------------------------------------------------------------------------
 
-/** 受限编辑距离，超过 max 立即返回 Infinity（候选词很多时省掉大量无用计算） */
+/**
+ * 受限编辑距离（Damerau–Levenshtein / OSA 变体）：把相邻两字符转置也算作 1 次编辑。
+ * 否则 "teh"→"the" 这类最高频笔误会被标准 Levenshtein 记成 2 次编辑，
+ * 导致短词（阈值 1）永远给不出 "the" 建议。
+ * 超过 max 立即返回 max+1（候选词很多时省掉大量无用计算）。
+ */
 function boundedDistance(a, b, max) {
   if (a === b) return 0
   if (Math.abs(a.length - b.length) > max) return max + 1
-  const prev = new Array(b.length + 1)
-  const curr = new Array(b.length + 1)
-  for (let j = 0; j <= b.length; j++) prev[j] = j
+  const n = b.length
+  // 三行滚动：prev2 = d[i-2]、prev = d[i-1]、curr = d[i]（转置需要回看两行）
+  let prev2 = new Array(n + 1).fill(0)
+  let prev = new Array(n + 1)
+  let curr = new Array(n + 1)
+  for (let j = 0; j <= n; j++) prev[j] = j
   for (let i = 1; i <= a.length; i++) {
     curr[0] = i
     let rowMin = curr[0]
     const ca = a.charCodeAt(i - 1)
-    for (let j = 1; j <= b.length; j++) {
+    const caPrev = i >= 2 ? a.charCodeAt(i - 2) : -1
+    for (let j = 1; j <= n; j++) {
       const cost = ca === b.charCodeAt(j - 1) ? 0 : 1
-      curr[j] = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
-      if (curr[j] < rowMin) rowMin = curr[j]
+      let d = Math.min(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+      // 相邻转置：a[i-2..i-1] == b[j-1..j-2]（即 a[i-1]==b[j-2] 且 a[i-2]==b[j-1]）
+      if (i >= 2 && j >= 2 && ca === b.charCodeAt(j - 2) && caPrev === b.charCodeAt(j - 1)) {
+        d = Math.min(d, prev2[j - 2] + 1)
+      }
+      curr[j] = d
+      if (d < rowMin) rowMin = d
     }
     if (rowMin > max) return max + 1
-    for (let j = 0; j <= b.length; j++) prev[j] = curr[j]
+    const tmp = prev2
+    prev2 = prev
+    prev = curr
+    curr = tmp
   }
-  return prev[b.length]
+  return prev[n]
 }
 
 /** 键盘相邻键，用于给"打错一个字母"的候选加权（qwerty 布局） */
@@ -138,6 +155,30 @@ function neighborBonus(a, b) {
     }
   }
   return bonus
+}
+
+/**
+ * 判断 candidate 是否由 target 的某两个相邻字符交换得到（如 teh -> the）。
+ * 相邻转置是最高频的英文笔误，却拿不到「前缀匹配」加分（前两字符已因交换而不同），
+ * 所以需要单独识别并给最高优先级，否则 "teh" 会优先建议 "ten" 而非 "the"。
+ */
+function isAdjacentTransposition(target, candidate) {
+  if (target.length !== candidate.length || target.length < 3) return false
+  let swapIndex = -1
+  for (let i = 0; i < target.length; i++) {
+    if (target[i] !== candidate[i]) {
+      if (swapIndex === -1) {
+        swapIndex = i
+      } else {
+        // 第二个差异必须是紧邻的转置，且其后所有字符都相同（否则是多处差异，非纯转置）
+        return i === swapIndex + 1 &&
+               target[swapIndex] === candidate[i] &&
+               target[i] === candidate[swapIndex] &&
+               target.slice(i + 1) === candidate.slice(i + 1)
+      }
+    }
+  }
+  return false
 }
 
 /**
@@ -165,9 +206,16 @@ export function suggestCorrections(word, customDictionary = new Set(), limit = 5
     }
     const distance = boundedDistance(target, candidate, max)
     if (distance > max) return
-    const bonus = neighborBonus(target, candidate)
-    const prefix = candidate.startsWith(target.slice(0, 2)) ? 0.5 : 0
-    scored.push({ word: candidate, score: distance - bonus * 0.5 - prefix })
+    // 转置是独立错误类型：只按「距离 + 转置权重」打分，不再叠加键盘相邻/前缀加权
+    // （转置本就意味着前两字符因交换而不同，键盘/前缀启发式会误判）。
+    let score = distance
+    if (isAdjacentTransposition(target, candidate)) {
+      score -= 1.5
+    } else {
+      score -= neighborBonus(target, candidate) * 0.5
+      score -= candidate.startsWith(target.slice(0, 2)) ? 0.5 : 0
+    }
+    scored.push({ word: candidate, score })
   }
 
   for (const candidate of COMMON_ENGLISH_WORDS) consider(candidate)

@@ -1,16 +1,9 @@
 import { marked } from 'marked'
-import hljs from 'highlight.js'
-import mermaid from 'mermaid'
+// 用 common 精简集（约 40 种主流语言）替代全量 190+ 语言，主 bundle 显著减小；
+// 罕见语言会退化为 highlightAuto 兜底（无高亮但不报错）
+import hljs from 'highlight.js/lib/common'
 import DOMPurify from 'dompurify'
 import { parseFrontmatter, parseCallouts } from '../composables/useLinks.js'
-
-mermaid.initialize({
-  startOnLoad: false,
-  theme: 'default',
-  securityLevel: 'strict',
-  fontFamily: 'inherit',
-  fontSize: 14
-})
 
 let currentCodeTheme = 'github'
 let currentStyleElement = null
@@ -310,10 +303,32 @@ function renderMarkdown (content, opts = {}) {
   })
 }
 
+// mermaid 体积大（约 1.5MB 未压缩），懒加载：只有笔记里真正出现 mermaid 图表时才引入
+let mermaidPromise = null
+function getMermaid () {
+  if (!mermaidPromise) {
+    mermaidPromise = import('mermaid').then((mod) => {
+      const m = mod.default
+      m.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'strict',
+        fontFamily: 'inherit',
+        fontSize: 14
+      })
+      return m
+    })
+  }
+  return mermaidPromise
+}
+
 async function renderMermaidInContainer (container) {
   if (!container) return
 
   const charts = container.querySelectorAll('.mermaid-chart')
+  if (!charts.length) return
+
+  const mermaid = await getMermaid()
 
   for (const chart of charts) {
     const id = chart.dataset.mermaidId
@@ -335,6 +350,5 @@ export {
   setCodeTheme,
   getCodeTheme,
   codeThemes,
-  hljs,
-  mermaid
+  hljs
 }

@@ -314,7 +314,18 @@ function getMermaid () {
         theme: 'default',
         securityLevel: 'strict',
         fontFamily: 'inherit',
-        fontSize: 14
+        fontSize: 14,
+        // 甘特图默认配置过小（barHeight 20、字号 11），在阅读视图里几乎不可读
+        gantt: {
+          fontSize: 14,
+          sectionFontSize: 14,
+          barHeight: 28,
+          barGap: 8,
+          topPadding: 56,
+          leftPadding: 100,
+          gridLineStartPadding: 40,
+          useMaxWidth: true
+        }
       })
       return m
     })
@@ -338,6 +349,19 @@ async function renderMermaidInContainer (container) {
       const { svg } = await mermaid.render(id, code)
       chart.innerHTML = svg
       chart.classList.add('mermaid-rendered')
+      // mermaid 会在 svg 上写死内联 max-width（自然宽度），导致图表永远不随窗口放大。
+      // 清除后交给 CSS 控制：宽幅图（甘特/时间线等）随容器拉伸，窄图保持自然尺寸居中。
+      const el = chart.querySelector('svg')
+      if (el) {
+        const natural = parseFloat(el.style.maxWidth) || parseFloat(el.getAttribute('width')) || 0
+        el.style.maxWidth = ''
+        if (natural >= 480) {
+          chart.classList.add('is-wide')
+        } else if (natural > 0) {
+          // 窄图（简单流程图等）固定自然宽度居中，避免被 width="100%" 属性拉变形
+          el.style.width = natural + 'px'
+        }
+      }
     } catch (e) {
       chart.innerHTML = `<div class="mermaid-error">图表渲染失败: ${e.message}</div>`
     }

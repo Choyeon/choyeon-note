@@ -1944,14 +1944,23 @@ a:focus-visible,
   padding: 16px;
   background: var(--color-bg-secondary);
   border-radius: var(--radius-md);
-  display: flex;
-  justify-content: center;
   overflow-x: auto;
 }
 
 .mermaid-chart svg {
+  display: block;
   max-width: 100%;
   height: auto;
+  margin: 0 auto;
+}
+
+/* 宽幅图表（甘特图/时间线等，自然宽度 >= 480px 时由渲染器标记 is-wide）：
+   随容器宽度拉伸，窗口放大图表同步放大；容器过窄时保底 640px 并横向滚动，
+   避免文字被压缩到不可读。用 margin 居中而非 flex，保证溢出时左侧内容可达 */
+.mermaid-chart.is-wide svg {
+  width: 100%;
+  max-width: 1400px;
+  min-width: 640px;
 }
 
 .mermaid-error {

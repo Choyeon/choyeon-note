@@ -80,8 +80,8 @@ export function useCommands({ appStore, noteStore, router, openQuickSwitcher, cl
     items.push({
       id: 'view:vault',
       section: '视图',
-      label: '打开键值备忘录',
-      keywords: 'vault kv 备忘录 密码 服务器 ip token 账号 secret password',
+      label: '打开密码本',
+      keywords: 'vault kv 密码本 备忘录 密码 服务器 ip token 账号 secret password',
       icon: Bookmark,
       action: () => {
         router.push('/vault')

@@ -43,7 +43,7 @@
   --color-border-light: #f3f4f6;
   --color-border-focus: #4a90d9;
 
-  --color-text-primary: #202124;
+  --color-text-primary: #14171c;
   --color-text-secondary: #5f6368;
   --color-text-tertiary: #80868b;
   --color-text-inverse: #ffffff;
@@ -123,8 +123,8 @@
   --sidebar-count-bg: rgba(0, 0, 0, 0.05);
   --sidebar-count-color: var(--color-text-secondary);
 
-  --content-bg: rgba(255, 255, 255, 0.72);
-  --content-blur: 24px;
+  --content-bg: rgba(255, 255, 255, 0.95);
+  --content-blur: 14px;
   --content-saturate: 160%;
 
   --card-bg: rgba(255, 255, 255, 0.7);
@@ -251,7 +251,7 @@
   --color-border-light: #3c4043;
   --color-border-focus: #8ab4f8;
 
-  --color-text-primary: #e8eaed;
+  --color-text-primary: #f1f3f4;
   --color-text-secondary: #9aa0a6;
   --color-text-tertiary: #6b7280;
   --color-text-inverse: #202124;
@@ -288,8 +288,8 @@
   --sidebar-count-bg: rgba(255, 255, 255, 0.08);
   --sidebar-count-color: var(--color-text-secondary);
 
-  --content-bg: rgba(32, 33, 36, 0.72);
-  --content-blur: 24px;
+  --content-bg: rgba(32, 33, 36, 0.93);
+  --content-blur: 14px;
   --content-saturate: 140%;
 
   --card-bg: rgba(41, 42, 45, 0.7);
@@ -514,7 +514,7 @@ html.platform-win32 #app {
     --color-border-light: #3c4043;
     --color-border-focus: #8ab4f8;
 
-    --color-text-primary: #e8eaed;
+    --color-text-primary: #f1f3f4;
     --color-text-secondary: #9aa0a6;
     --color-text-tertiary: #6b7280;
     --color-text-inverse: #202124;
@@ -540,8 +540,8 @@ html.platform-win32 #app {
     --sidebar-blur: 28px;
     --sidebar-saturate: 150%;
 
-    --content-bg: rgba(32, 33, 36, 0.72);
-    --content-blur: 24px;
+    --content-bg: rgba(32, 33, 36, 0.93);
+    --content-blur: 14px;
     --content-saturate: 140%;
 
     --card-bg: rgba(41, 42, 45, 0.7);
@@ -1539,7 +1539,7 @@ a:focus-visible,
   --color-surface: rgba(255, 255, 255, 0.72);
   --color-surface-hover: rgba(232, 234, 240, 0.68);
   --sidebar-bg: rgba(248, 249, 250, 0.6);
-  --content-bg: rgba(255, 255, 255, 0.55);
+  --content-bg: rgba(255, 255, 255, 0.95);
   --titlebar-bg: rgba(255, 255, 255, 0.45);
   --card-bg: rgba(255, 255, 255, 0.72);
   --color-border: rgba(0, 0, 0, 0.06);
@@ -1556,7 +1556,7 @@ a:focus-visible,
   --color-surface: rgba(48, 49, 52, 0.72);
   --color-surface-hover: rgba(60, 64, 67, 0.68);
   --sidebar-bg: rgba(28, 29, 32, 0.6);
-  --content-bg: rgba(32, 33, 36, 0.6);
+  --content-bg: rgba(32, 33, 36, 0.93);
   --titlebar-bg: rgba(28, 29, 32, 0.5);
   --card-bg: rgba(41, 42, 45, 0.72);
   --color-border: rgba(255, 255, 255, 0.08);

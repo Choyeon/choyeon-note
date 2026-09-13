@@ -7,7 +7,7 @@
     >
       <div class="flex items-center gap-2">
         <Archive class="w-5 h-5" :style="{ color: 'var(--color-primary)' }" />
-        <span class="text-lg font-bold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">键值备忘录</span>
+        <span class="text-lg font-bold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">密码本</span>
         <span
           v-if="secretCount > 0"
           class="text-[10px] px-1.5 py-0.5 rounded-full"

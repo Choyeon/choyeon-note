@@ -24,7 +24,7 @@ export const SHORTCUTS = [
   { id: 'app.save', scope: 'app', category: 'file', label: '保存笔记', default: 'Mod-s' },
   { id: 'app.quickSwitcher', scope: 'app', category: 'file', label: '快速跳转', default: 'Mod-o' },
   { id: 'app.commandPalette', scope: 'app', category: 'file', label: '命令面板', default: 'Mod-Shift-p' },
-  { id: 'app.vault', scope: 'app', category: 'file', label: '键值备忘录', default: 'Mod-Shift-v' },
+  { id: 'app.vault', scope: 'app', category: 'file', label: '密码本', default: 'Mod-Shift-v' },
   { id: 'app.settings', scope: 'app', category: 'file', label: '打开设置', default: 'Mod-,' },
 
   // ---------------- 编辑 ----------------

@@ -314,7 +314,7 @@ const viewItems = [
   { id: 'calendar', label: '日历', icon: CalendarDays, route: '/calendar' },
   { id: 'graph', label: '图谱', icon: GitBranch, route: '/graph' },
   { id: 'tags', label: '标签', icon: Tag, route: '/tags' },
-  { id: 'vault', label: '键值备忘录', icon: KeyRound, route: '/vault' }
+  { id: 'vault', label: '密码本', icon: KeyRound, route: '/vault' }
 ]
 
 const rootNotes = computed(() => noteStore.notes.filter(n => !n.folder))

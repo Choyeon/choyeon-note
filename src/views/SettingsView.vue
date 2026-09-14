@@ -127,6 +127,7 @@
                   <div
                     class="text-[12px] mt-0.5"
                     :style="{ color: bingHasError ? 'var(--state-error)' : 'var(--color-text-tertiary)' }"
+                    :title="bingTriedText"
                   >{{ bingStatus }}</div>
                 </div>
               </div>
@@ -899,7 +900,10 @@ const dictionaryInputRef = ref(null)
 
 // ===== Bing 每日壁纸 =====
 const bingRefreshing = ref(false)
+const bingTried = ref([])
 const bingHasError = computed(() => !!appStore.bingWallpaperError)
+
+const SOURCE_LABELS = { official: '官方接口', biturl: '公开镜像' }
 
 const bingStatus = computed(() => {
   if (bingRefreshing.value) return '正在获取今日壁纸…'
@@ -911,16 +915,23 @@ const bingStatus = computed(() => {
       ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
       : ''
     const title = appStore.bingWallpaperTitle ? `${appStore.bingWallpaperTitle}` : '今日壁纸已就绪'
-    return pretty ? `${title} · ${pretty}` : title
+    const source = appStore.bingWallpaperSource
+      ? SOURCE_LABELS[appStore.bingWallpaperSource] || appStore.bingWallpaperSource
+      : ''
+    return [title, pretty, source].filter(Boolean).join(' · ')
   }
   return '尚未获取，点"刷新"立即拉取'
 })
+
+// 手动刷新时逐个源的失败原因，挂在 status 的 tooltip 上方便排障
+const bingTriedText = computed(() => (bingTried.value || []).join('\n'))
 
 async function refreshBingWallpaper() {
   if (bingRefreshing.value) return
   bingRefreshing.value = true
   try {
     const result = await fetchBingWallpaper()
+    bingTried.value = result.tried || []
     appStore.setBingWallpaper(result)
   } finally {
     bingRefreshing.value = false

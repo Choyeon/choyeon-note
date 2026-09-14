@@ -28,6 +28,8 @@ export const useAppStore = defineStore('app', () => {
   const bingWallpaperUrl = ref('')
   const bingWallpaperTitle = ref('')
   const bingWallpaperDate = ref('')
+  /** 壁纸实际来源：official（主进程官方接口）/ biturl（公开 API），用于设置页排障 */
+  const bingWallpaperSource = ref('')
   const bingWallpaperError = ref('')
   const autoCheckUpdates = ref(true)
   const appVersion = ref('')
@@ -109,6 +111,7 @@ export const useAppStore = defineStore('app', () => {
     const savedBingUrl = localStorage.getItem('choyeon-bing-wallpaper-url')
     const savedBingTitle = localStorage.getItem('choyeon-bing-wallpaper-title')
     const savedBingDate = localStorage.getItem('choyeon-bing-wallpaper-date')
+    const savedBingSource = localStorage.getItem('choyeon-bing-wallpaper-source')
     const savedEditorZoom = localStorage.getItem('choyeon-editor-zoom')
     const savedAutoCheckUpdates = localStorage.getItem('choyeon-auto-check-updates')
     const savedHotkeys = localStorage.getItem('choyeon-hotkeys')
@@ -195,6 +198,7 @@ export const useAppStore = defineStore('app', () => {
     if (savedBingUrl) bingWallpaperUrl.value = savedBingUrl
     if (savedBingTitle) bingWallpaperTitle.value = savedBingTitle
     if (savedBingDate) bingWallpaperDate.value = savedBingDate
+    if (savedBingSource) bingWallpaperSource.value = savedBingSource
 
     if (savedAutoCheckUpdates !== null) {
       autoCheckUpdates.value = savedAutoCheckUpdates === 'true'
@@ -333,6 +337,7 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-bing-wallpaper-url')
     localStorage.removeItem('choyeon-bing-wallpaper-title')
     localStorage.removeItem('choyeon-bing-wallpaper-date')
+    localStorage.removeItem('choyeon-bing-wallpaper-source')
     localStorage.removeItem('choyeon-editor-zoom')
     localStorage.removeItem('choyeon-auto-check-updates')
     localStorage.removeItem('choyeon-hotkeys')
@@ -369,6 +374,7 @@ export const useAppStore = defineStore('app', () => {
     bingWallpaperUrl.value = ''
     bingWallpaperTitle.value = ''
     bingWallpaperDate.value = ''
+    bingWallpaperSource.value = ''
     bingWallpaperError.value = ''
     autoCheckUpdates.value = true
     hotkeys.value = createDefaultBindings()
@@ -608,16 +614,18 @@ export const useAppStore = defineStore('app', () => {
    * 写入一次壁纸结果。url 为空表示失败，此时只记 error 并保留旧图，
    * 避免网络抖动导致背景直接变黑。
    */
-  function setBingWallpaper({ url = '', title = '', date = '', error = '' } = {}) {
+  function setBingWallpaper({ url = '', title = '', date = '', error = '', source = '' } = {}) {
     bingWallpaperError.value = error
     if (!url) return
     bingWallpaperUrl.value = url
     bingWallpaperTitle.value = title
     bingWallpaperDate.value = date
+    if (source) bingWallpaperSource.value = source
     try {
       localStorage.setItem('choyeon-bing-wallpaper-url', url)
       if (title) localStorage.setItem('choyeon-bing-wallpaper-title', title)
       if (date) localStorage.setItem('choyeon-bing-wallpaper-date', date)
+      if (source) localStorage.setItem('choyeon-bing-wallpaper-source', source)
     } catch (e) { /* localStorage 满或被禁用时忽略，不影响内存态 */ }
   }
 
@@ -694,6 +702,7 @@ export const useAppStore = defineStore('app', () => {
     bingWallpaperUrl,
     bingWallpaperTitle,
     bingWallpaperDate,
+    bingWallpaperSource,
     bingWallpaperError,
     autoCheckUpdates,
     appVersion,

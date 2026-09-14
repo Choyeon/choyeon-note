@@ -6,7 +6,7 @@ const lightTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
     color: 'var(--color-text-primary)',
-    fontSize: 'var(--font-size-body)',
+    fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
     lineHeight: '1.72'
   },
@@ -15,7 +15,7 @@ const lightTheme = EditorView.theme({
     padding: '40px 32px',
     minHeight: '100%',
     fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
-    fontSize: 'var(--font-size-body)',
+    fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     lineHeight: '1.72',
     maxWidth: '780px',
     margin: '0 auto'
@@ -26,7 +26,7 @@ const lightTheme = EditorView.theme({
   },
   '.cm-line': {
     padding: '2px 4px',
-    fontSize: 'var(--font-size-body)',
+    fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     lineHeight: '1.72'
   },
   '.cm-selectionBackground, ::selection': {
@@ -37,7 +37,7 @@ const lightTheme = EditorView.theme({
     color: 'var(--color-text-tertiary)',
     border: 'none',
     padding: '40px 10px 40px 20px',
-    fontSize: 'var(--font-size-sm)',
+    fontSize: 'calc(var(--font-size-sm) * var(--editor-zoom, 1))',
     fontFamily: 'var(--font-mono)'
   },
   '.cm-activeLineGutter': {
@@ -110,7 +110,7 @@ const darkTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
     color: 'var(--color-text-primary)',
-    fontSize: 'var(--font-size-body)',
+    fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
     lineHeight: '1.72'
   },
@@ -119,7 +119,7 @@ const darkTheme = EditorView.theme({
     padding: '40px 32px',
     minHeight: '100%',
     fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
-    fontSize: 'var(--font-size-body)',
+    fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     lineHeight: '1.72',
     maxWidth: '780px',
     margin: '0 auto'
@@ -130,7 +130,7 @@ const darkTheme = EditorView.theme({
   },
   '.cm-line': {
     padding: '2px 4px',
-    fontSize: 'var(--font-size-body)',
+    fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     lineHeight: '1.72'
   },
   '.cm-selectionBackground, ::selection': {
@@ -141,7 +141,7 @@ const darkTheme = EditorView.theme({
     color: 'var(--color-text-tertiary)',
     border: 'none',
     padding: '40px 10px 40px 20px',
-    fontSize: 'var(--font-size-sm)',
+    fontSize: 'calc(var(--font-size-sm) * var(--editor-zoom, 1))',
     fontFamily: 'var(--font-mono)'
   },
   '.cm-activeLineGutter': {

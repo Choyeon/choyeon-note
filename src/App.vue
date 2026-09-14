@@ -5,6 +5,7 @@
     :data-glass="glassEffect ? 'true' : 'false'"
     :data-font-size="appStore.fontSize"
     :class="{ 'electron-mode': isElectron }"
+    :style="{ '--editor-zoom': editorZoomScale }"
   >
     <div 
       class="window-frame h-full w-full flex flex-col overflow-hidden relative"
@@ -126,6 +127,7 @@ import Sidebar from './components/Sidebar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import QuickSwitcher from './components/QuickSwitcher.vue'
 import { setCodeTheme as setHljsTheme } from './utils/markdown'
+import { fetchBingWallpaper, todayStamp } from './utils/bingWallpaper'
 import { SHORTCUTS, eventToBinding } from './constants/shortcuts'
 
 const appStore = useAppStore()
@@ -140,6 +142,9 @@ const showSidebar = computed(() => route.meta?.showSidebar !== false)
 const glassEffect = computed(() => appStore.glassEffect)
 
 const currentTheme = computed(() => appStore.theme)
+
+// 编辑器缩放：百分比 → 倍数，写到根变量上，编辑器三种模式与阅读视图都读它
+const editorZoomScale = computed(() => (Number(appStore.editorZoom) || 100) / 100)
 
 const wallpaperUrl = 'https://images.unsplash.com/photo-1506744038136-46273834b3fb?w=1920&q=80'
 
@@ -156,17 +161,17 @@ const appBgStyle = computed(() => {
   return `url('${wallpaperUrl}') center/cover no-repeat`
 })
 
-async function fetchBingWallpaper() {
-  try {
-    const response = await fetch('https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=zh-CN')
-    const data = await response.json()
-    if (data.images && data.images.length > 0) {
-      const imageUrl = 'https://www.bing.com' + data.images[0].url
-      appStore.setBingWallpaperUrl(imageUrl)
-    }
-  } catch (e) {
-    console.error('Failed to fetch Bing wallpaper:', e)
-  }
+/**
+ * 拉取 Bing 每日壁纸。
+ * 同一天已有结果就直接用缓存，避免每次启动/每次开开关都打一次网络请求。
+ * 失败时保留上一张图（setBingWallpaper 内部会这么处理），只记录错误。
+ */
+async function refreshBingWallpaper({ force = false } = {}) {
+  if (!appStore.bingWallpaper) return
+  if (!force && appStore.bingWallpaperUrl && appStore.bingWallpaperDate === todayStamp()) return
+
+  const result = await fetchBingWallpaper()
+  appStore.setBingWallpaper(result)
 }
 
 function minimizeWindow() {
@@ -294,8 +299,8 @@ watch(() => appStore.codeTheme, (newTheme) => {
 })
 
 watch(() => appStore.bingWallpaper, (enabled) => {
-  if (enabled && !appStore.bingWallpaperUrl) {
-    fetchBingWallpaper()
+  if (enabled) {
+    refreshBingWallpaper()
   }
 })
 
@@ -304,9 +309,7 @@ onMounted(() => {
   detectPlatform()
   setHljsTheme(appStore.codeTheme)
   
-  if (appStore.bingWallpaper) {
-    fetchBingWallpaper()
-  }
+  refreshBingWallpaper()
   
   const savedLocation = localStorage.getItem('choyeon-notes-location')
   if (savedLocation && savedLocation !== 'sample' && window.electronAPI) {

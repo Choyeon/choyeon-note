@@ -34,6 +34,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   loadVault: (workspaceId) => ipcRenderer.invoke('vault:load', workspaceId),
   saveVault: (workspaceId, entries) => ipcRenderer.invoke('vault:save', workspaceId, entries),
 
+  // ===== Bing 每日壁纸（走主进程，避免渲染进程被 CORS 拦截）=====
+  fetchBingWallpaper: (market) => ipcRenderer.invoke('bing:fetch-wallpaper', market),
+
   onMenuAction: (callback) => {
     const events = [
       'menu:new-note',

@@ -55,8 +55,9 @@
           ></div>
           <button
             v-else
-            class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-            :title="tool.title"
+            class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-35 disabled:cursor-default"
+            :title="isPreview ? `${tool.title}（阅读模式为只读）` : tool.title"
+            :disabled="isPreview"
             @click="onToolbarAction(tool.id)"
           >
             <component :is="tool.icon" class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
@@ -66,16 +67,16 @@
         <div class="w-px h-5 mx-1" :style="{ background: 'var(--color-border)' }"></div>
         <button
           class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-35 disabled:cursor-default"
-          title="撤销 (Ctrl+Z)"
-          :disabled="!editorApi?.canUndo"
+          :title="isPreview ? '撤销（阅读模式为只读）' : '撤销 (Ctrl+Z)'"
+          :disabled="isPreview || !editorApi?.canUndo"
           @click="editorApi?.undo()"
         >
           <Undo2 class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
         </button>
         <button
           class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-35 disabled:cursor-default"
-          title="重做 (Ctrl+Y)"
-          :disabled="!editorApi?.canRedo"
+          :title="isPreview ? '重做（阅读模式为只读）' : '重做 (Ctrl+Y)'"
+          :disabled="isPreview || !editorApi?.canRedo"
           @click="editorApi?.redo()"
         >
           <Redo2 class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
@@ -348,11 +349,13 @@
     <div class="cho-statusbar justify-between">
       <span class="cho-statusbar-hint">
         {{ editorApi?.stats?.words ?? 0 }} 字 &middot; {{ editorApi?.stats?.chars ?? 0 }} 字符 &middot; {{ editorApi?.stats?.lines ?? 0 }} 行
-        &middot; Ln {{ editorApi?.cursorLine ?? 1 }}, Col {{ editorApi?.cursorColumn ?? 1 }}
+        <template v-if="!isPreview">
+          &middot; Ln {{ editorApi?.cursorLine ?? 1 }}, Col {{ editorApi?.cursorColumn ?? 1 }}
+        </template>
         &middot; 最后编辑: {{ formatDate(currentNote?.updatedAt) }}
       </span>
       <span class="cho-statusbar-meta">
-        {{ modeLabel }}
+        {{ modeLabel }}<template v-if="isPreview"> &middot; 只读</template>
       </span>
     </div>
 
@@ -562,7 +565,16 @@ const noteStore = useNoteStore()
 const appStore = useAppStore()
 
 // =========================== 基础状态 ===========================
-const editorMode = ref('edit') // edit | live | preview（edit/live 共用同一 CM 实例）
+// 编辑器模式（edit / live / preview）统一托管到 store，并持久化到 localStorage：
+// 切换笔记、重启应用后都沿用上次模式；三种模式共用同一份文档与撤销栈，
+// 视图内不再单独维护一份模式状态，避免出现"store 与视图不一致"。
+const editorMode = computed({
+  get: () => {
+    const m = appStore.editorMode
+    return ['edit', 'live', 'preview'].includes(m) ? m : 'edit'
+  },
+  set: (mode) => appStore.setEditorMode(mode)
+})
 const rightPanelTab = ref('outline')
 const newProp = ref({ key: '', value: '' })
 const rightPanelRef = ref(null)
@@ -616,6 +628,8 @@ const MERMAID_TEMPLATES = {
 }
 
 function onToolbarAction(id) {
+  // 预览模式是只读视图：编辑器实例被 v-show 隐藏，此时改文档等于"改了看不见的东西"
+  if (isPreview.value) return
   if (MERMAID_TEMPLATES[id]) {
     mdEditorRef.value?.insertAtCursor(`\n${MERMAID_TEMPLATES[id]}\n`)
     return
@@ -644,6 +658,9 @@ const modeLabel = computed(() => ({
   preview: '阅读模式'
 }[editorMode.value] || ''))
 
+/** 预览（阅读）模式为只读视图：编辑类操作一律禁用，避免改动被隐藏的编辑器 */
+const isPreview = computed(() => editorMode.value === 'preview')
+
 function onContentChange(newContent) {
   const val = typeof newContent === 'string' ? newContent : content.value
   if (currentNote.value?.id) {
@@ -657,8 +674,12 @@ function saveNote() {
   }
 }
 
+/** 记住进入阅读模式前的可编辑模式，Mod-Shift-E 切回时按原样恢复 */
+const lastEditableMode = ref(editorMode.value === 'edit' ? 'edit' : 'live')
+
 function setMode(mode) {
   if (!['edit', 'live', 'preview'].includes(mode)) return
+  if (mode !== 'preview') lastEditableMode.value = mode
   editorMode.value = mode
   if (mode !== 'preview') {
     floatingToolbar.value.show = false
@@ -668,7 +689,7 @@ function setMode(mode) {
 
 /** Mod-Shift-E：编辑（源码/实时） ↔ 预览 */
 function toggleReadingMode() {
-  setMode(editorMode.value === 'preview' ? (appStore.livePreview === false ? 'edit' : 'live') : 'preview')
+  setMode(editorMode.value === 'preview' ? lastEditableMode.value : 'preview')
 }
 
 // =========================== 编辑器 API 装配 ===========================
@@ -1025,6 +1046,8 @@ function closeContextMenu() {
 
 function contextMenuAction(commandId) {
   closeContextMenu()
+  // 预览模式是只读视图：只放行「全选 / 复制」这类不改文档的命令
+  if (isPreview.value && commandId !== 'edit.selectAll') return
   nextTick(() => {
     if (commandId === 'edit.selectAll') {
       mdEditorRef.value?.selectAll()
@@ -1042,6 +1065,7 @@ async function copySelection() {
 
 async function cutSelection() {
   closeContextMenu()
+  if (isPreview.value) return
   const sel = mdEditorRef.value?.getSelection?.()
   if (sel?.text) {
     await copyText(sel.text)
@@ -1051,6 +1075,7 @@ async function cutSelection() {
 
 async function pasteFromClipboard() {
   closeContextMenu()
+  if (isPreview.value) return
   try {
     const text = await navigator.clipboard.readText()
     if (text) mdEditorRef.value?.insertAtCursor(text)
@@ -1124,9 +1149,14 @@ function onModeKeydown(e) {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   loadFromRoute()
   nextTick(onEditorReady)
+  // 模式现在会持久化：若上次退出时停留在阅读模式，进来后需要先渲染一次 mermaid
+  await nextTick()
+  if (editorMode.value === 'preview' && previewBodyRef.value) {
+    renderMermaidInContainer(previewBodyRef.value)
+  }
   window.addEventListener('keydown', onModeKeydown, true)
 })
 
@@ -1155,12 +1185,13 @@ onUnmounted(() => {
   background: var(--color-primary-surface);
 }
 
-/* ===== 预览排版：与实时预览装饰层共用同一套变量（编辑/预览一致性） ===== */
+/* ===== 预览排版：与实时预览装饰层共用同一套变量（编辑/预览一致性） =====
+   字号乘 --editor-zoom：edit / live / preview 三种模式与阅读视图同步缩放 */
 .unified-editor,
 .markdown-body {
-  font-size: var(--font-size-body) !important;
+  font-size: calc(var(--font-size-body) * var(--editor-zoom, 1)) !important;
   line-height: 1.72 !important;
-  color: var(--color-text-primary) !important;
+  color: var(--color-text-body) !important;
   font-family: var(--font-body) !important;
   word-break: break-word;
 }

@@ -124,17 +124,32 @@
                 <Image class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
                 <div>
                   <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">Bing 每日壁纸</div>
-                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">使用 Bing 每日壁纸作为背景</div>
+                  <div
+                    class="text-[12px] mt-0.5"
+                    :style="{ color: bingHasError ? 'var(--state-error)' : 'var(--color-text-tertiary)' }"
+                  >{{ bingStatus }}</div>
                 </div>
               </div>
-              <button 
-                class="toggle-switch"
-                role="switch"
-                :aria-checked="appStore.bingWallpaper"
-                @click="appStore.toggleBingWallpaper()"
-              >
-                <span class="toggle-knob"></span>
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  v-if="appStore.bingWallpaper"
+                  class="px-2.5 h-7 rounded-lg text-[12px] font-medium cursor-pointer transition-all duration-150 hover:opacity-80 disabled:opacity-50 inline-flex items-center gap-1"
+                  :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
+                  :disabled="bingRefreshing"
+                  @click="refreshBingWallpaper"
+                >
+                  <RefreshCw class="w-3.5 h-3.5" :class="{ 'spin': bingRefreshing }" />
+                  {{ bingRefreshing ? '获取中' : '刷新' }}
+                </button>
+                <button 
+                  class="toggle-switch"
+                  role="switch"
+                  :aria-checked="appStore.bingWallpaper"
+                  @click="appStore.toggleBingWallpaper()"
+                >
+                  <span class="toggle-knob"></span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -156,6 +171,86 @@
                 </div>
               </div>
               <div class="inline-flex items-center px-3 py-1.5 rounded-lg font-mono text-[13px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">.md</div>
+            </div>
+
+            <!-- 默认编辑器模式：三模式统一由 store 托管并持久化 -->
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Edit class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">默认编辑器模式</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">
+                    三种模式共用同一份文档，切换笔记与重启后沿用
+                  </div>
+                </div>
+              </div>
+              <div class="segmented-control">
+                <button
+                  class="segment-btn"
+                  :class="{ active: appStore.editorMode === 'edit' }"
+                  @click="appStore.setEditorMode('edit')"
+                >源码</button>
+                <button
+                  class="segment-btn"
+                  :class="{ active: appStore.editorMode === 'live' }"
+                  @click="appStore.setEditorMode('live')"
+                >实时</button>
+                <button
+                  class="segment-btn"
+                  :class="{ active: appStore.editorMode === 'preview' }"
+                  @click="appStore.setEditorMode('preview')"
+                >阅读</button>
+              </div>
+            </div>
+
+            <!-- 编辑器缩放：edit / live / preview 三种模式 + 阅读视图共用 -->
+            <div class="settings-row">
+              <div class="flex items-center gap-3">
+                <Maximize2 class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">编辑器缩放</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">
+                    同时作用于编辑 / 实时 / 预览三种模式与阅读视图
+                  </div>
+                </div>
+              </div>
+              <div class="flex items-center gap-2">
+                <button
+                  class="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 hover:bg-[var(--color-surface-hover)] disabled:opacity-40"
+                  title="缩小"
+                  :disabled="appStore.editorZoom <= 50"
+                  @click="appStore.setEditorZoom(appStore.editorZoom - 10)"
+                >
+                  <ZoomOut class="w-3.5 h-3.5" :style="{ color: 'var(--color-text-secondary)' }" />
+                </button>
+                <input
+                  type="range"
+                  min="50"
+                  max="200"
+                  step="5"
+                  :value="appStore.editorZoom"
+                  class="zoom-slider"
+                  :style="{ '--zoom-pct': appStore.editorZoom }"
+                  @input="appStore.setEditorZoom($event.target.value)"
+                />
+                <button
+                  class="w-7 h-7 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-150 hover:bg-[var(--color-surface-hover)] disabled:opacity-40"
+                  title="放大"
+                  :disabled="appStore.editorZoom >= 200"
+                  @click="appStore.setEditorZoom(appStore.editorZoom + 10)"
+                >
+                  <ZoomIn class="w-3.5 h-3.5" :style="{ color: 'var(--color-text-secondary)' }" />
+                </button>
+                <span class="text-[13px] font-medium tabular-nums w-11 text-right" :style="{ color: 'var(--color-text-primary)' }">
+                  {{ appStore.editorZoom }}%
+                </span>
+                <button
+                  v-if="appStore.editorZoom !== 100"
+                  class="px-2 h-7 rounded-lg text-[12px] cursor-pointer transition-all duration-150 hover:opacity-80"
+                  :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
+                  @click="appStore.resetEditorZoom()"
+                >重置</button>
+              </div>
             </div>
 
             <div class="settings-row">
@@ -775,12 +870,14 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
+import { fetchBingWallpaper } from '@/utils/bingWallpaper'
 import { 
   ArrowLeft, SunMoon, Palette, Type, Layers, 
   FileCode, SpellCheck, Save, ListOrdered, WrapText,
   FolderOpen, RefreshCw, Paperclip, Folder, AlertTriangle, RotateCcw,
   Keyboard, Search, FileText, Edit, Eye, Navigation, Zap,
-  Image, MessageCircle, Github, EyeOff, BookPlus, Plus, X
+  Image, MessageCircle, Github, EyeOff, BookPlus, Plus, X,
+  ZoomIn, ZoomOut, Maximize2
 } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -799,6 +896,36 @@ const ignoredInput = ref('')
 const dictionaryInput = ref('')
 const ignoredInputRef = ref(null)
 const dictionaryInputRef = ref(null)
+
+// ===== Bing 每日壁纸 =====
+const bingRefreshing = ref(false)
+const bingHasError = computed(() => !!appStore.bingWallpaperError)
+
+const bingStatus = computed(() => {
+  if (bingRefreshing.value) return '正在获取今日壁纸…'
+  if (appStore.bingWallpaperError) return `获取失败：${appStore.bingWallpaperError}`
+  if (!appStore.bingWallpaper) return '使用 Bing 每日壁纸作为背景'
+  if (appStore.bingWallpaperUrl) {
+    const date = appStore.bingWallpaperDate
+    const pretty = date && date.length === 8
+      ? `${date.slice(0, 4)}-${date.slice(4, 6)}-${date.slice(6, 8)}`
+      : ''
+    const title = appStore.bingWallpaperTitle ? `${appStore.bingWallpaperTitle}` : '今日壁纸已就绪'
+    return pretty ? `${title} · ${pretty}` : title
+  }
+  return '尚未获取，点"刷新"立即拉取'
+})
+
+async function refreshBingWallpaper() {
+  if (bingRefreshing.value) return
+  bingRefreshing.value = true
+  try {
+    const result = await fetchBingWallpaper()
+    appStore.setBingWallpaper(result)
+  } finally {
+    bingRefreshing.value = false
+  }
+}
 
 const ignoredWordsArray = computed(() => {
   return [...(appStore.ignoredWords || [])].sort((a, b) => a.localeCompare(b))
@@ -1042,6 +1169,50 @@ function cancelReset() {
 /* 设置行 - 添加悬停过渡 */
 .settings-row {
   transition: background-color var(--transition-micro);
+}
+
+.spin {
+  animation: settings-spin 1s linear infinite;
+}
+@keyframes settings-spin {
+  to { transform: rotate(360deg); }
+}
+
+/* 缩放滑块：轨道用主色填充到当前值，跨浏览器统一外观 */
+.zoom-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 132px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-primary) 0%,
+    var(--color-primary) calc((var(--zoom-pct, 100) - 50) / 150 * 100%),
+    var(--color-border) calc((var(--zoom-pct, 100) - 50) / 150 * 100%),
+    var(--color-border) 100%
+  );
+  outline: none;
+  cursor: pointer;
+}
+.zoom-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--color-primary);
+  box-shadow: var(--shadow-xs);
+  cursor: pointer;
+}
+.zoom-slider::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--color-primary);
+  cursor: pointer;
 }
 
 /* 搜索框 - 毛玻璃效果，聚焦时使用主色光环 */

@@ -33,7 +33,7 @@
     </div>
 
     <!-- 阅读内容区 -->
-    <div class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content">
+    <div class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content reading-content">
       <div class="max-w-[720px] mx-auto py-14 px-8 pb-24">
         <article class="prose prose-custom reading-fade-in">
           <header class="mb-10">
@@ -165,18 +165,25 @@ onMounted(() => {
   pointer-events: none;
 }
 
+/* 阅读区用实心底色：长文阅读时不受壁纸/毛玻璃干扰，对比度更稳 */
+.reading-content,
+.editor-page-wrapper::before {
+  background: var(--reading-bg);
+}
+
 .prose-custom {
   max-width: none;
   font-family: var(--font-body);
-  font-size: 15px;
-  color: var(--color-text-primary);
+  /* 与编辑器三模式共用同一基准与缩放变量：切到阅读视图时字号不跳变 */
+  font-size: calc(var(--font-size-body) * var(--editor-zoom, 1));
+  color: var(--color-text-body);
   line-height: 1.8;
 }
 
-/* 标题：层级清晰，间距统一 */
+/* 标题改用 em：跟着 .prose-custom 的基准字号缩放 */
 .prose-custom :deep(h2) {
   font-family: var(--font-title);
-  font-size: 1.5rem;
+  font-size: 1.5em;
   font-weight: 600;
   margin-top: 2.5rem;
   margin-bottom: 1rem;
@@ -188,7 +195,7 @@ onMounted(() => {
 
 .prose-custom :deep(h3) {
   font-family: var(--font-title);
-  font-size: 1.25rem;
+  font-size: 1.25em;
   font-weight: 600;
   margin-top: 1.75rem;
   margin-bottom: 0.75rem;
@@ -200,7 +207,7 @@ onMounted(() => {
 .prose-custom :deep(h5),
 .prose-custom :deep(h6) {
   font-family: var(--font-title);
-  font-size: 1.05rem;
+  font-size: 1.05em;
   font-weight: 600;
   margin-top: 1.5rem;
   margin-bottom: 0.5rem;

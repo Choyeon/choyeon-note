@@ -49,6 +49,14 @@
   --color-text-inverse: #ffffff;
   --color-text-on-primary: #ffffff;
 
+  /* 阅读/预览正文：比 secondary 更深，长文阅读时不发灰；比 primary 略柔，避免纯黑刺眼 */
+  --color-text-body: #23272e;
+  /* 阅读区背景：独立于 content-bg，保证长文阅读时底色实、不受壁纸干扰 */
+  --reading-bg: #fdfdfd;
+
+  /* 编辑器缩放倍数（由 App.vue 按设置写入 .app-container），1 = 100% */
+  --editor-zoom: 1;
+
   --font-size-h1: 32px;
   --font-size-h2: 24px;
   --font-size-h3: 20px;
@@ -256,6 +264,8 @@
   --color-text-tertiary: #6b7280;
   --color-text-inverse: #202124;
   --color-text-on-primary: #202124;
+  --color-text-body: #dfe3e8;
+  --reading-bg: #1c1d20;
 
   --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
   --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.4), 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -519,6 +529,8 @@ html.platform-win32 #app {
     --color-text-tertiary: #6b7280;
     --color-text-inverse: #202124;
     --color-text-on-primary: #202124;
+    --color-text-body: #dfe3e8;
+    --reading-bg: #1c1d20;
 
     --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
     --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.3);
@@ -1831,7 +1843,7 @@ a:focus-visible,
 
 .markdown-body blockquote p {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-body);
 }
 
 .markdown-body table {
@@ -2085,9 +2097,11 @@ a:focus-visible,
  * Markdown / 预览正文排版
  * ========================= */
 .markdown-body {
-  color: var(--color-text-primary);
+  color: var(--color-text-body);
   line-height: 1.72;
-  font-size: 15px;
+  /* 跟着「编辑器缩放」设置走：与编辑器共用 --font-size-body 基准，
+     保证 源码 / 实时 / 预览 / 阅读视图 四处的字号完全一致、切换时不跳变 */
+  font-size: calc(var(--font-size-body) * var(--editor-zoom, 1));
   word-break: break-word;
 }
 .markdown-body > * + * {
@@ -2106,15 +2120,20 @@ a:focus-visible,
   margin-bottom: 0.5em;
   scroll-margin-top: 60px;
 }
-.markdown-body h1 { font-size: 28px; }
-.markdown-body h2 { font-size: 23px; }
-.markdown-body h3 { font-size: 19px; }
-.markdown-body h4 { font-size: 16px; }
-.markdown-body h5 { font-size: 14px; }
-.markdown-body h6 { font-size: 13px; color: var(--color-text-secondary); }
+/* em 而非 px：标题随 .markdown-body 的缩放同步变化，否则放大正文后标题反而不协调 */
+.markdown-body h1 { font-size: 1.86em; }
+.markdown-body h2 { font-size: 1.53em; }
+.markdown-body h3 { font-size: 1.27em; }
+.markdown-body h4 { font-size: 1.07em; }
+.markdown-body h5 { font-size: 0.93em; }
+.markdown-body h6 { font-size: 0.87em; color: var(--color-text-secondary); }
 
 .markdown-body p {
-  font-size: 15px;
+  font-size: 1em;
+  color: var(--color-text-body);
+}
+.markdown-body li {
+  color: var(--color-text-body);
 }
 .markdown-body ul,
 .markdown-body ol {
@@ -2131,7 +2150,7 @@ a:focus-visible,
   border-left: 3px solid var(--color-border);
   background: var(--color-bg-secondary);
   border-radius: 0 8px 8px 0;
-  color: var(--color-text-secondary);
+  color: var(--color-text-body);
 }
 .markdown-body blockquote > * + * {
   margin-top: 0.5em;
@@ -2175,7 +2194,7 @@ a:focus-visible,
   background: var(--color-bg-secondary);
   font-weight: 600;
   text-align: left;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 .markdown-body tr:last-child td {
   border-bottom: none;

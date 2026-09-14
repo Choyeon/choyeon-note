@@ -1,4 +1,4 @@
-const { app, BrowserWindow, Menu, ipcMain, dialog } = require('electron')
+const { app, BrowserWindow, Menu, ipcMain, dialog, net } = require('electron')
 const { autoUpdater } = require('electron-updater')
 const path = require('path')
 const fs = require('fs/promises')
@@ -613,6 +613,83 @@ ipcMain.handle('updater:download-update', async () => {
 
 ipcMain.handle('updater:quit-and-install', () => {
   autoUpdater.quitAndInstall(false, true)
+})
+
+// ============================================================
+// Bing 每日壁纸
+// ------------------------------------------------------------
+// 必须放主进程：渲染进程直连 www.bing.com/HPImageArchive.aspx 会被 CORS 拦掉
+// （该接口不返回 Access-Control-Allow-Origin），所以功能一直是"开关能开、图不来"。
+// 用 net.request 还能自动走系统代理设置。
+// ============================================================
+const BING_MARKETS = ['zh-CN', 'en-US']
+
+function netGetJson(url) {
+  return new Promise((resolve, reject) => {
+    const req = net.request({ method: 'GET', url })
+    let body = ''
+    let settled = false
+
+    const fail = (err) => {
+      if (settled) return
+      settled = true
+      reject(err instanceof Error ? err : new Error(String(err)))
+    }
+
+    req.setHeader('User-Agent', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)')
+    req.setHeader('Accept', 'application/json')
+
+    req.on('response', (res) => {
+      if (res.statusCode < 200 || res.statusCode >= 300) {
+        res.resume() // 读完响应体，避免连接悬挂
+        fail(new Error('HTTP ' + res.statusCode))
+        return
+      }
+      res.on('data', (chunk) => { body += chunk.toString() })
+      res.on('end', () => {
+        if (settled) return
+        settled = true
+        try {
+          resolve(JSON.parse(body))
+        } catch (e) {
+          reject(new Error('响应不是合法 JSON'))
+        }
+      })
+    })
+    req.on('error', fail)
+    req.on('timeout', () => { req.abort(); fail(new Error('请求超时')) })
+
+    req.setTimeout ? req.setTimeout(15000) : null
+    req.end()
+  })
+}
+
+ipcMain.handle('bing:fetch-wallpaper', async (_, market = 'zh-CN') => {
+  const markets = BING_MARKETS.includes(market) ? [market, ...BING_MARKETS.filter(m => m !== market)] : [market]
+  let lastError = null
+
+  for (const mkt of markets) {
+    try {
+      const data = await netGetJson(
+        `https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt=${encodeURIComponent(mkt)}`
+      )
+      const image = data && data.images && data.images[0]
+      if (!image || !image.url) {
+        lastError = new Error('接口未返回图片地址')
+        continue
+      }
+      return {
+        url: /^https?:/.test(image.url) ? image.url : 'https://www.bing.com' + image.url,
+        title: image.title || '',
+        copyright: image.copyright || '',
+        date: image.startdate || '',
+        market: mkt
+      }
+    } catch (err) {
+      lastError = err
+    }
+  }
+  return { error: (lastError && lastError.message) || '获取 Bing 壁纸失败' }
 })
 
 app.whenReady().then(async () => {

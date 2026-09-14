@@ -21,14 +21,21 @@ export const useAppStore = defineStore('app', () => {
   const customDictionary = ref(new Set())
   const spellVersion = ref(0)
   const codeTheme = ref('github')
+  // 编辑器缩放（百分比 50~200）：edit / live / preview 三种模式 + 阅读视图共用，
+  // 保证切换模式时视觉大小不跳变
+  const editorZoom = ref(100)
   const bingWallpaper = ref(false)
   const bingWallpaperUrl = ref('')
+  const bingWallpaperTitle = ref('')
+  const bingWallpaperDate = ref('')
+  const bingWallpaperError = ref('')
   const autoCheckUpdates = ref(true)
   const appVersion = ref('')
   // 可自定义快捷键：{ [shortcutId]: binding }，缺省回落到内置默认值
   const hotkeys = ref(createDefaultBindings())
-  // 编辑器模式：source(纯源码) / live(实时预览) / preview(阅读)
-  const editorMode = ref('live')
+  // 编辑器模式：edit(纯源码) / live(实时预览) / preview(阅读)
+  // 注意：词汇必须与 EditorView 一致（历史版本用过 'source'，读取时会被归一成 'edit'）
+  const editorMode = ref('edit')
   // 右栏面板
   const rightPanelTab = ref('outline')
   const rightPanelVisible = ref(true)
@@ -99,6 +106,10 @@ export const useAppStore = defineStore('app', () => {
     const savedSidebar = localStorage.getItem('choyeon-sidebar')
     const savedCodeTheme = localStorage.getItem('choyeon-code-theme')
     const savedBingWallpaper = localStorage.getItem('choyeon-bing-wallpaper')
+    const savedBingUrl = localStorage.getItem('choyeon-bing-wallpaper-url')
+    const savedBingTitle = localStorage.getItem('choyeon-bing-wallpaper-title')
+    const savedBingDate = localStorage.getItem('choyeon-bing-wallpaper-date')
+    const savedEditorZoom = localStorage.getItem('choyeon-editor-zoom')
     const savedAutoCheckUpdates = localStorage.getItem('choyeon-auto-check-updates')
     const savedHotkeys = localStorage.getItem('choyeon-hotkeys')
     const savedEditorMode = localStorage.getItem('choyeon-editor-mode')
@@ -171,9 +182,19 @@ export const useAppStore = defineStore('app', () => {
       codeTheme.value = savedCodeTheme
     }
 
+    // 缩放用 number 存储，坏值（NaN/越界）一律回落到 100
+    if (savedEditorZoom !== null) {
+      const z = Number(savedEditorZoom)
+      if (Number.isFinite(z)) editorZoom.value = Math.min(200, Math.max(50, Math.round(z)))
+    }
+
     if (savedBingWallpaper !== null) {
       bingWallpaper.value = savedBingWallpaper === 'true'
     }
+    // 壁纸结果缓存：启动后立刻能显示昨天的图，再后台刷新
+    if (savedBingUrl) bingWallpaperUrl.value = savedBingUrl
+    if (savedBingTitle) bingWallpaperTitle.value = savedBingTitle
+    if (savedBingDate) bingWallpaperDate.value = savedBingDate
 
     if (savedAutoCheckUpdates !== null) {
       autoCheckUpdates.value = savedAutoCheckUpdates === 'true'
@@ -181,8 +202,12 @@ export const useAppStore = defineStore('app', () => {
 
     hotkeys.value = mergeBindings(savedHotkeys)
 
-    if (savedEditorMode && ['source', 'live', 'preview'].includes(savedEditorMode)) {
-      editorMode.value = savedEditorMode
+    if (savedEditorMode) {
+      // 兼容历史值 'source'（等价于现在的 'edit'）
+      const legacy = savedEditorMode === 'source' ? 'edit' : savedEditorMode
+      if (['edit', 'live', 'preview'].includes(legacy)) {
+        editorMode.value = legacy
+      }
     }
     if (savedRightPanelTab) {
       rightPanelTab.value = savedRightPanelTab
@@ -266,9 +291,10 @@ export const useAppStore = defineStore('app', () => {
   }
 
   function setEditorMode(mode) {
-    if (!['source', 'live', 'preview'].includes(mode)) return
-    editorMode.value = mode
-    localStorage.setItem('choyeon-editor-mode', mode)
+    const normalized = mode === 'source' ? 'edit' : mode
+    if (!['edit', 'live', 'preview'].includes(normalized)) return
+    editorMode.value = normalized
+    localStorage.setItem('choyeon-editor-mode', normalized)
   }
 
   function setRightPanelTab(tab) {
@@ -304,6 +330,10 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-mode')
     localStorage.removeItem('choyeon-code-theme')
     localStorage.removeItem('choyeon-bing-wallpaper')
+    localStorage.removeItem('choyeon-bing-wallpaper-url')
+    localStorage.removeItem('choyeon-bing-wallpaper-title')
+    localStorage.removeItem('choyeon-bing-wallpaper-date')
+    localStorage.removeItem('choyeon-editor-zoom')
     localStorage.removeItem('choyeon-auto-check-updates')
     localStorage.removeItem('choyeon-hotkeys')
     localStorage.removeItem('choyeon-editor-mode')
@@ -334,11 +364,15 @@ export const useAppStore = defineStore('app', () => {
     ignoredWords.value = new Set()
     customDictionary.value = new Set()
     codeTheme.value = 'github'
+    editorZoom.value = 100
     bingWallpaper.value = false
     bingWallpaperUrl.value = ''
+    bingWallpaperTitle.value = ''
+    bingWallpaperDate.value = ''
+    bingWallpaperError.value = ''
     autoCheckUpdates.value = true
     hotkeys.value = createDefaultBindings()
-    editorMode.value = 'live'
+    editorMode.value = 'edit'
     rightPanelTab.value = 'outline'
     rightPanelVisible.value = true
     
@@ -549,13 +583,42 @@ export const useAppStore = defineStore('app', () => {
     localStorage.setItem('choyeon-code-theme', theme)
   }
 
-  function toggleBingWallpaper() {
-    bingWallpaper.value = !bingWallpaper.value
-    localStorage.setItem('choyeon-bing-wallpaper', bingWallpaper.value)
+  /**
+   * 设置编辑器缩放（百分比）。三种编辑模式 + 阅读视图共用同一个值，
+   * 由 App.vue 写到 --editor-zoom CSS 变量上，所以这里不需要碰 DOM。
+   */
+  function setEditorZoom(value) {
+    const z = Math.round(Number(value))
+    if (!Number.isFinite(z)) return
+    const clamped = Math.min(200, Math.max(50, z))
+    editorZoom.value = clamped
+    localStorage.setItem('choyeon-editor-zoom', String(clamped))
   }
 
-  function setBingWallpaperUrl(url) {
+  function resetEditorZoom() {
+    setEditorZoom(100)
+  }
+
+  function toggleBingWallpaper() {
+    bingWallpaper.value = !bingWallpaper.value
+    localStorage.setItem('choyeon-bing-wallpaper', String(bingWallpaper.value))
+  }
+
+  /**
+   * 写入一次壁纸结果。url 为空表示失败，此时只记 error 并保留旧图，
+   * 避免网络抖动导致背景直接变黑。
+   */
+  function setBingWallpaper({ url = '', title = '', date = '', error = '' } = {}) {
+    bingWallpaperError.value = error
+    if (!url) return
     bingWallpaperUrl.value = url
+    bingWallpaperTitle.value = title
+    bingWallpaperDate.value = date
+    try {
+      localStorage.setItem('choyeon-bing-wallpaper-url', url)
+      if (title) localStorage.setItem('choyeon-bing-wallpaper-title', title)
+      if (date) localStorage.setItem('choyeon-bing-wallpaper-date', date)
+    } catch (e) { /* localStorage 满或被禁用时忽略，不影响内存态 */ }
   }
 
   function toggleAutoCheckUpdates() {
@@ -626,8 +689,12 @@ export const useAppStore = defineStore('app', () => {
     customDictionary,
     spellVersion,
     codeTheme,
+    editorZoom,
     bingWallpaper,
     bingWallpaperUrl,
+    bingWallpaperTitle,
+    bingWallpaperDate,
+    bingWallpaperError,
     autoCheckUpdates,
     appVersion,
     hotkeys,
@@ -661,8 +728,10 @@ export const useAppStore = defineStore('app', () => {
     isWordCorrect,
     getSpellErrors,
     setCodeTheme,
+    setEditorZoom,
+    resetEditorZoom,
     toggleBingWallpaper,
-    setBingWallpaperUrl,
+    setBingWallpaper,
     toggleAutoCheckUpdates,
     getBinding,
     setHotkey,

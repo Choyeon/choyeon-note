@@ -113,10 +113,12 @@
         />
       </div>
 
-      <!-- 预览模式：与 live 装饰层共用同一渲染规则（同一套 CSS 变量） -->
+      <!-- 预览模式：与 live 装饰层共用同一渲染规则（同一套 CSS 变量）
+           reading-solid：实底纸面 + 去毛玻璃。半透明 acrylic 层在 Electron
+           透明窗口下会被系统亚克力穿透采样糊化，导致阅读模式发虚 -->
       <div
         v-if="editorMode === 'preview'"
-        class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content"
+        class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content reading-solid"
         @click="onPreviewClick"
       >
         <div class="max-w-[780px] mx-auto py-10 px-8 pb-32">
@@ -1179,6 +1181,18 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(var(--content-blur)) saturate(var(--content-saturate));
   z-index: 0;
   pointer-events: none;
+}
+
+/* 预览（阅读）模式正文 = 实底纸面：
+   半透明 acrylic + backdrop-filter 在 Electron 透明窗口下会被系统亚克力
+   穿透采样糊化（阅读模式"发虚/蒙雾"的根因），阅读场景也不需要毛玻璃。
+   实底 + 无模糊 + 提层压过上面的 ::before 雾化层。 */
+.reading-solid {
+  position: relative;
+  z-index: 1;
+  background: var(--reading-bg) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
 }
 
 .outline-item-active {

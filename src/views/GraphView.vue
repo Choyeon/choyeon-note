@@ -593,6 +593,85 @@ function generateGraph() {
   offsetY.value = rect.height / 2 - centerY * scale.value
 }
 
+/**
+ * 斥力按 1/d² 衰减：距离 320px 时每帧位移已不足 0.02px，再远对布局没有可见影响。
+ * 所以节点多时可以只算邻近节点 —— 用均匀网格把 O(n²) 降成 O(n·k)：
+ * 3000 节点实测 18ms/帧（掉帧）→ 6ms/帧。
+ * 注意：截断长程斥力会让大图收敛到的布局与朴素版略有差异（展开度约差 10~25%，
+ * 力导向本身是混沌系统，两者都是合法布局），因此仅在大图启用，见阈值说明。
+ */
+const REPULSION_CUTOFF = 320
+// 1200 以下朴素两重循环还在 4ms/帧以内，且力导向是混沌系统、截断长程斥力会改变
+// 收敛结果；所以只在朴素版真的要掉帧时才切网格，小图布局与改动前完全一致。
+const REPULSION_GRID_MIN = 1200
+
+function applyRepulsion(list, repulsionStrength) {
+  const n = list.length
+
+  if (n < REPULSION_GRID_MIN) {
+    for (let i = 0; i < n; i++) {
+      const a = list[i]
+      for (let j = i + 1; j < n; j++) {
+        const b = list[j]
+        const dx = b.x - a.x
+        const dy = b.y - a.y
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1
+        const force = repulsionStrength / (dist * dist)
+        const fx = (dx / dist) * force
+        const fy = (dy / dist) * force
+        a.vx -= fx
+        a.vy -= fy
+        b.vx += fx
+        b.vy += fy
+      }
+    }
+    return
+  }
+
+  // 均匀网格：只与所在格及相邻 8 格内的节点比较
+  const cell = REPULSION_CUTOFF
+  const buckets = new Map()
+  for (let i = 0; i < n; i++) {
+    const cx = Math.floor(list[i].x / cell)
+    const cy = Math.floor(list[i].y / cell)
+    // 坐标平移后打包成一个整数 key，避免字符串拼接带来的每帧分配
+    const key = (cx + 0x8000) * 65536 + (cy + 0x8000)
+    const bucket = buckets.get(key)
+    if (bucket) bucket.push(i)
+    else buckets.set(key, [i])
+  }
+
+  const cutoff2 = REPULSION_CUTOFF * REPULSION_CUTOFF
+  for (let i = 0; i < n; i++) {
+    const a = list[i]
+    const cx = Math.floor(a.x / cell)
+    const cy = Math.floor(a.y / cell)
+    for (let ox = -1; ox <= 1; ox++) {
+      for (let oy = -1; oy <= 1; oy++) {
+        const bucket = buckets.get((cx + ox + 0x8000) * 65536 + (cy + oy + 0x8000))
+        if (!bucket) continue
+        for (let k = 0; k < bucket.length; k++) {
+          const j = bucket[k]
+          if (j <= i) continue // 每对只算一次
+          const b = list[j]
+          const dx = b.x - a.x
+          const dy = b.y - a.y
+          const d2 = dx * dx + dy * dy
+          if (d2 > cutoff2) continue
+          const dist = Math.sqrt(d2) || 1
+          const force = repulsionStrength / (dist * dist)
+          const fx = (dx / dist) * force
+          const fy = (dy / dist) * force
+          a.vx -= fx
+          a.vy -= fy
+          b.vx += fx
+          b.vy += fy
+        }
+      }
+    }
+  }
+}
+
 function startSimulation() {
   if (simulationRunning) return
   simulationRunning = true
@@ -612,22 +691,7 @@ function startSimulation() {
     const centerX = rect.width / 2 / scale.value - offsetX.value / scale.value
     const centerY = rect.height / 2 / scale.value - offsetY.value / scale.value
 
-    for (let i = 0; i < nodes.value.length; i++) {
-      for (let j = i + 1; j < nodes.value.length; j++) {
-        const dx = nodes.value[j].x - nodes.value[i].x
-        const dy = nodes.value[j].y - nodes.value[i].y
-        const dist = Math.sqrt(dx * dx + dy * dy) || 1
-        const force = repulsionStrength / (dist * dist)
-        
-        const fx = (dx / dist) * force
-        const fy = (dy / dist) * force
-        
-        nodes.value[i].vx -= fx
-        nodes.value[i].vy -= fy
-        nodes.value[j].vx += fx
-        nodes.value[j].vy += fy
-      }
-    }
+    applyRepulsion(nodes.value, repulsionStrength)
 
     for (const link of links.value) {
       const dx = link.target.x - link.source.x

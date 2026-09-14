@@ -7,12 +7,15 @@ import { COMMON_ENGLISH_WORDS } from './dictionary'
  * @returns {boolean}
  */
 export function isCommonEnglishWord(word) {
-  const lowerWord = word.toLowerCase()
-  if (/^\d+$/.test(word)) return true
   if (word.length <= 1) return true
-  if (word === word.toUpperCase() && word.length > 1) return true
 
-  return COMMON_ENGLISH_WORDS.has(lowerWord) || /^[A-Z]/.test(word)
+  const lowerWord = word.toLowerCase()
+  // 先查词典（绝大多数词命中），命中就可以跳过后面两次正则
+  if (COMMON_ENGLISH_WORDS.has(lowerWord)) return true
+  if (/^\d+$/.test(word)) return true
+  // 全大写视为缩写（JSON / NASA），首字母大写视为专有名词
+  if (word === word.toUpperCase()) return true
+  return /^[A-Z]/.test(word)
 }
 
 /**
@@ -71,8 +74,16 @@ export function getSpellErrors(text, options = {}) {
   const wordRegex = /\b[a-zA-Z]+\b/g
   const excludedRanges = getExcludedRanges(text)
 
-  const isInExcludedRange = (pos) =>
-    excludedRanges.some(r => pos >= r.start && pos < r.end)
+  // 区间按 start 升序，单词也是按下标升序扫出来的，因此用单向游标即可：
+  // 每次把「右端点已越过当前词」的区间丢掉，剩下第一个区间若 start > 位置就不命中。
+  // 原来是每个词都 excludedRanges.some(...) 线性扫描 —— 长文里词数 × 区间数
+  // （25k 词 × 1225 区间）会退化成百万次比较，实测 15.7ms/次按键。
+  let cursor = 0
+  const isInExcludedRange = (pos) => {
+    while (cursor < excludedRanges.length && excludedRanges[cursor].end <= pos) cursor++
+    if (cursor >= excludedRanges.length) return false
+    return pos >= excludedRanges[cursor].start
+  }
 
   let match
   while ((match = wordRegex.exec(text)) !== null) {

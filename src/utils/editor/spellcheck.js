@@ -1,4 +1,4 @@
-import { EditorView, Decoration } from '@codemirror/view'
+import { EditorView, Decoration, ViewPlugin } from '@codemirror/view'
 import { StateEffect, StateField, Facet } from '@codemirror/state'
 
 /** 强制重算拼写装饰（忽略词 / 词典 / 开关变化时使用） */
@@ -15,6 +15,9 @@ const spellConfig = Facet.define({
 
 let lastVersion = -1
 
+/** 停手多久后重算一次拼写（ms）。打字期间只做装饰映射，不跑全篇检查。 */
+const RECHECK_DELAY = 300
+
 const spellField = StateField.define({
   create(state) {
     lastVersion = state.facet(spellConfig).getVersion?.() ?? 0
@@ -25,12 +28,55 @@ const spellField = StateField.define({
     const version = config.getVersion?.() ?? 0
     const versionChanged = version !== lastVersion
     lastVersion = version
-    if (tr.docChanged || versionChanged || tr.effects.some(e => e.is(forceSpellUpdate))) {
-      return build(tr.state)
-    }
+    const forced = tr.effects.some(e => e.is(forceSpellUpdate))
+
+    // 开关 / 忽略词 / 词典变化，或显式强制更新 —— 立即重算
+    if (forced || versionChanged) return build(tr.state)
+
+    // 纯输入：只把已有装饰平移到新位置，全篇重算交给下面的防抖插件。
+    // 长文（200KB）每次按键跑一遍全篇检查要 2~15ms，会吃掉整个输入帧预算。
+    if (tr.docChanged) return decorations.map(tr.changes)
+
     return decorations
   },
   provide: (f) => EditorView.decorations.from(f)
+})
+
+/**
+ * 输入防抖重算。
+ *
+ * 状态字段只有 StateField，拿不到 view，所以调度放在 ViewPlugin 里：
+ * 文档一变就重置定时器，停手 RECHECK_DELAY 后 dispatch forceSpellUpdate，
+ * 由 StateField 精确重算一次。防抖触发的那次 dispatch 没有文档变化，
+ * 不会再次进入 schedule，因此不会自激循环。
+ */
+const spellRecheckPlugin = ViewPlugin.fromClass(class {
+  constructor(view) {
+    this.view = view
+    this.timer = null
+    this.disposed = false
+  }
+
+  update(update) {
+    if (!update.docChanged) return
+    this.schedule()
+  }
+
+  schedule() {
+    if (this.disposed) return
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = setTimeout(() => {
+      this.timer = null
+      if (this.disposed) return
+      this.view.dispatch({ effects: forceSpellUpdate.of(null) })
+    }, RECHECK_DELAY)
+  }
+
+  destroy() {
+    this.disposed = true
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+  }
 })
 
 function build(state) {
@@ -102,7 +148,7 @@ export function spellCheckExtension(config) {
     }
   })
 
-  return [spellConfig.of(config), spellField, clickHandler]
+  return [spellConfig.of(config), spellField, spellRecheckPlugin, clickHandler]
 }
 
 /**

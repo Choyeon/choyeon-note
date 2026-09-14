@@ -20,6 +20,15 @@ contextBridge.exposeInMainWorld('electronAPI', {
   moveFile: (oldPath, newPath) => ipcRenderer.invoke('fs:move-file', oldPath, newPath),
   fileExists: (filePath) => ipcRenderer.invoke('fs:file-exists', filePath),
 
+  // ===== 笔记目录监听（设置页「自动同步」）=====
+  watchNotes: (dirPath) => ipcRenderer.invoke('fs:watch-notes', dirPath),
+  unwatchNotes: () => ipcRenderer.invoke('fs:unwatch-notes'),
+  onNotesExternalChange: (callback) => {
+    const listener = (_, data) => callback(data)
+    ipcRenderer.on('notes:external-change', listener)
+    return () => ipcRenderer.removeListener('notes:external-change', listener)
+  },
+
   loadSpellData: () => ipcRenderer.invoke('spell:load'),
   saveSpellData: (payload) => ipcRenderer.invoke('spell:save', payload),
 

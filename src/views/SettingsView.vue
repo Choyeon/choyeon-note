@@ -171,7 +171,18 @@
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">新建笔记时使用的文件格式</div>
                 </div>
               </div>
-              <div class="inline-flex items-center px-3 py-1.5 rounded-lg font-mono text-[13px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">.md</div>
+              <select 
+                class="px-3 py-1.5 rounded-lg text-[13px] font-mono cursor-pointer border outline-none transition-all duration-200 focus:ring-2 focus:ring-[var(--color-primary-ring)]"
+                :style="{ 
+                  background: 'var(--color-bg-tertiary)', 
+                  color: 'var(--color-text-primary)',
+                  borderColor: 'var(--color-border)'
+                }"
+                :value="appStore.noteExtension"
+                @change="appStore.setNoteExtension($event.target.value)"
+              >
+                <option v-for="ext in appStore.NOTE_EXTENSIONS" :key="ext" :value="ext">.{{ ext }}</option>
+              </select>
             </div>
 
             <!-- 默认编辑器模式：三模式统一由 store 托管并持久化 -->
@@ -604,7 +615,9 @@
                 <RefreshCw class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
                 <div>
                   <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">自动同步</div>
-                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">检测文件变化并自动刷新</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">
+                    监听笔记目录，外部改动时自动刷新{{ autoSyncHint }}
+                  </div>
                 </div>
               </div>
               <button 
@@ -621,11 +634,15 @@
               <div class="flex items-center gap-3">
                 <Paperclip class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
                 <div>
-                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">附件文件夹</div>
-                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">存放图片和附件的目录</div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">笔记文件格式</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">
+                    载入时识别 {{ appStore.NOTE_EXTENSIONS.map(e => '.' + e).join(' / ') }}
+                  </div>
                 </div>
               </div>
-              <div class="inline-flex items-center px-3 py-1.5 rounded-lg font-mono text-[13px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">attachments</div>
+              <div class="inline-flex items-center px-3 py-1.5 rounded-lg font-mono text-[13px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
+                {{ appStore.NOTE_EXTENSIONS.length }} 种
+              </div>
             </div>
           </div>
         </div>
@@ -636,6 +653,12 @@
               <Keyboard class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
             </div>
             <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">快捷键</h2>
+            <button
+              v-if="hasCustomHotkeys"
+              class="ml-auto px-3 h-7 rounded-lg text-[12px] font-medium cursor-pointer transition-all duration-150 hover:opacity-80 active:scale-95"
+              :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
+              @click="resetAllShortcuts"
+            >全部重置</button>
           </div>
           
           <div class="mb-3">
@@ -644,7 +667,7 @@
               <input 
                 v-model="shortcutSearch"
                 type="text"
-                placeholder="搜索快捷键..."
+                placeholder="搜索快捷键（支持按键名，如 Ctrl）..."
                 class="shortcut-search w-full h-10 pl-9 pr-4 rounded-lg text-[13px] outline-none transition-all duration-200"
                 :style="{ 
                   background: 'var(--color-bg-secondary)', 
@@ -652,35 +675,66 @@
                 }"
               />
             </div>
+            <p
+              v-if="recordError"
+              class="mt-2 px-3 py-2 rounded-lg text-[12px]"
+              :style="{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--state-error)' }"
+            >{{ recordError }}</p>
           </div>
 
           <div 
             v-for="category in filteredShortcutCategories" 
-            :key="category.name"
+            :key="category.id"
             class="settings-card mb-3"
           >
             <div class="px-5 py-3 border-b" :style="{ borderColor: 'var(--color-border-light)' }">
               <div class="flex items-center gap-2">
                 <component :is="category.icon" class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
-                <span class="text-[13px] font-semibold" :style="{ color: 'var(--color-text-primary)' }">{{ category.name }}</span>
+                <span class="text-[13px] font-semibold" :style="{ color: 'var(--color-text-primary)' }">{{ category.label }}</span>
+                <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">{{ category.items.length }}</span>
               </div>
             </div>
             <div class="divide-y" :style="{ borderColor: 'var(--color-border-light)' }">
               <div 
-                v-for="shortcut in category.items" 
-                :key="shortcut.command"
-                class="flex items-center justify-between px-5 py-3 transition-colors hover:bg-[var(--color-surface-hover)]"
+                v-for="item in category.items" 
+                :key="item.id"
+                class="flex items-center justify-between px-5 py-2.5 transition-colors"
+                :class="appStore.shortcutRecordingId === item.id ? 'is-recording' : 'hover:bg-[var(--color-surface-hover)]'"
               >
-                <span class="text-[13px]" :style="{ color: 'var(--color-text-primary)' }">{{ shortcut.command }}</span>
-                <div class="flex items-center gap-1">
-                  <span 
-                    v-for="(key, idx) in shortcut.keys" 
-                    :key="key"
-                    class="kbd-key"
-                  >
-                    {{ key }}
-                    <span v-if="idx < shortcut.keys.length - 1" class="mx-1" :style="{ color: 'var(--color-text-tertiary)' }">+</span>
-                  </span>
+                <div class="min-w-0 flex items-center gap-2">
+                  <span class="text-[13px] truncate" :style="{ color: 'var(--color-text-primary)' }">{{ item.label }}</span>
+                  <span
+                    v-if="isCustomized(item)"
+                    class="text-[11px] px-1.5 py-0.5 rounded shrink-0"
+                    :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
+                  >已自定义</span>
+                </div>
+
+                <div class="flex items-center gap-1.5 shrink-0">
+                  <template v-if="appStore.shortcutRecordingId === item.id">
+                    <span class="text-[12px] recording-hint" :style="{ color: 'var(--color-primary)' }">
+                      按下新的组合键… Esc 取消 · Backspace 清除
+                    </span>
+                  </template>
+                  <template v-else>
+                    <span v-if="!currentBinding(item.id)" class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">未设置</span>
+                    <span 
+                      v-for="(key, idx) in bindingPartsOf(item.id)" 
+                      :key="key + idx"
+                      class="kbd-key"
+                    >{{ key }}</span>
+                    <button class="kbd-edit" :title="`修改「${item.label}」的快捷键`" @click="startRecording(item.id)">
+                      <Pencil class="w-3.5 h-3.5" />
+                    </button>
+                    <button
+                      v-if="isCustomized(item)"
+                      class="kbd-edit"
+                      :title="`恢复默认（${formatBinding(item.default)}）`"
+                      @click="resetShortcut(item.id)"
+                    >
+                      <RotateCcw class="w-3.5 h-3.5" />
+                    </button>
+                  </template>
                 </div>
               </div>
             </div>
@@ -871,19 +925,37 @@ import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
+import { useWorkspaceStore } from '@/stores/workspace'
 import { fetchBingWallpaper } from '@/utils/bingWallpaper'
+import {
+  SHORTCUTS,
+  SHORTCUT_CATEGORIES,
+  bindingParts,
+  formatBinding,
+  eventToBinding
+} from '@/constants/shortcuts'
 import { 
   ArrowLeft, SunMoon, Palette, Type, Layers, 
   FileCode, SpellCheck, Save, ListOrdered, WrapText,
   FolderOpen, RefreshCw, Paperclip, Folder, AlertTriangle, RotateCcw,
-  Keyboard, Search, FileText, Edit, Eye, Navigation, Zap,
+  Keyboard, Search, FileText, Edit, Zap,
   Image, MessageCircle, Github, EyeOff, BookPlus, Plus, X,
-  ZoomIn, ZoomOut, Maximize2
+  ZoomIn, ZoomOut, Maximize2, Pencil, PenLine, LayoutDashboard
 } from 'lucide-vue-next'
+
+/** SHORTCUT_CATEGORIES 里的 icon 是字符串，这里映射成真实组件 */
+const CATEGORY_ICONS = {
+  FolderOpen,
+  PenLine,
+  Type,
+  LayoutDashboard,
+  Plus
+}
 
 const router = useRouter()
 const appStore = useAppStore()
 const noteStore = useNoteStore()
+const workspaceStore = useWorkspaceStore()
 const showResetConfirm = ref(false)
 const shortcutSearch = ref('')
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
@@ -925,6 +997,12 @@ const bingStatus = computed(() => {
 
 // 手动刷新时逐个源的失败原因，挂在 status 的 tooltip 上方便排障
 const bingTriedText = computed(() => (bingTried.value || []).join('\n'))
+
+/** 自动同步的即时反馈：开着的开关却没目录监听，用户会以为功能坏了 */
+const autoSyncHint = computed(() => {
+  if (!appStore.autoSync) return ''
+  return noteStore.notesPath ? '（正在监听）' : '（需先设置笔记存储位置）'
+})
 
 async function refreshBingWallpaper() {
   if (bingRefreshing.value) return
@@ -1067,76 +1145,99 @@ onUnmounted(() => {
   if (updaterUnsubscribe) {
     updaterUnsubscribe()
   }
+  // 录制中途切走页面：摘掉监听，避免残留的全局 keydown 吞掉后续按键
+  stopRecording()
 })
 
-const shortcutCategories = [
-  {
-    name: '通用',
-    icon: Zap,
-    items: [
-      { command: '新建笔记', keys: ['Ctrl', 'N'] },
-      { command: '搜索笔记', keys: ['Ctrl', 'P'] },
-      { command: '保存', keys: ['Ctrl', 'S'] },
-      { command: '命令面板', keys: ['Ctrl', 'Shift', 'P'] },
-      { command: '切换主题', keys: ['Ctrl', 'T'] },
-      { command: '撤销', keys: ['Ctrl', 'Z'] },
-      { command: '重做', keys: ['Ctrl', 'Shift', 'Z'] }
-    ]
-  },
-  {
-    name: '编辑器',
-    icon: Edit,
-    items: [
-      { command: '粗体', keys: ['Ctrl', 'B'] },
-      { command: '斜体', keys: ['Ctrl', 'I'] },
-      { command: '下划线', keys: ['Ctrl', 'U'] },
-      { command: '删除线', keys: ['Ctrl', 'Shift', 'S'] },
-      { command: '行内代码', keys: ['Ctrl', 'E'] },
-      { command: '链接', keys: ['Ctrl', 'K'] },
-      { command: '高亮', keys: ['Ctrl', 'Shift', 'H'] },
-      { command: '一级标题', keys: ['Ctrl', '1'] },
-      { command: '二级标题', keys: ['Ctrl', '2'] },
-      { command: '三级标题', keys: ['Ctrl', '3'] },
-      { command: '引用', keys: ['Ctrl', 'Q'] },
-      { command: '无序列表', keys: ['Ctrl', 'L'] },
-      { command: '任务列表', keys: ['Ctrl', 'Shift', 'L'] },
-      { command: '代码块', keys: ['Ctrl', 'Shift', 'C'] }
-    ]
-  },
-  {
-    name: '视图切换',
-    icon: Eye,
-    items: [
-      { command: '编辑模式', keys: ['Ctrl', 'Alt', '1'] },
-      { command: '实时模式', keys: ['Ctrl', 'Alt', '2'] },
-      { command: '预览模式', keys: ['Ctrl', 'Alt', '3'] },
-      { command: '切换侧边栏', keys: ['Ctrl', '\\'] }
-    ]
-  },
-  {
-    name: '导航',
-    icon: Navigation,
-    items: [
-      { command: '笔记列表', keys: ['Ctrl', 'Shift', 'N'] },
-      { command: '日历视图', keys: ['Ctrl', 'Shift', 'D'] },
-      { command: '知识图谱', keys: ['Ctrl', 'Shift', 'G'] },
-      { command: '标签管理', keys: ['Ctrl', 'Shift', 'T'] },
-      { command: '设置', keys: ['Ctrl', ','] },
-      { command: '返回', keys: ['Alt', '←'] },
-      { command: '前进', keys: ['Alt', '→'] }
-    ]
+// ===================== 快捷键 =====================
+// 真实来源只有一份：constants/shortcuts.js 的 SHORTCUTS 注册表。
+// 这里读什么、编辑器就绑什么、App.vue 也匹配什么，不会出现「设置页显示的按了没反应」。
+function currentBinding(id) {
+  return appStore.getBinding(id) || ''
+}
+function bindingPartsOf(id) {
+  return bindingParts(currentBinding(id))
+}
+function isCustomized(item) {
+  return currentBinding(item.id) !== item.default
+}
+
+const hasCustomHotkeys = computed(() =>
+  SHORTCUTS.some(s => !s.hidden && currentBinding(s.id) !== s.default)
+)
+
+const recordError = ref('')
+
+function startRecording(id) {
+  recordError.value = ''
+  appStore.shortcutRecordingId = id
+  window.addEventListener('keydown', onRecordKeydown, true)
+}
+
+function stopRecording() {
+  appStore.shortcutRecordingId = null
+  window.removeEventListener('keydown', onRecordKeydown, true)
+}
+
+function onRecordKeydown(e) {
+  // 录制期间吞掉所有按键：既不让浏览器/编辑器响应，也不让全局快捷键抢先执行
+  e.preventDefault()
+  e.stopPropagation()
+  const id = appStore.shortcutRecordingId
+  if (!id) {
+    stopRecording()
+    return
   }
-]
+  if (e.key === 'Escape') {
+    stopRecording()
+    return
+  }
+  // Backspace / Delete 表示"清空这个快捷键"，等价于禁用该命令
+  if (e.key === 'Backspace' || e.key === 'Delete') {
+    appStore.setHotkey(id, '')
+    recordError.value = ''
+    stopRecording()
+    return
+  }
+  const binding = eventToBinding(e)
+  if (!binding) return
+  const result = appStore.setHotkey(id, binding)
+  if (!result.ok) {
+    recordError.value = result.reason === 'conflict'
+      ? `与「${result.conflict.label}」冲突，请换一个组合键`
+      : '设置失败，请重试'
+    return
+  }
+  recordError.value = ''
+  stopRecording()
+}
+
+function resetShortcut(id) {
+  appStore.resetHotkey(id)
+  recordError.value = ''
+}
+
+function resetAllShortcuts() {
+  appStore.resetAllHotkeys()
+  recordError.value = ''
+}
 
 const filteredShortcutCategories = computed(() => {
-  if (!shortcutSearch.value.trim()) return shortcutCategories
-  
-  const query = shortcutSearch.value.toLowerCase()
-  return shortcutCategories.map(cat => ({
+  const list = SHORTCUT_CATEGORIES.map(cat => ({
+    id: cat.id,
+    label: cat.label,
+    icon: CATEGORY_ICONS[cat.icon] || Keyboard,
+    items: SHORTCUTS.filter(s => s.category === cat.id && !s.hidden)
+  })).filter(cat => cat.items.length > 0)
+
+  const q = shortcutSearch.value.trim().toLowerCase()
+  if (!q) return list
+
+  return list.map(cat => ({
     ...cat,
-    items: cat.items.filter(item => 
-      item.command.toLowerCase().includes(query) ||
-      item.keys.some(k => k.toLowerCase().includes(query))
+    items: cat.items.filter(s =>
+      s.label.toLowerCase().includes(q) ||
+      bindingPartsOf(s.id).join(' ').toLowerCase().includes(q)
     )
   })).filter(cat => cat.items.length > 0)
 })
@@ -1159,9 +1260,11 @@ function resetApp() {
   showResetConfirm.value = true
 }
 
-function confirmReset() {
+async function confirmReset() {
   appStore.resetConfig()
   noteStore.resetConfig()
+  // 工作空间是独立持久化层（userData/workspaces.json），必须一起清
+  try { await workspaceStore.reset() } catch (e) { /* 重置失败不阻断跳转 */ }
   showResetConfirm.value = false
   router.push('/')
 }
@@ -1253,6 +1356,37 @@ function cancelReset() {
   background: var(--color-bg-tertiary);
   border-radius: 6px;
   border: 1px solid var(--color-border-light);
+}
+
+/* 快捷键：修改 / 恢复默认 的小图标按钮 */
+.kbd-edit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.kbd-edit:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-primary);
+}
+
+/* 录制中：整行高亮 + 提示文字呼吸，避免用户不知道在等什么 */
+.is-recording {
+  background: var(--color-primary-surface);
+}
+.recording-hint {
+  animation: record-pulse 1.4s ease-in-out infinite;
+}
+@keyframes record-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
 }
 
 .fade-enter-active,

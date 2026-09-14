@@ -191,6 +191,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     return await window.electronAPI.selectNotesPath()
   }
 
+  /**
+   * 重置：清空工作空间列表。调用 persist() 把空状态写回磁盘，
+   * 否则 Electron 的 workspaces.json 还留着旧列表，重启后又冒出来。
+   */
+  async function reset() {
+    workspaces.value = []
+    activeId.value = null
+    meta.value = {}
+    error.value = ''
+    await persist()
+  }
+
   return {
     workspaces,
     activeId,
@@ -209,6 +221,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     remove,
     probe,
     probeAll,
-    pickDirectory
+    pickDirectory,
+    reset
   }
 })

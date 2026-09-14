@@ -13,6 +13,30 @@ const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || 'http://localhost:5176
 let mainWindow = null
 let notesPath = null
 
+// 认作笔记文件的扩展名（与 src/stores/note.js 的 KNOWN_EXTENSIONS 保持一致）
+const NOTE_FILE_EXTENSIONS = new Set(['.md', '.markdown', '.txt'])
+
+// ===== 笔记目录文件监听（设置页「自动同步」）=====
+// 目录树变化很吵（一次保存可能触发 rename + change 多次），所以做两级降噪：
+// 1) 本进程写入后 SELF_WRITE_QUIET_MS 内忽略（自己写的不用重载）
+// 2) 其余事件合并到 WATCH_DEBOUNCE_MS 窗口里只发一次
+let notesWatcher = null
+let watchDebounceTimer = null
+let suppressWatchUntil = 0
+const WATCH_DEBOUNCE_MS = 600
+const SELF_WRITE_QUIET_MS = 1500
+
+function stopNotesWatcher() {
+  if (watchDebounceTimer) {
+    clearTimeout(watchDebounceTimer)
+    watchDebounceTimer = null
+  }
+  if (notesWatcher) {
+    try { notesWatcher.close() } catch (e) { /* 已关闭 */ }
+    notesWatcher = null
+  }
+}
+
 const settingsFile = () => path.join(app.getPath('userData'), 'settings.json')
 const spellDataFile = () => path.join(app.getPath('userData'), 'spell-data.json')
 const workspacesFile = () => path.join(app.getPath('userData'), 'workspaces.json')
@@ -417,14 +441,15 @@ ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
         
         if (file.isDirectory()) {
           await readDir(filePath, fileRelativePath)
-        } else if (file.isFile() && path.extname(file.name).toLowerCase() === '.md') {
+        } else if (file.isFile() && NOTE_FILE_EXTENSIONS.has(path.extname(file.name).toLowerCase())) {
+          const ext = path.extname(file.name).toLowerCase()
           result.push({
             name: file.name,
             path: filePath,
             relativePath: fileRelativePath,
             isDirectory: false,
             isFile: true,
-            extension: '.md',
+            extension: ext,
             size: stats.size,
             mtime: stats.mtime.getTime(),
             ctime: stats.ctime.getTime()
@@ -439,6 +464,36 @@ ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
     console.error('Error reading directory recursively:', error.message)
     return []
   }
+})
+
+// ===== 笔记目录监听：外部改动（其它设备同步 / 手动编辑）自动刷新 =====
+ipcMain.handle('fs:watch-notes', async (_, dirPath) => {
+  try {
+    const safePath = validatePath(notesPath, dirPath || notesPath)
+    stopNotesWatcher()
+    notesWatcher = fsConstants.watch(safePath, { recursive: true }, (_eventType, filename) => {
+      if (!filename) return
+      if (!NOTE_FILE_EXTENSIONS.has(path.extname(String(filename)).toLowerCase())) return
+      if (Date.now() < suppressWatchUntil) return
+      if (watchDebounceTimer) clearTimeout(watchDebounceTimer)
+      watchDebounceTimer = setTimeout(() => {
+        watchDebounceTimer = null
+        mainWindow?.webContents.send('notes:external-change', {
+          root: safePath,
+          file: String(filename)
+        })
+      }, WATCH_DEBOUNCE_MS)
+    })
+    return true
+  } catch (error) {
+    console.error('Error watching notes directory:', error.message)
+    return false
+  }
+})
+
+ipcMain.handle('fs:unwatch-notes', async () => {
+  stopNotesWatcher()
+  return true
 })
 
 ipcMain.handle('fs:read-file', async (_, filePath) => {
@@ -457,6 +512,8 @@ ipcMain.handle('fs:write-file', async (_, filePath, content) => {
     const safePath = validatePath(notesPath, filePath)
     const dir = path.dirname(safePath)
     await fs.mkdir(dir, { recursive: true })
+    // 标记"本进程写入"，让文件监听器忽略随后的 change 事件，避免自己写自己触发重载
+    suppressWatchUntil = Date.now() + SELF_WRITE_QUIET_MS
     await fs.writeFile(safePath, content, 'utf-8')
     return true
   } catch (error) {
@@ -706,6 +763,7 @@ app.whenReady().then(async () => {
 })
 
 app.on('window-all-closed', () => {
+  stopNotesWatcher()
   if (process.platform !== 'darwin') {
     app.quit()
   }

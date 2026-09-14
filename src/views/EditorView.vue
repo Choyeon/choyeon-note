@@ -67,7 +67,7 @@
         <div class="w-px h-5 mx-1" :style="{ background: 'var(--color-border)' }"></div>
         <button
           class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-35 disabled:cursor-default"
-          :title="isPreview ? '撤销（阅读模式为只读）' : '撤销 (Ctrl+Z)'"
+          :title="isPreview ? '撤销（阅读模式为只读）' : `撤销 (${shortcutHint('edit.undo')})`"
           :disabled="isPreview || !editorApi?.canUndo"
           @click="editorApi?.undo()"
         >
@@ -75,7 +75,7 @@
         </button>
         <button
           class="w-9 h-9 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-35 disabled:cursor-default"
-          :title="isPreview ? '重做（阅读模式为只读）' : '重做 (Ctrl+Y)'"
+          :title="isPreview ? '重做（阅读模式为只读）' : `重做 (${shortcutHint('edit.redo')})`"
           :disabled="isPreview || !editorApi?.canRedo"
           @click="editorApi?.redo()"
         >
@@ -503,35 +503,35 @@
               <button class="context-menu-item" @click="copySelection">
                 <Copy class="w-3.5 h-3.5" />
                 <span>复制</span>
-                <span class="context-menu-shortcut">Ctrl+C</span>
+                <span class="context-menu-shortcut">{{ nativeHint('C') }}</span>
               </button>
               <button class="context-menu-item" @click="cutSelection">
                 <Scissors class="w-3.5 h-3.5" />
                 <span>剪切</span>
-                <span class="context-menu-shortcut">Ctrl+X</span>
+                <span class="context-menu-shortcut">{{ nativeHint('X') }}</span>
               </button>
             </template>
             <template v-else>
               <button class="context-menu-item" @click="pasteFromClipboard">
                 <ClipboardPaste class="w-3.5 h-3.5" />
                 <span>粘贴</span>
-                <span class="context-menu-shortcut">Ctrl+V</span>
+                <span class="context-menu-shortcut">{{ nativeHint('V') }}</span>
               </button>
               <div class="context-menu-divider"></div>
               <button class="context-menu-item" @click="contextMenuAction('edit.selectAll')">
                 <Check class="w-3.5 h-3.5" />
                 <span>全选</span>
-                <span class="context-menu-shortcut">Ctrl+A</span>
+                <span class="context-menu-shortcut">{{ shortcutHint('edit.selectAll') }}</span>
               </button>
               <button class="context-menu-item" @click="contextMenuAction('edit.undo')">
                 <Undo2 class="w-3.5 h-3.5" />
                 <span>撤销</span>
-                <span class="context-menu-shortcut">Ctrl+Z</span>
+                <span class="context-menu-shortcut">{{ shortcutHint('edit.undo') }}</span>
               </button>
               <button class="context-menu-item" @click="contextMenuAction('edit.redo')">
                 <Redo2 class="w-3.5 h-3.5" />
                 <span>重做</span>
-                <span class="context-menu-shortcut">Ctrl+Y</span>
+                <span class="context-menu-shortcut">{{ shortcutHint('edit.redo') }}</span>
               </button>
             </template>
           </div>
@@ -548,7 +548,7 @@ import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
 import { renderMarkdown, renderMermaidInContainer } from '@/utils/markdown'
 import { suggestCorrections } from '@/utils/spellcheck'
-import { formatBinding } from '@/constants/shortcuts'
+import { formatBinding, isMac } from '@/constants/shortcuts'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import SpellMenu from '@/components/editor/SpellMenu.vue'
 import {
@@ -643,6 +643,11 @@ function shortcutHint(id) {
   return formatBinding(appStore.getBinding(id))
 }
 
+/** 复制/剪切/粘贴是系统原生键，不在快捷键注册表里，但要按平台显示 Ctrl / ⌘ */
+function nativeHint(key) {
+  return isMac ? `⌘${key}` : `Ctrl+${key}`
+}
+
 // =========================== 笔记载入 / 内容同步 ===========================
 const currentNote = computed(() => noteStore.currentNote)
 
@@ -670,9 +675,14 @@ function onContentChange(newContent) {
   }
 }
 
+/**
+ * 显式保存：无论「自动保存」开关状态如何都必须落盘。
+ * updateNoteContent 在关闭自动保存时只更新内存，这里再 flush 一次补上写盘。
+ */
 function saveNote() {
   if (currentNote.value?.id) {
     noteStore.updateNoteContent(currentNote.value.id, content.value)
+    noteStore.flushSave(currentNote.value.id)
   }
 }
 

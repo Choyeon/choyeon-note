@@ -169,7 +169,7 @@
     <div class="p-2 border-t flex items-center gap-1 shrink-0" :style="{ borderColor: 'var(--color-border)' }">
       <button 
         class="w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-        title="新建笔记 (Ctrl+N)"
+        :title="`新建笔记 (${newNoteHint})`"
         @click="createNewNote"
       >
         <Plus class="w-5 h-5" :style="{ color: 'var(--color-text-secondary)' }" />
@@ -229,7 +229,7 @@
             <button class="context-menu-item" @click="createNoteHere">
               <Plus class="w-3.5 h-3.5" />
               <span>新建笔记</span>
-              <span class="context-menu-shortcut">Ctrl+N</span>
+              <span class="context-menu-shortcut">{{ newNoteHint }}</span>
             </button>
             <button v-if="ctxMenu.kind === 'folder'" class="context-menu-item" @click="createSubfolderHere">
               <FolderPlus class="w-3.5 h-3.5" />
@@ -244,7 +244,6 @@
             <button class="context-menu-item" @click="duplicateItem">
               <Copy class="w-3.5 h-3.5" />
               <span>复制</span>
-              <span class="context-menu-shortcut">Ctrl+D</span>
             </button>
             <div class="context-menu-divider"></div>
             <button class="context-menu-item" style="color:var(--state-error);" @click="deleteItemHere">
@@ -283,6 +282,7 @@ const appStore = useAppStore()
 
 /** 快速跳转提示与注册表保持一致（设置页改键后这里同步变化） */
 const quickSwitcherHint = formatBinding(appStore.getBinding('app.quickSwitcher'))
+const newNoteHint = formatBinding(appStore.getBinding('app.newNote'))
 
 // =====================================================================
 // 给 FolderNode 递归树注入真实 DnD/Rename 上下文。

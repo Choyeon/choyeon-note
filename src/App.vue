@@ -136,6 +136,7 @@ const route = useRoute()
 const router = useRouter()
 const isLoading = ref(false)
 let menuUnsubscribe = null
+let notesWatchUnsubscribe = null
 
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 const showSidebar = computed(() => route.meta?.showSidebar !== false)
@@ -172,6 +173,35 @@ async function refreshBingWallpaper({ force = false } = {}) {
 
   const result = await fetchBingWallpaper()
   appStore.setBingWallpaper(result)
+}
+
+/**
+ * 自动同步：监听笔记目录，外部改动（另一台设备 / 外部编辑器）时重新载入。
+ * 本进程自己的写入由主进程的静默窗口过滤掉，不会造成回环重载。
+ */
+function stopNotesWatch() {
+  if (notesWatchUnsubscribe) {
+    notesWatchUnsubscribe()
+    notesWatchUnsubscribe = null
+  }
+  if (window.electronAPI?.unwatchNotes) window.electronAPI.unwatchNotes()
+}
+
+async function syncNotesWatch() {
+  if (!window.electronAPI?.watchNotes) return
+  const path = noteStore.notesPath
+  if (appStore.autoSync && path) {
+    // 路径没变就只是重复调用，主进程内部会先停旧监听
+    const ok = await window.electronAPI.watchNotes(path)
+    if (!ok) return
+    if (!notesWatchUnsubscribe) {
+      notesWatchUnsubscribe = window.electronAPI.onNotesExternalChange(() => {
+        noteStore.loadNotesFromPath(path)
+      })
+    }
+  } else {
+    stopNotesWatch()
+  }
 }
 
 function minimizeWindow() {
@@ -256,6 +286,9 @@ const APP_ACTIONS = {
 const APP_ACTIONS_NEED_UNFOCUSED = new Set(['app.newNote', 'view.toggleSidebar'])
 
 function onGlobalKeydown(e) {
+  // 设置页正在录制快捷键：整段让路，交给录制逻辑处理
+  if (appStore.shortcutRecordingId) return
+
   const target = e.target
   const inEditable =
     target &&
@@ -304,6 +337,11 @@ watch(() => appStore.bingWallpaper, (enabled) => {
   }
 })
 
+// 自动同步开关 / 笔记目录变化时重建监听
+watch([() => appStore.autoSync, () => noteStore.notesPath], () => {
+  syncNotesWatch()
+})
+
 onMounted(() => {
   appStore.initTheme()
   detectPlatform()
@@ -328,6 +366,7 @@ onUnmounted(() => {
     menuUnsubscribe()
     menuUnsubscribe = null
   }
+  stopNotesWatch()
   window.removeEventListener('keydown', onGlobalKeydown, true)
 })
 

@@ -20,7 +20,7 @@
               @keydown.up.prevent="moveUp"
               @keydown.enter.prevent="openSelected"
             />
-            <span class="qs-kbd">⌘O</span>
+            <span class="qs-kbd">{{ switcherHint }}</span>
           </div>
 
           <div class="qs-body cho-scrollbar" ref="listRef">
@@ -73,7 +73,7 @@
             <span class="qs-hint"><kbd>⏎</kbd> 打开</span>
             <span class="qs-hint"><kbd>⇧⏎</kbd> 新窗口</span>
             <span class="qs-hint"><kbd>Esc</kbd> 关闭</span>
-            <span class="qs-hint ml-auto">按 <kbd>⌘⇧P</kbd> 切换为命令面板</span>
+            <span class="qs-hint ml-auto">按 <kbd>{{ paletteHint }}</kbd> 切换为命令面板</span>
           </div>
         </div>
       </div>
@@ -87,6 +87,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
 import { rankNotes } from '@/composables/useCommands'
+import { formatBinding } from '@/constants/shortcuts'
 import {
   BookOpen,
   Clock,
@@ -105,6 +106,10 @@ const query = ref('')
 const selected = ref(0)
 const inputRef = ref(null)
 const listRef = ref(null)
+
+// 角标跟着真实绑定走，避免 Windows 上显示 Mac 的 ⌘ 符号
+const switcherHint = formatBinding(appStore.getBinding('app.quickSwitcher'))
+const paletteHint = formatBinding(appStore.getBinding('app.commandPalette'))
 
 const rankedNotes = computed(() => rankNotes(noteStore.notes || [], query.value))
 

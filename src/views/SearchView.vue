@@ -157,10 +157,13 @@
 import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
+import { useAppStore } from '@/stores/app'
+import { formatBinding } from '@/constants/shortcuts'
 import { Search, FileText, SearchX, Clock, X, FilePlus, Settings, CalendarDays } from 'lucide-vue-next'
 
 const router = useRouter()
 const noteStore = useNoteStore()
+const appStore = useAppStore()
 
 const searchQuery = ref('')
 const isFocused = ref(false)
@@ -171,11 +174,11 @@ const filteredNotes = computed(() => {
   return noteStore.filteredNotes
 })
 
-const quickActions = [
-  { label: '新建笔记', icon: FilePlus, shortcut: 'Ctrl+N', action: () => createNote() },
-  { label: '设置', icon: Settings, shortcut: 'Ctrl+,', action: () => router.push('/settings') },
-  { label: '日历视图', icon: CalendarDays, shortcut: 'Ctrl+K', action: () => router.push('/calendar') }
-]
+const quickActions = computed(() => [
+  { label: '新建笔记', icon: FilePlus, shortcut: formatBinding(appStore.getBinding('app.newNote')), action: () => createNote() },
+  { label: '设置', icon: Settings, shortcut: formatBinding(appStore.getBinding('app.settings')), action: () => router.push('/settings') },
+  { label: '日历视图', icon: CalendarDays, shortcut: formatBinding(appStore.getBinding('view.calendar')), action: () => router.push('/calendar') }
+])
 
 function onSearch() {
   noteStore.setSearchQuery(searchQuery.value)

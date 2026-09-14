@@ -27,7 +27,7 @@
               @keydown.enter.prevent="runSelected"
               @keydown.tab.prevent
             />
-            <span class="cp-kbd">⌘⇧P</span>
+            <span class="cp-kbd">{{ paletteHint }}</span>
           </div>
 
           <div class="cp-body cho-scrollbar" ref="listRef">
@@ -61,7 +61,7 @@
             <span class="cp-hint"><kbd>↑</kbd><kbd>↓</kbd> 导航</span>
             <span class="cp-hint"><kbd>⏎</kbd> 执行</span>
             <span class="cp-hint"><kbd>Esc</kbd> 关闭</span>
-            <span class="cp-hint ml-auto">按 <kbd>⌘O</kbd> 切换为快速切换器</span>
+            <span class="cp-hint ml-auto">按 <kbd>{{ switcherHint }}</kbd> 切换为快速切换器</span>
           </div>
         </div>
       </div>
@@ -76,6 +76,7 @@ import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
 import { Command, Search } from 'lucide-vue-next'
 import { rankCommands, useCommands } from '@/composables/useCommands'
+import { formatBinding } from '@/constants/shortcuts'
 
 const appStore = useAppStore()
 const noteStore = useNoteStore()
@@ -85,6 +86,10 @@ const query = ref('')
 const selected = ref(0)
 const inputRef = ref(null)
 const listRef = ref(null)
+
+// 角标跟着真实绑定走：用户改了快捷键、或换到 macOS，这里都会同步
+const paletteHint = formatBinding(appStore.getBinding('app.commandPalette'))
+const switcherHint = formatBinding(appStore.getBinding('app.quickSwitcher'))
 
 const { quickActions } = useCommands({
   appStore,

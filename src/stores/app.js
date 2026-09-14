@@ -16,6 +16,9 @@ export const useAppStore = defineStore('app', () => {
   const notesLocation = ref('')
   const autoSync = ref(false)
   const sidebar = ref(true)
+  // 新建笔记时使用的扩展名（md / markdown / txt），由 note.js 落盘与载入时共同遵守
+  const NOTE_EXTENSIONS = ['md', 'markdown', 'txt']
+  const noteExtension = ref('md')
   const initialized = ref(false)
   const ignoredWords = ref(new Set())
   const customDictionary = ref(new Set())
@@ -35,6 +38,11 @@ export const useAppStore = defineStore('app', () => {
   const appVersion = ref('')
   // 可自定义快捷键：{ [shortcutId]: binding }，缺省回落到内置默认值
   const hotkeys = ref(createDefaultBindings())
+  /**
+   * 正在录制快捷键的命令 id（设置页用）。非空时 App.vue 的全局快捷键监听必须让路，
+   * 否则录制 Ctrl+S 会顺手把笔记存了盘。
+   */
+  const shortcutRecordingId = ref(null)
   // 编辑器模式：edit(纯源码) / live(实时预览) / preview(阅读)
   // 注意：词汇必须与 EditorView 一致（历史版本用过 'source'，读取时会被归一成 'edit'）
   const editorMode = ref('edit')
@@ -105,6 +113,7 @@ export const useAppStore = defineStore('app', () => {
     const savedLineNumbers = localStorage.getItem('choyeon-line-numbers')
     const savedWordWrap = localStorage.getItem('choyeon-word-wrap')
     const savedAutoSync = localStorage.getItem('choyeon-auto-sync')
+    const savedNoteExtension = localStorage.getItem('choyeon-note-extension')
     const savedSidebar = localStorage.getItem('choyeon-sidebar')
     const savedCodeTheme = localStorage.getItem('choyeon-code-theme')
     const savedBingWallpaper = localStorage.getItem('choyeon-bing-wallpaper')
@@ -330,6 +339,7 @@ export const useAppStore = defineStore('app', () => {
     localStorage.removeItem('choyeon-line-numbers')
     localStorage.removeItem('choyeon-word-wrap')
     localStorage.removeItem('choyeon-auto-sync')
+    localStorage.removeItem('choyeon-note-extension')
     localStorage.removeItem('choyeon-sidebar')
     localStorage.removeItem('choyeon-mode')
     localStorage.removeItem('choyeon-code-theme')
@@ -365,6 +375,7 @@ export const useAppStore = defineStore('app', () => {
     wordWrap.value = true
     notesLocation.value = ''
     autoSync.value = false
+    noteExtension.value = 'md'
     sidebar.value = true
     ignoredWords.value = new Set()
     customDictionary.value = new Set()
@@ -481,6 +492,12 @@ export const useAppStore = defineStore('app', () => {
   function toggleAutoSync() {
     autoSync.value = !autoSync.value
     localStorage.setItem('choyeon-auto-sync', autoSync.value)
+  }
+
+  function setNoteExtension(ext) {
+    if (!NOTE_EXTENSIONS.includes(ext)) return
+    noteExtension.value = ext
+    localStorage.setItem('choyeon-note-extension', ext)
   }
 
   function toggleSidebar() {
@@ -691,6 +708,8 @@ export const useAppStore = defineStore('app', () => {
     wordWrap,
     notesLocation,
     autoSync,
+    noteExtension,
+    NOTE_EXTENSIONS,
     sidebar,
     initialized,
     ignoredWords,
@@ -723,6 +742,7 @@ export const useAppStore = defineStore('app', () => {
     toggleLineNumbers,
     toggleWordWrap,
     toggleAutoSync,
+    setNoteExtension,
     toggleSidebar,
     saveNotesLocation,
     resetConfig,
@@ -747,6 +767,7 @@ export const useAppStore = defineStore('app', () => {
     resetHotkey,
     resetAllHotkeys,
     findConflict,
+    shortcutRecordingId,
     setEditorMode,
     setRightPanelTab,
     toggleRightPanel,

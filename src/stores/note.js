@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { useAppStore } from './app'
 import {
   buildLinkGraph,
   extractOutline,
@@ -24,6 +25,43 @@ const generateStableId = (str) => {
 
 const SAVE_DEBOUNCE_MS = 500
 const saveTimers = new Map()
+
+/**
+ * 笔记文件扩展名白名单。载入时三种都认，切换默认扩展名不会让旧笔记"消失"；
+ * 新建时才按设置项决定具体用哪一种。
+ */
+const KNOWN_EXTENSIONS = ['md', 'markdown', 'txt']
+const EXT_PATTERN = /\.(md|markdown|txt)$/i
+
+/** 懒取 app store：避免与 app.js 形成顶层循环依赖 */
+function appSettings() {
+  try {
+    return useAppStore()
+  } catch {
+    return null
+  }
+}
+
+/** 自动保存是否开启（默认开；读取失败时按"开"处理，避免静默丢改动） */
+function isAutoSaveOn() {
+  return appSettings()?.autoSave !== false
+}
+
+/** 新建笔记使用的扩展名 */
+function newNoteExtension() {
+  const ext = appSettings()?.noteExtension
+  return KNOWN_EXTENSIONS.includes(ext) ? ext : 'md'
+}
+
+/**
+ * 已落盘笔记沿用自己文件的真实后缀（用户可能手动改过，或建笔记时设置不同），
+ * 只有还没落盘的新笔记才用设置项里的默认扩展名。
+ * 否则「重命名 / 移动笔记」会把 .markdown 悄悄变成 .md，留下磁盘孤儿。
+ */
+function extensionOf(note) {
+  const match = note?.filePath && String(note.filePath).match(EXT_PATTERN)
+  return match ? match[1].toLowerCase() : newNoteExtension()
+}
 
 const sampleNotes = [
   {
@@ -332,7 +370,7 @@ export const useNoteStore = defineStore('note', () => {
       // 走主进程 moveFile（如有）；否则重写 + 删旧
       const newFolderPath = targetFolder ? `${notesPath.value}/${targetFolder}` : notesPath.value
       const oldPath = note.filePath
-      const fileName = `${note.title}.md`.replace(/[\\/:*?"<>|]/g, '_')
+      const fileName = `${note.title}.${extensionOf(note)}`.replace(/[\\/:*?"<>|]/g, '_')
       const newPath = `${newFolderPath}/${fileName}`
       if (window.electronAPI.moveFile) {
         window.electronAPI.moveFile(oldPath, newPath).then(ok => {
@@ -364,7 +402,7 @@ export const useNoteStore = defineStore('note', () => {
     }
     if (note.filePath && window.electronAPI && notesPath.value) {
       const folderPath = note.folder ? `${notesPath.value}/${note.folder}` : notesPath.value
-      const newFileName = `${cleanTitle}.md`.replace(/[\\/:*?"<>|]/g, '_')
+      const newFileName = `${cleanTitle}.${extensionOf(note)}`.replace(/[\\/:*?"<>|]/g, '_')
       const newPath = `${folderPath}/${newFileName}`
       const oldPath = note.filePath
       if (newPath !== oldPath) {
@@ -472,7 +510,8 @@ export const useNoteStore = defineStore('note', () => {
         note.title = titleMatch[1]
       }
       
-      if (note.filePath && window.electronAPI) {
+      // 自动保存关闭时只在显式保存（Ctrl+S / 切换笔记）时落盘
+      if (isAutoSaveOn() && note.filePath && window.electronAPI) {
         if (saveTimers.has(id)) {
           clearTimeout(saveTimers.get(id))
         }
@@ -484,15 +523,26 @@ export const useNoteStore = defineStore('note', () => {
     }
   }
 
+  /**
+   * 立即把笔记写回磁盘。与自动保存开关无关 —— 显式保存必须总是生效，
+   * 所以这里不检查 isAutoSaveOn()，且没有排队定时器时也要写。
+   */
   function flushSave(id) {
     if (saveTimers.has(id)) {
       clearTimeout(saveTimers.get(id))
-      const note = notes.value.find(n => n.id === id)
-      if (note && note.filePath && window.electronAPI) {
-        window.electronAPI.writeFile(note.filePath, note.content)
-      }
       saveTimers.delete(id)
     }
+    const note = notes.value.find(n => n.id === id)
+    if (note && note.filePath && window.electronAPI) {
+      window.electronAPI.writeFile(note.filePath, note.content)
+      return true
+    }
+    // 还没落过盘的新笔记：走完整建文件流程
+    if (note && !note.filePath) {
+      saveNoteToFile(note, note.folder || '')
+      return true
+    }
+    return false
   }
 
   function deleteNote(id) {
@@ -510,7 +560,7 @@ export const useNoteStore = defineStore('note', () => {
         if (note.filePath) candidates.add(note.filePath)
         if (notesPath.value && note.title) {
           const folderPath = note.folder ? `${notesPath.value}/${note.folder}` : notesPath.value
-          candidates.add(`${folderPath}/${String(note.title).replace(/[\\/:*?"<>|]/g, '_')}.md`)
+          candidates.add(`${folderPath}/${String(note.title).replace(/[\\/:*?"<>|]/g, '_')}.${extensionOf(note)}`)
         }
         candidates.forEach(p => window.electronAPI.deleteFile(p))
       }
@@ -594,7 +644,7 @@ export const useNoteStore = defineStore('note', () => {
           const content = await window.electronAPI.readFile(file.path)
           if (content !== null) {
             const titleMatch = content.match(/^#\s+(.+)$/m)
-            const title = titleMatch ? titleMatch[1] : file.name.replace('.md', '')
+            const title = titleMatch ? titleMatch[1] : file.name.replace(EXT_PATTERN, '')
             
             const relativePathParts = file.relativePath.split('/')
             relativePathParts.pop()
@@ -644,6 +694,10 @@ export const useNoteStore = defineStore('note', () => {
   }
 
   function resetConfig() {
+    // 清掉当前笔记指针，否则重置回欢迎页后重新选目录时会恢复到一个已不存在的 id
+    localStorage.removeItem('choyeon-current-note-id')
+    for (const timer of saveTimers.values()) clearTimeout(timer)
+    saveTimers.clear()
     notes.value.length = 0
     notes.value.push(...sampleNotes)
     currentNoteId.value = notes.value[0]?.id || null
@@ -663,7 +717,7 @@ export const useNoteStore = defineStore('note', () => {
     if (!filePath) {
       const folderPath = folder ? `${notesPath.value}/${folder}` : notesPath.value
       await window.electronAPI.createDirectory(folderPath)
-      const fileName = `${note.title}.md`.replace(/[\\/:*?"<>|]/g, '_')
+      const fileName = `${note.title}.${extensionOf(note)}`.replace(/[\\/:*?"<>|]/g, '_')
       filePath = `${folderPath}/${fileName}`
     }
     

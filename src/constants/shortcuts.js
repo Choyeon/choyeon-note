@@ -79,12 +79,16 @@ export const SHORTCUT_MAP = Object.fromEntries(SHORTCUTS.map(s => [s.id, s]))
 export const isMac =
   typeof navigator !== 'undefined' && /mac|iphone|ipad/i.test(navigator.platform || navigator.userAgent || '')
 
-/** 把 CodeMirror 绑定串渲染成人类可读的按键提示 */
-export function formatBinding(binding) {
-  if (!binding) return '未设置'
-  const parts = String(binding).split('-')
-  const last = parts[parts.length - 1]
-  const mods = parts.slice(0, -1)
+/**
+ * 把绑定串拆成「修饰键 + 主键」的标签数组，供设置页渲染成一个个按键胶囊。
+ * 与 formatBinding 共用同一套映射，保证展示和实际生效永远一致。
+ */
+export function bindingParts(binding) {
+  if (!binding) return []
+  const raw = String(binding)
+  // 'Mod-Alt--'（分隔线）结尾是两个短横，split 会吃掉主键，这里特殊还原
+  const key = raw.endsWith('--') ? '-' : raw.split('-').pop()
+  const mods = raw.replace(/--$/, '').split('-').slice(0, -1)
   const modLabels = mods.map(m => {
     if (m === 'Mod') return isMac ? '⌘' : 'Ctrl'
     if (m === 'Shift') return isMac ? '⇧' : 'Shift'
@@ -94,14 +98,21 @@ export function formatBinding(binding) {
     return m
   })
   const keyLabel =
-    last === 'Enter' ? (isMac ? '↩' : 'Enter') :
-    last === 'ArrowUp' ? '↑' :
-    last === 'ArrowDown' ? '↓' :
-    last === 'ArrowLeft' ? '←' :
-    last === 'ArrowRight' ? '→' :
-    last === 'Space' ? '空格' :
-    last.length === 1 ? last.toUpperCase() : last
-  return isMac ? `${modLabels.join('')}${keyLabel}` : `${modLabels.join('+')}+${keyLabel}`
+    key === 'Enter' ? (isMac ? '↩' : 'Enter') :
+    key === 'ArrowUp' ? '↑' :
+    key === 'ArrowDown' ? '↓' :
+    key === 'ArrowLeft' ? '←' :
+    key === 'ArrowRight' ? '→' :
+    key === 'Space' ? '空格' :
+    key.length === 1 ? key.toUpperCase() : key
+  return [...modLabels, keyLabel]
+}
+
+/** 把 CodeMirror 绑定串渲染成人类可读的按键提示 */
+export function formatBinding(binding) {
+  const parts = bindingParts(binding)
+  if (parts.length === 0) return '未设置'
+  return isMac ? parts.join('') : parts.join('+')
 }
 
 /**

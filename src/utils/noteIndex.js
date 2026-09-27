@@ -15,6 +15,15 @@
 //   useLinks 导出的 normalizeLinkTarget 保证键归一化一致。
 //   useLinks 未导出的三个内部纯函数（normalizePathPart / resolveLinkInternal /
 //   extractContext）在这里按原实现逐行复刻，任何一侧变更都必须同步。
+//
+// T18（R-C1 / R-D1）改了 dateKey 的**来源，没改格式**：
+//   · 旧：`dateKey: dateKeyOf(note.updatedAt)` —— 日历按「最近修改」归日期，
+//     于是今天打开一篇三个月前的笔记，它就从三个月前跳到今天；
+//   · 新：`dateKey: dateKeyOf(resolveNoteDate(...).date)` —— 走 dateAttribution
+//     的四级回落（frontmatter date > 文件 birthtime > 标题日期串 > updatedAt），
+//     Obsidian 的「创建日期」口径。
+//   格式仍是 `new Date(ts).toDateString()`，因为它是 store 的 getNotesByDate
+//   与 CalendarView 的对外契约（改成 'YYYY-MM-DD' 会让全库 dateKey 对不上）。
 // ============================================================================
 
 import {
@@ -23,6 +32,7 @@ import {
   extractTags,
   normalizeLinkTarget
 } from '../composables/useLinks.js'
+import { resolveNoteDate } from './dateAttribution.js'
 
 /**
  * 复刻 useLinks 内部 normalizePathPart —— 不可导出，只能同源复制。
@@ -102,15 +112,63 @@ function candidateTitlesFrom (note, body, frontmatter) {
 
 /**
  * 取去掉时区干扰的日期分组键，与 store 里 new Date(...).toDateString() 同源。
+ *
+ * ⚠️ 这个**字符串格式是对外契约**，`T18` 一个字符都没动它：
+ *   · store 的 `getNotesByDate(date)`（note.js）是 `new Date(date).toDateString()`
+ *     之后拿这个串去 `index.byDate()` 取桶；
+ *   · CalendarView 也是同一个串。
+ * T18 改的只是「喂给它的时间戳从哪来」：`note.updatedAt` → `resolveNoteDate()`
+ * 四级回落的结果。改成 'YYYY-MM-DD' 会让全库 dateKey 与调用方集体对不上，
+ * 表现就是日历整片空白 —— 所以这里保持 toDateString() 不动。
+ *
  * @param {Date|string|number} value 时间
  * @returns {string} 形如 'Mon Jan 01 2024'
  */
-function dateKeyOf (value) {
+export function dateKeyOf (value) {
   try {
     return new Date(value).toDateString()
   } catch {
     return new Date(0).toDateString()
   }
+}
+
+/**
+ * 取一篇笔记的 birthtime（四级回落里的第 ② 级磁盘证据）。
+ *
+ * 索引是纯内存的，它拿不到文件 birthtime —— 那是主进程 `fs.stat` 的事（后续
+ * 批次才接）。所以这里是**可选注入**，四级优先：
+ *   ① 本次调用显式给的 `options.birthtime`（单篇 upsert 时用）；
+ *   ② 本次调用给的 `options.birthtimeOf(note)`；
+ *   ③ 建索引时给的 `birthtimeOf(note)`（T19 打通 stat 后最省事的接法）；
+ *   ④ 笔记对象自己带的 `note.birthtime`（载入时顺手挂上即可，零接线）；
+ *   ⑤ 都没有 → null，resolveNoteDate 自动落到 ③ 标题 / ④ updatedAt。
+ *
+ * 拿不到就返回 null，绝不自己 stat、也绝不猜 —— 猜出来的 birthtime 一旦写进
+ * dateKey，就是「日历上一整片笔记跑到同一天」。
+ *
+ * @param {object} note 笔记对象
+ * @param {object|null} callOpts 本次调用的选项
+ * @param {Function|null} indexBirthtimeOf 索引级解析器
+ * @returns {Date|number|string|null} birthtime
+ */
+function resolveBirthtime (note, callOpts, indexBirthtimeOf) {
+  if (callOpts && typeof callOpts === 'object') {
+    if (callOpts.birthtime !== undefined && callOpts.birthtime !== null) {
+      return callOpts.birthtime
+    }
+    if (typeof callOpts.birthtimeOf === 'function') {
+      const picked = callOpts.birthtimeOf(note)
+      if (picked !== undefined && picked !== null) return picked
+    }
+  }
+  if (typeof indexBirthtimeOf === 'function') {
+    const picked = indexBirthtimeOf(note)
+    if (picked !== undefined && picked !== null) return picked
+  }
+  if (note && note.birthtime !== undefined && note.birthtime !== null) {
+    return note.birthtime
+  }
+  return null
 }
 
 /**
@@ -128,9 +186,19 @@ function safeExtractTags (content) {
 
 /**
  * 创建笔记派生索引。
+ * @param {object} [options={}] 选项
+ * @param {(note: object) => (Date|number|string|null)} [options.birthtimeOf]
+ *        birthtime 解析器（四级回落第 ② 级）。不传就是 null，那一级自动跳过 ——
+ *        索引是纯内存的，绝不自己去 stat 文件
+ * @param {number} [options.now] 注入时钟（毫秒）。不传则 resolveNoteDate 自己读
+ *        Date.now()；单测里传它是为了「同一份库永远得到同一份 dateKey」
  * @returns {object} 索引实例
  */
-export function createNoteIndex () {
+export function createNoteIndex (options = {}) {
+  const opts = options && typeof options === 'object' ? options : {}
+  const indexBirthtimeOf = typeof opts.birthtimeOf === 'function' ? opts.birthtimeOf : null
+  const indexNow = opts.now === undefined ? null : opts.now
+
   /** @type {Map<string, object>} id → 缓存条目，插入顺序必须与 notes 数组一致 */
   const byId = new Map()
   /** @type {Map<string, Set<string>>} 标签 → 笔记 id 集合 */
@@ -150,14 +218,31 @@ export function createNoteIndex () {
   /**
    * 用一篇笔记构建缓存条目（唯一会发生重解析的地方）。
    * @param {object} note 笔记对象
+   * @param {object|null} [entryOpts=null] 本次构建的选项：
+   *        `{ birthtime }` 直接给值；`{ birthtimeOf(note) }` 批量给解析器；
+   *        `{ now }` 注入时钟（只影响第 ④ 级兜底与 birthtime 的未来判定）
    * @returns {object} 缓存条目
    */
-  function buildEntry (note) {
+  function buildEntry (note, entryOpts = null) {
     const content = typeof note.content === 'string' ? note.content : ''
     const { frontmatter, body } = parseFrontmatter(content)
     const tags = safeExtractTags(content)
     const links = parseWikiLinks(body)
     const titles = candidateTitlesFrom(note, body, frontmatter)
+
+    // dateKey 的**格式**没变（还是 dateKeyOf 的 toDateString），变的是时间戳
+    // 的来源：note.updatedAt → resolveNoteDate() 的四级回落。
+    // 只把 resolveNoteDate 真正读的三个字段喂进去，避免 note 上其它字段
+    // （比如未来加的 createdAt 字符串）悄悄影响归属。
+    const nowOpt = entryOpts && entryOpts.now !== undefined ? entryOpts.now : indexNow
+    const resolveOpts = { birthtime: resolveBirthtime(note, entryOpts, indexBirthtimeOf) }
+    // now 只在显式注入时才传：传 null 会让 resolveNoteDate 的兜底变成 1970
+    if (nowOpt !== undefined && nowOpt !== null) resolveOpts.now = nowOpt
+    const resolved = resolveNoteDate(
+      { content, title: note.title, updatedAt: note.updatedAt },
+      resolveOpts
+    )
+
     return {
       id: note.id,
       note,
@@ -168,7 +253,14 @@ export function createNoteIndex () {
       tags,
       links,
       titles,
-      dateKey: dateKeyOf(note.updatedAt)
+      /** 归属时间戳（毫秒）—— 排查「这篇为什么在这一格」时用 */
+      dateTs: resolved.date,
+      /** 日期分组键：格式与旧实现逐字一致，见 dateKeyOf 的注释 */
+      dateKey: dateKeyOf(resolved.date),
+      /** 归属来源，DATE_SOURCE 四值之一 */
+      dateSource: resolved.source,
+      /** 来源原文（frontmatter 的原始值串 / 标题里命中的日期串） */
+      dateRaw: resolved.raw
     }
   }
 
@@ -222,12 +314,13 @@ export function createNoteIndex () {
    * @param {object} note 笔记对象
    * @param {number} position 新笔记的插入位置：0 表示插到最前（对应 notes.unshift），
    *                          -1 表示追加到末尾。已存在的笔记始终原地更新。
+   * @param {object|null} [entryOpts=null] 本次构建的 birthtime / now 注入，见 buildEntry
    * @returns {boolean} 是否成功
    */
-  function upsert (note, position = -1) {
+  function upsert (note, position = -1, entryOpts = null) {
     if (!note || note.id === undefined || note.id === null) return false
     const existing = byId.get(note.id)
-    const entry = buildEntry(note)
+    const entry = buildEntry(note, entryOpts)
 
     if (existing) {
       // Map.set 对已存在的 key 不改变插入位置 —— 与「数组原地修改」同序
@@ -267,15 +360,16 @@ export function createNoteIndex () {
   /**
    * 整体重建：切换目录 / resetConfig / 批量改动后调用，按数组顺序重排。
    * @param {Array<object>} notes 笔记数组
+   * @param {object|null} [entryOpts=null] 本次构建的 birthtime / now 注入，见 buildEntry
    * @returns {number} 载入条数
    */
-  function replaceAll (notes) {
+  function replaceAll (notes, entryOpts = null) {
     byId.clear()
     dateIndex.clear()
     tagIndex.clear()
     for (const note of Array.isArray(notes) ? notes : []) {
       if (!note || note.id === undefined || note.id === null) continue
-      const entry = buildEntry(note)
+      const entry = buildEntry(note, entryOpts)
       byId.set(note.id, entry)
       addToDateIndex(entry)
       syncTagIndex(null, entry)

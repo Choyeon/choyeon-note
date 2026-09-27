@@ -2,6 +2,20 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { useAppStore } from './app'
 import { createNoteIndex } from '../utils/noteIndex'
+// 稳定 id 的两块内核：结构操作（noteIdentity）+ 落盘时机（idMapStore）。
+// store 只决定「什么时候动映射表」，不发明任何 id 语义。
+import {
+  createIdMap,
+  pathHashId,
+  resolveId,
+  bindPath,
+  rebindPath,
+  unbindPath,
+  compactIdMap,
+  rebuildIdMap
+} from '../utils/noteIdentity'
+import { loadIdMap, scheduleSaveIdMap } from '../utils/idMapStore'
+import { runDateMigration } from '../utils/dateMigration'
 import {
   // buildLinkGraph 不再在这里直接调用：链接图由 noteIndex 增量维护并快照，
   // 等价性由 tests/noteIndex.test.js 断言 —— 见下方 linkGraph computed 注释
@@ -37,6 +51,18 @@ const noteLog = createLogger(LOG_MODULES.note)
 // slice(2, 11) 结果逐字一致，ID 格式兼容
 const generateId = () => Math.random().toString(36).slice(2, 11)
 
+/**
+ * ⚠️ 已退役为「活文档」，解析 id 一律走下面的 `resolveNoteId()`。
+ *
+ * 保留它有两个理由：① 它是兜底语义的出处（映射表缺失时算出来的就是这个值）；
+ * ② 它是「存量 id 不许变」的可执行说明 —— 与 `noteIdentity.pathHashId` 逐字
+ * 同构，tmp/t19-hash-parity.mjs 用 3015 个输入（含中文 / emoji / 超长路径）
+ * 验证过零差异，所以换成 pathHashId 之后**老库里每个 id 都还是原来那个**。
+ * 唯一差异是入参防御：老实现 `str.length` 见 null 就抛，内核放宽成空串。
+ *
+ * 一处口径记录：`(hash << 5) - hash` 是 `*31` 而非标准 djb2 的 `*33`，这里以
+ * 代码为准 —— 目标是复刻老 id，不是复刻名字。
+ */
 const generateStableId = (str) => {
   let hash = 0
   for (let i = 0; i < str.length; i++) {
@@ -381,8 +407,133 @@ async function pathExistsOnDisk (filePath) {
 // =========================================================================
 // 派生索引：单例、跨 store 实例共享（模块级），由 mutation 点增量维护。
 // 纯 JS 结构，不参与 Vue 依赖收集 —— 失效信号由 store 内的 indexVersion ref 提供。
+//
+// ⚠️ 裁决 1：本轮**刻意不传 `birthtimeOf`**。
+//   note.js 现在拿得到的时间是 `file.ctime`，Windows 下它确实等于创建时间，
+//   但 Linux 下 ctime 是「状态变更时间」（chmod / 重命名 / 写内容都会刷新它）。
+//   拿它当 birthtime 等于把四级回落里的 ② 级退化成 ④ 级，而且是**静默**的：
+//   日历看起来有数据，实际上是错的。② 级本轮留空（自动落到 ③ 标题 / ④
+//   updatedAt），等后续批次主进程真正提供 `fs.stat().birthtime` 再在这里接上
+//   —— 索引侧（noteIndex.createNoteIndex({ birthtimeOf })）已经支持，届时
+//   只需补这一个参数，本文件其余部分不用动。
 // =========================================================================
 const index = createNoteIndex()
+
+// =========================================================================
+// id ↔ path 映射表（T19 · R-F1 双轨稳定 id 的接入层）
+//
+// 模块级**非响应式**变量：映射表只在「解析 id」时被读、在「文件搬家 / 首次落盘
+// / 删除」时被改，没有任何订阅者需要它的变更信号 —— 放进 ref / reactive 只是给
+// 每次读写白套一层代理（全库载入时几百篇笔记逐条 bind，代理开销是白付的）。
+//
+// 三层分工，本文件只占第三层：
+//   · 结构语义（绑定 / 搬家 / 解绑 / 裁剪 / 重建）→ utils/noteIdentity.js；
+//   · 落盘时机（800ms 去抖 / 退出前 flush）      → utils/idMapStore.js；
+//   · 什么时候该动映射表                         → 本文件。
+//
+// 读不出映射表（首次运行 / 文件损坏 / 存储不可用）时它是 null，`resolveNoteId()`
+// 自动退回路径哈希 —— 与老版本逐字相同的 id，存量用户的书签 / 双链 / 图谱坐标
+// 一个都不会断。
+// =========================================================================
+let idMap = null
+
+/**
+ * 取映射表；还没建（读盘失败 / 尚未初始化）时懒建一张空的。
+ * @returns {object} 映射表
+ */
+function ensureIdMap () {
+  if (!idMap) idMap = createIdMap()
+  return idMap
+}
+
+/**
+ * 路径是否已经登记在映射表里。
+ *
+ * 用**自有属性**判定：映射表是普通 `{}`，`byPath['toString']` 这类原型链上的键
+ * 必须挡掉，否则一条叫 'toString' 的路径会被误判成命中。
+ *
+ * @param {string} path 路径
+ * @returns {boolean} 已登记返回 true
+ */
+function isPathBound (path) {
+  const p = typeof path === 'string' ? path : ''
+  if (!p || !idMap || !idMap.byPath) return false
+  return Object.prototype.hasOwnProperty.call(idMap.byPath, p)
+}
+
+/**
+ * 解析一个路径的 id —— 全库唯一的 id 入口（替换掉原来的 `generateStableId(path)`）。
+ *
+ *   ① 映射表命中 → 用它。**移动 / 重命名之后 id 不变**，这就是 R-F1 的全部意义；
+ *   ② 未命中 → `pathHashId(path)`（与老实现逐字同构，3015 例零差异），并顺手
+ *      登记，让下一次查询不必再重算哈希。
+ *
+ * @param {string} filePath 笔记的绝对路径
+ * @returns {string} id；路径为空时返回 ''
+ */
+function resolveNoteId (filePath) {
+  const p = typeof filePath === 'string' ? filePath : ''
+  if (!p) return ''
+  const id = resolveId(idMap, p)
+  if (!isPathBound(p)) bindPath(ensureIdMap(), id, p)
+  return id
+}
+
+/**
+ * 登记 / 更新一条绑定（新笔记首次落盘、外部文件入库时）。
+ * @param {string} id 笔记 id
+ * @param {string} filePath 路径
+ * @returns {void}
+ */
+function rememberPath (id, filePath) {
+  const p = typeof filePath === 'string' ? filePath : ''
+  if (!p || !id) return
+  bindPath(ensureIdMap(), id, p)
+  persistIdMap()
+}
+
+/**
+ * 笔记搬家 / 改名：**id 跟着路径走**（rebindPath）。
+ *
+ * 只在磁盘动作**成功之后**调用 —— 失败分支绝不能碰映射表，否则内存记着「已经
+ * 搬到了 B」而磁盘上还在 A，下一次保存就在 A 上造孤儿。
+ *
+ * @param {string} oldPath 原路径
+ * @param {string} newPath 新路径
+ * @returns {void}
+ */
+function movePathBinding (oldPath, newPath) {
+  const from = typeof oldPath === 'string' ? oldPath : ''
+  const to = typeof newPath === 'string' ? newPath : ''
+  if (!from || !to || from === to) return
+  rebindPath(ensureIdMap(), from, to)
+  persistIdMap()
+}
+
+/**
+ * 解绑一条路径（笔记被删除 / 目录被移出时）。
+ * @param {string} filePath 路径
+ * @returns {void}
+ */
+function forgetPath (filePath) {
+  const p = typeof filePath === 'string' ? filePath : ''
+  if (!p) return
+  unbindPath(ensureIdMap(), p)
+  persistIdMap()
+}
+
+/**
+ * 去抖落盘映射表。
+ *
+ * 一次「移动文件夹」会连着重绑几十条路径，每条都真写一次盘是把 SSD 花在几毫秒
+ * 后就被覆盖掉的中间态上。真正的兜底是 main.js 里装的 `installIdMapFlush()`
+ * （beforeunload / pagehide）+ 主进程的退出握手。
+ *
+ * @returns {void}
+ */
+function persistIdMap () {
+  if (idMap) scheduleSaveIdMap(idMap)
+}
 
 export const useNoteStore = defineStore('note', () => {
   // 工厂函数而非共享常量：resetConfig 会 push 这些对象，共享引用会让多轮
@@ -488,6 +639,9 @@ export const useNoteStore = defineStore('note', () => {
   const sortedNotes = computed(() => {
     const list = [...searchFiltered.value]
     if (sortBy.value === 'updated') {
+      // 裁决：列表排序**仍然按 updatedAt**，不换成新的归属日期 —— 换口径会让
+      // 用户整个列表的顺序一次性全变，属于行为破坏（用户会以为笔记被重排/丢了）。
+      // 新日期语义只改变**日历**（notesByDate / getNotesByDate 走索引 dateKey）。
       return sortByTimeDesc(list, 'updatedAt')
     } else if (sortBy.value === 'created') {
       return sortByTimeDesc(list, 'createdAt')
@@ -844,9 +998,15 @@ export const useNoteStore = defineStore('note', () => {
     }
 
     // 磁盘阶段全部通过 —— 到这儿才更新内存
+    const oldPath = note.filePath        // 改之前先存：rebind 需要旧键
     note.folder = target
     note.updatedAt = new Date()
-    if (canTouchDisk) note.filePath = newPath
+    if (canTouchDisk) {
+      note.filePath = newPath
+      // id 跟着路径走：映射表里把 id 从旧路径搬到新路径，**id 本身一个字都不变**
+      // —— 书签 / 最近打开 / 图谱坐标 / 正在编辑的当前笔记因此全部保活
+      movePathBinding(oldPath, newPath)
+    }
     // folder / filePath 都是索引键，必须同批同步
     reindexNote(note)
     return opOk('ok', { changed: 1, succeeded: 1 })
@@ -978,7 +1138,11 @@ export const useNoteStore = defineStore('note', () => {
     note.title = cleanTitle
     note.content = nextContent
     note.updatedAt = new Date()
-    if (newPath !== oldPath) note.filePath = newPath
+    if (newPath !== oldPath) {
+      note.filePath = newPath
+      // 同上：改名也是搬家，id 必须跟着走
+      movePathBinding(oldPath, newPath)
+    }
     // 标题 / 内容 / filePath 都参与索引键与链接解析，必须一次性同步
     reindexNote(note)
 
@@ -1065,6 +1229,8 @@ export const useNoteStore = defineStore('note', () => {
       const pos = notes.value.findIndex(x => x.id === n.id)
       if (pos > -1) notes.value.splice(pos, 1)
       unindexNote(n.id)
+      // 整棵子树的路径随目录一起没了，映射表同步解绑
+      if (n.filePath) forgetPath(n.filePath)
     })
 
     const idx = expandedFolders.value.indexOf(folderPath)
@@ -1090,6 +1256,8 @@ export const useNoteStore = defineStore('note', () => {
         n.folder = ''
         notes.value.push(n)
         reindexNote(n)
+        // 文件还在原处：把上面解掉的绑定补回去，别让这批笔记退化成哈希 id
+        if (n.filePath) rememberPath(n.id, n.filePath)
       })
       selectedFolder.value = ''
     }
@@ -1127,7 +1295,11 @@ export const useNoteStore = defineStore('note', () => {
         const oldDir = buildFilePath(oldFolder, '').replace(/\/$/, '')
         const newDir = buildFilePath(n.folder, '').replace(/\/$/, '')
         if (n.filePath.startsWith(oldDir + '/')) {
+          const previousPath = n.filePath
           n.filePath = newDir + n.filePath.slice(oldDir.length)
+          // 文件夹改名 / 移动会改写整棵子树的路径，映射到 id 的关系必须一起搬
+          // —— 否则「移动文件夹」等于给几十篇笔记集体换 id
+          movePathBinding(previousPath, n.filePath)
         }
       }
       // folder / filePath 都参与链接图的 pathIndex 与候选标题
@@ -1412,6 +1584,7 @@ export const useNoteStore = defineStore('note', () => {
     const pos = notes.value.findIndex(n => n.id === id)
     if (pos > -1) {
       const note = notes.value[pos]
+      const removedPath = typeof note.filePath === 'string' ? note.filePath : ''
       // 先取消该笔记待执行的 debounce 写入，避免删除后定时器把文件写回
       if (saveTimers.has(id)) {
         clearTimeout(saveTimers.get(id))
@@ -1437,6 +1610,10 @@ export const useNoteStore = defineStore('note', () => {
       }
       notes.value.splice(pos, 1)
       unindexNote(id)
+      // 解绑这条路径：映射表里若还留着它，将来「同名文件被重新建出来」会接回
+      // 已删笔记的 id（那条绑定指向的是一个已经不存在的笔记）。
+      // 解绑之后该路径再出现时按兜底哈希解析 —— 与「已删的那篇」不再有任何关系。
+      if (removedPath) forgetPath(removedPath)
       if (currentNoteId.value === id) {
         currentNoteId.value = notes.value[0]?.id || null
       }
@@ -1560,6 +1737,110 @@ export const useNoteStore = defineStore('note', () => {
   let loadToken = 0
   const loadError = ref(null)
 
+  /**
+   * 一次性日期固化迁移（T18 内核，本任务是它的唯一接线点）。
+   *
+   * 时机：笔记载完 + 索引建好之后。写成功会同步 `note.content`（内核做的），
+   * 但 `dateKey` 是在**索引里**算的，所以必须再重建一次索引，否则日历还停在
+   * 迁移前的格子上（用户得重启才能看到变化）。
+   *
+   * `trustworthyOnly: true` 是主理人裁决 2：④ 级（updatedAt）不固化 —— 它本质是
+   * 「最后一次修改时间」，写进 frontmatter 等于把「用户碰巧在哪天跑迁移」写成
+   * 笔记的生日，而且一旦写死成 ① 级，后续批次接进 birthtime 之后 ② 级就再也
+   * 没机会上位了。②③ 级（birthtime / 标题日期串）照常固化。
+   *
+   * 失败不阻塞启动：日期是增强信息，笔记库本身已经载好了。内核在单篇写失败时
+   * 不落标记，下次启动自动重试。
+   *
+   * @returns {Promise<object|null>} 迁移结果；迁移被跳过 / 失败时为 null
+   */
+  async function migrateNoteDates () {
+    try {
+      const migration = await runDateMigration({
+        notes: notes.value,
+        // safeWriteFile 恒返回 boolean（已消化掉主进程的 errno 与两种返回形态），
+        // 正好是内核期望的 Promise<boolean>
+        writeFile: safeWriteFile
+        // 裁决 2：只固化可信来源（frontmatter 已有的会被内核 skipped，
+        // 真正被这条选项拦下的是 ④ 级 updatedAt）
+        , trustworthyOnly: true
+      })
+      if (migration.failed > 0) {
+        // 不落标记是内核的行为，这里只留一条「下次还会重试」的记录，
+        // 免得用户看到「日历没变」时无从判断是没跑还是没成功
+        noteLog.warn('日期迁移有笔记没写进去，下次启动会重试', {
+          total: migration.total,
+          migrated: migration.migrated,
+          failed: migration.failed
+        })
+      }
+      // dateKey 在索引里算 —— frontmatter 变了必须重建，否则日历还是旧格子
+      if (migration.ran && migration.migrated > 0) reindexAll()
+      return migration
+    } catch (error) {
+      // 迁移失败绝不能卡住启动流程（用户要的是先看到笔记）
+      noteLog.warn('日期迁移失败，已跳过（不影响笔记载入）', { err: error })
+      return null
+    }
+  }
+
+  /**
+   * id 映射表的体检数据（T20 验证脚本用）。
+   *
+   * `coverage` 就是「id 解析成功率」：库里有多少比例的路径已经在映射表里有
+   * 显式绑定。剩下那些靠兜底哈希解析 —— 功能正常，但**移动一次就会变 id**，
+   * 所以这个数字应该随使用逐步逼近 1。
+   *
+   * @returns {{ total: number, bound: number, unbound: Array<string>,
+   *             coverage: number, entries: number, version: number }} 体检结果
+   */
+  function getIdMapStats () {
+    const live = []
+    for (const n of notes.value) {
+      if (typeof n.filePath === 'string' && n.filePath) live.push(n.filePath)
+    }
+    const unbound = []
+    let bound = 0
+    for (const p of live) {
+      if (isPathBound(p)) bound += 1
+      else unbound.push(p)
+    }
+    return {
+      total: live.length,
+      bound,
+      unbound,
+      coverage: live.length === 0 ? 1 : bound / live.length,
+      entries: idMap && idMap.byPath ? Object.keys(idMap.byPath).length : 0,
+      version: idMap ? idMap.version : 0
+    }
+  }
+
+  /**
+   * 日期归属的分布数据（T20 验证脚本用）：四级来源直方图 + 日历格子数。
+   *
+   * 直方图直接读索引条目里的 `dateSource`（noteIndex 在 buildEntry 里算好并
+   * 缓存的），不重新解析正文 —— 与日历真正使用的口径是同一份数据。
+   *
+   * @returns {{ total: number, bySource: Record<string, number>, days: number,
+   *             frontmatterRate: number }} 分布结果
+   */
+  function getDateSourceStats () {
+    const bySource = {}
+    let total = 0
+    for (const entry of index.byId.values()) {
+      const source = entry.dateSource || 'unknown'
+      bySource[source] = (bySource[source] || 0) + 1
+      total += 1
+    }
+    const frontmatter = bySource.frontmatter || 0
+    return {
+      total,
+      bySource,
+      days: index.dateIndex.size,
+      frontmatterRate: total === 0 ? 0 : frontmatter / total
+    }
+  }
+
   async function loadNotesFromPath(path) {
     const token = ++loadToken
     isLoading.value = true
@@ -1568,6 +1849,17 @@ export const useNoteStore = defineStore('note', () => {
     // 的内容写回磁盘，可能覆盖新库里的同名文件
     clearPendingSaves()
     notesPath.value = path
+
+    // id 映射表必须在**算 id 之前**读出来：id 是「映射表优先 + 哈希兜底」。
+    // 读不出来（首次运行 / 文件损坏 / 存储不可用）→ null，下面按磁盘路径重建。
+    // loadIdMap 自己保证绝不抛，这里再包一层只是为了让「读表失败」单独留一条
+    // 可查的记录 —— 否则它会被下面那个大 try/catch 误记成「载入笔记库失败」。
+    let loadedIdMap = null
+    try {
+      loadedIdMap = await loadIdMap()
+    } catch (error) {
+      noteLog.warn('读取 id 映射表失败，按磁盘路径重建', { err: error })
+    }
 
     if (window.electronAPI?.setNotesPath) {
       try {
@@ -1581,6 +1873,11 @@ export const useNoteStore = defineStore('note', () => {
     try {
       const files = await window.electronAPI.readDirectoryRecursive(path)
       if (token !== loadToken) return { ok: false, stale: true }
+
+      // 映射表读不出来 → 按磁盘路径全量重建。重建不是「重新发明 id」：每个路径
+      // 的 id 就是它自己的 pathHashId，与「从未迁移过的老库」逐字相同，所以
+      // 存量用户的书签 / 双链 / 图谱坐标一个都不会断。
+      idMap = loadedIdMap || rebuildIdMap(files.map(f => f.path))
 
       const loadedNotes = []
 
@@ -1606,7 +1903,8 @@ export const useNoteStore = defineStore('note', () => {
 
         const stats = computeTextStats(content)
         loadedNotes.push({
-          id: generateStableId(file.path),
+          // 映射表优先 + 哈希兜底（未命中时顺手登记）。见 resolveNoteId 的注释
+          id: resolveNoteId(file.path),
           title,
           content,
           folder,
@@ -1629,12 +1927,21 @@ export const useNoteStore = defineStore('note', () => {
       // 换库是一次整体替换 —— 索引必须全量重建，不能指望增量
       reindexAll()
 
+      // 全量载入完成后裁剪失效路径：映射表只留磁盘上还活着的那批，否则
+      // note-id-map.json 会随「建了又删」无限膨胀。（裁剪掉的语义不丢：
+      // 那条路径复活时会按兜底哈希解析，见 noteIdentity.compactIdMap 的注释）
+      idMap = compactIdMap(idMap, loadedNotes.map(n => n.filePath).filter(Boolean))
+      persistIdMap()
+
       const savedCurrentId = localStorage.getItem('choyeon-current-note-id')
       if (savedCurrentId && notes.value.some(n => n.id === savedCurrentId)) {
         currentNoteId.value = savedCurrentId
       } else {
         currentNoteId.value = notes.value[0]?.id || null
       }
+
+      // 一次性日期固化迁移：跑在「笔记载完 + 索引建好」之后，写成功会重建索引
+      await migrateNoteDates()
 
       return { ok: true, count: loadedNotes.length }
     } catch (error) {
@@ -1707,6 +2014,9 @@ export const useNoteStore = defineStore('note', () => {
     }
     if (success) {
       note.filePath = filePath
+      // 绑定 id ↔ path：新建笔记的 id 是随机串（generateId），一旦它落到某个
+      // 路径上，这条绑定就是它今后「移动 / 重命名不换 id」的凭据
+      rememberPath(note.id, filePath)
       // filePath 参与 candidateTitles（去掉 .md 的文件名也是一个可被链接的名字）
       reindexNote(note)
     }
@@ -1774,6 +2084,17 @@ export const useNoteStore = defineStore('note', () => {
     createFolder,
     deleteFolder,
     renameFolder,
-    moveFolder
+    moveFolder,
+    // ===== T19 · 稳定 id / 日期迁移的对外接口 =====
+    /**
+     * 统一的安全写盘入口。导出是为了让日期迁移这类「外部内核」复用同一条落盘
+     * 通道（含 errno 上报 + 用户可见 toast），不必再抄一份 IPC 容错。
+     * 契约不变：恒返回 boolean，结构化 errno 在函数内部消化成报告。
+     */
+    safeWriteFile,
+    /** id 映射表体检（含「id 解析成功率」coverage）—— T20 验证脚本读它 */
+    getIdMapStats,
+    /** 日期归属分布（四级来源直方图 + 日历格子数）—— T20 验证脚本读它 */
+    getDateSourceStats
   }
 })

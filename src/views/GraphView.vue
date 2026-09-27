@@ -45,6 +45,34 @@
         </button>
       </div>
 
+      <!--
+        R-G1「只看双链」开关：linkMode = all | wiki-only。
+        用户最痛的诉求就是「关系图里看不到自己写的 [[双链]]」——相似度边太多会把
+        手写链接淹没，所以必须能一键把相似度/标签边全部关掉，只留 wiki 边。
+      -->
+      <div class="flex items-center gap-1 px-2 py-1 rounded-lg" :style="{ background: 'var(--color-bg-secondary)' }">
+        <button
+          class="h-7 px-2 rounded-md flex items-center gap-1 cursor-pointer transition-all duration-200 active:scale-95 text-[11px] font-medium"
+          :class="linkMode === LINK_MODES.ALL ? 'bg-[var(--color-primary)] text-white' : 'hover:bg-[var(--color-surface-hover)]'"
+          :style="{ color: linkMode === LINK_MODES.ALL ? 'white' : 'var(--color-text-secondary)' }"
+          title="全部关系（双链 + 标签 + 相似）"
+          @click="linkMode = LINK_MODES.ALL"
+        >
+          <GitBranch class="w-3.5 h-3.5" />
+          <span>全部</span>
+        </button>
+        <button
+          class="h-7 px-2 rounded-md flex items-center gap-1 cursor-pointer transition-all duration-200 active:scale-95 text-[11px] font-medium"
+          :class="linkMode === LINK_MODES.WIKI_ONLY ? 'bg-[var(--color-primary)] text-white' : 'hover:bg-[var(--color-surface-hover)]'"
+          :style="{ color: linkMode === LINK_MODES.WIKI_ONLY ? 'white' : 'var(--color-text-secondary)' }"
+          title="仅显示双链"
+          @click="linkMode = LINK_MODES.WIKI_ONLY"
+        >
+          <Link2 class="w-3.5 h-3.5" />
+          <span>仅双链</span>
+        </button>
+      </div>
+
       <div class="flex items-center gap-1 px-2 py-1 rounded-lg" :style="{ background: 'var(--color-bg-secondary)' }">
         <button 
           class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-[var(--color-surface-hover)] active:scale-95"
@@ -204,14 +232,30 @@
             <div class="text-[12px] leading-relaxed mb-3 line-clamp-3" :style="{ color: 'var(--color-text-secondary)' }">
               {{ getPreview(selectedNodeData.content) }}
             </div>
-            <div class="flex items-center gap-2 mb-3">
+            <!--
+              R-G5 硬要求：双链与相似度**必须分列**，禁止混标成一个数字。
+              混标时用户永远无法判断「12」里到底有几条是自己手写的 [[链接]]。
+
+              ⚠️ 注意第一个参数必须是 selectedNode（它存的是**节点 id 字符串**），
+              不是 selectedNode.id —— 后者恒为 undefined，会让三个计数永远显示 0。
+              这正是整改前「链接 N」一直是 0 的原因。
+            -->
+            <div class="flex items-center gap-2 mb-3 flex-wrap">
               <div class="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
                 <FileText class="w-3 h-3" />
                 <span>{{ Math.round(selectedNodeData.content.length / 100) * 100 }} 字</span>
               </div>
               <div class="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
                 <Link2 class="w-3 h-3" />
-                <span>{{ getLinkCount(selectedNode.id) }} 链接</span>
+                <span>双链 {{ getLinkCount(selectedNode, EDGE_KINDS.wiki) }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
+                <GitBranch class="w-3 h-3" />
+                <span>相似 {{ getLinkCount(selectedNode, EDGE_KINDS.similar) }}</span>
+              </div>
+              <div class="flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium" :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }">
+                <Tag class="w-3 h-3" />
+                <span>标签 {{ getLinkCount(selectedNode, EDGE_KINDS.tag) }}</span>
               </div>
             </div>
             <button 
@@ -275,7 +319,7 @@
         单击选中 · 双击打开笔记 · 滚轮缩放 · 拖拽画布平移
       </span>
       <span class="cho-statusbar-meta">
-        {{ nodes.length }} 节点 · {{ links.length }} 链接
+        {{ nodes.length }} 节点 · {{ links.length }} 链接（双链 {{ linkStats.wiki }} · 标签 {{ linkStats.tag }} · 相似 {{ linkStats.similar }}）
       </span>
     </div>
   </div>
@@ -287,8 +331,16 @@ import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { 
   RefreshCw, ZoomIn, ZoomOut, Maximize2, Search, 
-  Network, FileText, Link2, Globe, Focus
+  Network, FileText, Link2, Globe, Focus, GitBranch, Tag
 } from 'lucide-vue-next'
+// T35：关系图的「边」全部交给 T34 的纯函数内核算。
+//  · buildLinkEdges 一次产出 wiki / tag / similar 三类边（source/target 是 id 字符串）
+//  · EDGE_KINDS 给模板里的「双链 / 标签 / 相似」分列计数用，避免字符串散落
+//  · LINK_MODES 给「全部 / 仅双链」开关用
+import { buildLinkEdges, EDGE_KINDS, LINK_MODES } from '@/utils/graphLinks'
+// tag 口径必须与应用内其它地方（标签视图 / 反向链接 / 编辑器）完全一致，
+// 所以直接用 useLinks 的权威实现，不再在图谱里各写一份宽松正则。
+import { extractTags } from '@/composables/useLinks'
 
 const router = useRouter()
 const noteStore = useNoteStore()
@@ -298,6 +350,8 @@ const hoveredNode = ref(null)
 const graphContainer = ref(null)
 const searchQuery = ref(null)
 const viewMode = ref('global')
+/** 'all' = 双链 + 标签 + 相似；'wiki-only' = 只渲染手写的 [[双链]]（R-G1） */
+const linkMode = ref(LINK_MODES.ALL)
 
 // ---------------------------------------------------------------------------
 // 节点 / 连线为什么必须是 shallowRef
@@ -433,7 +487,9 @@ const visibleLinks = computed(() => {
 
   if (!query && !neighborIds.value) {
     return baseLinks.map(l => ({
-      id: `${l.source.id}|${l.target.id}`,
+      // ⚠️ 必须带 kind：同一对节点可以同时有 wiki 边和 tag 边，
+      // 只用 source|target 做 key 会让 Vue 的 :key 重复，后面的边被静默丢掉。
+      id: `${l.kind}|${l.source.id}|${l.target.id}`,
       ...l,
       opacity: 0.5,
       highlighted: false
@@ -449,7 +505,8 @@ const visibleLinks = computed(() => {
     const targetHighlighted = highlightedIds.has(l.target.id)
     const bothHighlighted = sourceHighlighted && targetHighlighted
     return {
-      id: `${l.source.id}|${l.target.id}`,
+      // 同上：kind 必须进 key，否则 wiki 边与 tag 边互相覆盖
+      id: `${l.kind}|${l.source.id}|${l.target.id}`,
       ...l,
       opacity: bothHighlighted ? 0.9 : (sourceHighlighted || targetHighlighted ? 0.2 : 0.05),
       highlighted: bothHighlighted
@@ -457,18 +514,48 @@ const visibleLinks = computed(() => {
   })
 })
 
-function extractTags(content) {
-  if (!content) return []
-  const tagRegex = /#(\S+?)(?=\s|#|$)/g
-  const tags = []
-  let match
-  while ((match = tagRegex.exec(content)) !== null) {
-    const tag = match[1].replace(/[，。、！？；：""''（）【】《》,.!?;:\'\"()\[\]<>]/g, '')
-    if (tag.length > 0) {
-      tags.push(tag)
-    }
+// ---------------------------------------------------------------------------
+// extractTags 去哪了？
+// ---------------------------------------------------------------------------
+// 这里原本有一份**宽松版**本地 tag 正则（形如 # 后面吃到空白为止，源码已删）。
+// 它与应用内其它地方的口径不一致，后果是：
+//   1. `#define`、URL 的 `#anchor`、`### 三级标题` 全被当成标签；
+//   2. 图谱节点配色（getNodeColor → tagColorMap）因此被垃圾标签污染。
+// T35 起统一注入 useLinks.js 的权威 extractTags（TAG_REGEX =
+// /(^|\s)#([A-Za-z0-9_\u4e00-\u9fa5-]+)/g，还会读 frontmatter.tags），
+// 图谱与标签视图、反向链接面板从此看到同一份标签集合。
+// ---------------------------------------------------------------------------
+
+/**
+ * 图谱用的 tag 提取器 = 正文里的 #tag + 笔记自带的 note.tags。
+ *
+ * 为什么必须并上 note.tags：标签视图、笔记徽章、快速切换器读的全是这个字段
+ * （note.js 在保存与载入时都会 `note.tags = extractTags(content)` 同步它）。
+ * 只用正文提取的话，示例库这类「tags 写在元数据里」的笔记在图谱上一条边都没有，
+ * 用户打开图谱只会看到一堆散点 —— 这正是"图谱看起来是坏的"的典型表现。
+ *
+ * @param {unknown} content 笔记正文
+ * @param {Object} [note] 笔记对象（内核会把第二个参数透传进来）
+ * @returns {string[]} 去重后的标签列表
+ */
+function extractTagsForGraph (content, note) {
+  const out = new Set()
+  const push = (value) => {
+    const text = String(value === null || value === undefined ? '' : value).trim()
+    if (text) out.add(text)
   }
-  return [...new Set(tags)]
+  if (note && Array.isArray(note.tags)) {
+    for (const tag of note.tags) push(tag)
+  }
+  try {
+    const fromContent = extractTags(content)
+    if (Array.isArray(fromContent)) {
+      for (const tag of fromContent) push(tag)
+    }
+  } catch (error) {
+    // 提取器抛错不该让整张图消失：正文标签丢了，至少 note.tags 还在
+  }
+  return Array.from(out)
 }
 
 function extractTitleKeywords(title) {
@@ -571,14 +658,37 @@ function generateGraph() {
       vx: 0,
       vy: 0,
       size,
-      tags: extractTags(note.content),
+      tags: extractTagsForGraph(note.content, note),
       titleKeywords: extractTitleKeywords(note.title),
       contentKeywords: extractContentKeywords(note.content),
       charCount
     }
   })
 
-  const linkList = buildLinks(nodeList)
+  // -----------------------------------------------------------------------
+  // 边由 T34 内核算：wiki（手写 [[双链]]）+ tag + similar。
+  // 内核返回的是 id 字符串，这里一次性映射回节点对象，供渲染与力导向使用。
+  //  · strength = 内核权重（wiki 3 / tag 2 / similar 0.5），正好落在渲染三档上
+  //  · 不传 resolveTarget / idOfTitle：用内核自带的标题索引（标题 / 文件名 /
+  //    frontmatter.title / folder/title 四种 key），它对每条链接是 O(1) 查表。
+  //    千万别换成 useLinks 里那个「逐条解析」的函数：它每次调用都重建一次
+  //    标题索引，N 条链接就是 O(n·links)，大图直接卡住。
+  // -----------------------------------------------------------------------
+  const idToNode = new Map(nodeList.map(n => [n.id, n]))
+  const linkList = []
+  const edgeList = buildLinkEdges({
+    notes,
+    extractTags: extractTagsForGraph,
+    extractTitleKeywords,
+    extractContentKeywords,
+    linkMode: linkMode.value
+  })
+  for (const e of edgeList) {
+    const source = idToNode.get(e.source)
+    const target = idToNode.get(e.target)
+    if (!source || !target) continue // 内核只认 id，防御性地丢掉悬空边
+    linkList.push({ source, target, strength: e.weight, kind: e.kind })
+  }
 
   nodesRaw = nodeList
   linksRaw = linkList
@@ -590,85 +700,18 @@ function generateGraph() {
   offsetY.value = containerRect.height / 2 - centerY * scale.value
 }
 
-/**
- * 用倒排索引算相似度，替代原来的 O(n²) 双重循环。
- *
- * 原实现对每一对节点都要跑 3 次 filter/some（标签、标题词、正文词），
- * 500 篇笔记就是 12.5 万对、每对多次数组扫描，主线程阻塞数秒。
- * 改成「先建 keyword/tag → 节点下标 的倒排表，只在桶内两两比较」后，
- * 复杂度与真正有共同特征的节点对数成正比。
- *
- * 过于通用的桶（成员超过 MAX_BUCKET）对相似度没有区分度，直接跳过。
- */
-const MAX_BUCKET = 200
-
-function buildLinks (list) {
-  const n = list.length
-  if (n < 2) return []
-
-  const pairMap = new Map()
-
-  const addPair = (i, j, weight, kind, value) => {
-    const a = i < j ? i : j
-    const b = i < j ? j : i
-    const key = a * n + b
-    let rec = pairMap.get(key)
-    if (!rec) {
-      rec = {
-        a, b, strength: 0,
-        commonTags: [], commonTitleKeywords: [], commonContentKeywords: []
-      }
-      pairMap.set(key, rec)
-    }
-    rec.strength += weight
-    if (kind === 'tag') rec.commonTags.push(value)
-    else if (kind === 'title') rec.commonTitleKeywords.push(value)
-    else rec.commonContentKeywords.push(value)
-  }
-
-  const buildIndex = (getValue) => {
-    const index = new Map()
-    for (let i = 0; i < n; i++) {
-      for (const raw of getValue(list[i])) {
-        const key = String(raw).toLowerCase()
-        if (!key) continue
-        const bucket = index.get(key)
-        if (bucket) bucket.push(i)
-        else index.set(key, [i])
-      }
-    }
-    return index
-  }
-
-  const scanBuckets = (index, weight, kind) => {
-    for (const bucket of index.values()) {
-      if (bucket.length < 2 || bucket.length > MAX_BUCKET) continue
-      for (let x = 0; x < bucket.length; x++) {
-        for (let y = x + 1; y < bucket.length; y++) {
-          addPair(bucket[x], bucket[y], weight, kind, null)
-        }
-      }
-    }
-  }
-
-  scanBuckets(buildIndex(node => node.tags || []), 2, 'tag')
-  scanBuckets(buildIndex(node => node.titleKeywords || []), 1.5, 'title')
-  scanBuckets(buildIndex(node => node.contentKeywords || []), 0.5, 'content')
-
-  const result = []
-  for (const rec of pairMap.values()) {
-    if (rec.strength <= 0) continue
-    result.push({
-      source: list[rec.a],
-      target: list[rec.b],
-      strength: rec.strength,
-      commonTags: rec.commonTags.filter(Boolean),
-      commonTitleKeywords: rec.commonTitleKeywords.filter(Boolean),
-      commonContentKeywords: rec.commonContentKeywords.filter(Boolean)
-    })
-  }
-  return result
-}
+// ---------------------------------------------------------------------------
+// 旧的本地 buildLinks() 去哪了？
+// ---------------------------------------------------------------------------
+// 它只算「相似度」：把共享标签 / 标题词 / 正文词按 2 / 1.5 / 0.5 加权求和，
+// 另外产出的三个「共享明细」数组字段在 UI 里没有任何消费点
+// （T34 已 grep 确认）。也就是说：
+//   · 用户在图谱上**看不到自己手写的 [[双链]]**（这正是最痛的诉求）；
+//   · 却维护着一份只在图谱里存在的、与 useLinks 口径不一致的相似度实现。
+// T35 起相似度语义整体下沉到 utils/graphLinks.js 的 buildSimilarEdges()
+// （同样的倒排桶思路，但多了 minShared ≥ 2 的阈值、单篇关键词上限、
+// 2KB 采样窗口），本地这份死代码删除。
+// ---------------------------------------------------------------------------
 
 /** 量一次画布尺寸；返回 false 表示容器还没挂载 */
 function measureContainer () {
@@ -782,7 +825,11 @@ function startSimulation() {
       const dx = link.target.x - link.source.x
       const dy = link.target.y - link.source.y
       const dist = Math.sqrt(dx * dx + dy * dy) || 1
-      const force = (dist - 150) * attractionStrength
+      // ⚠️ 必须乘 strength：否则双链边和相似度边在布局上完全等价，
+      // 用户「看不出哪条是自己写的链接」。乘上之后 wiki(3) 的吸引力是
+      // tag(2) 的 1.5 倍、similar(0.5) 的 6 倍 —— 手写链接会把相关节点
+      // 明显地拽到一起，相似度只做背景铺陈。
+      const force = (dist - 150) * attractionStrength * (link.strength ?? 1)
 
       const fx = (dx / dist) * force
       const fy = (dy / dist) * force
@@ -870,13 +917,37 @@ function openNote(id) {
   router.push(`/editor/${id}`)
 }
 
-function getLinkCount(nodeId) {
+/**
+ * 统计某个节点的边数。
+ *
+ * @param {string} nodeId 节点 id
+ * @param {string} [kind] EDGE_KINDS 之一；省略则统计全部。
+ *   R-G5 要求双链 / 相似**分列**展示 —— 混标成一个数字时用户无法判断
+ *   「12」里到底有几条是自己手写的 [[链接]]。
+ * @returns {number} 边数
+ */
+function getLinkCount (nodeId, kind) {
   let count = 0
   for (const l of linksRaw) {
-    if (l.source.id === nodeId || l.target.id === nodeId) count++
+    if (l.source.id !== nodeId && l.target.id !== nodeId) continue
+    if (kind && l.kind !== kind) continue
+    count++
   }
   return count
 }
+
+/** 全图各类边的条数：状态栏展示，同时也是「仅双链」模式的直接验收点 */
+const linkStats = computed(() => {
+  structureVersion.value
+  const stats = { wiki: 0, tag: 0, similar: 0 }
+  for (const l of linksRaw) {
+    const kind = l.kind
+    if (kind === EDGE_KINDS.wiki) stats.wiki++
+    else if (kind === EDGE_KINDS.tag) stats.tag++
+    else stats.similar++
+  }
+  return stats
+})
 
 function randomize() {
   generateGraph()
@@ -985,6 +1056,13 @@ watch(
     }, 600)
   }
 )
+
+// 切「全部 / 仅双链」只影响边的集合，节点坐标保留会立刻收敛；
+// 但为了布局能按新的边重新舒展，这里整体重建（顺便重置节点位置）。
+watch(linkMode, () => {
+  generateGraph()
+  startSimulation()
+})
 
 onMounted(() => {
   nextTick(() => {

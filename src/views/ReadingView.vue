@@ -33,7 +33,24 @@
     </div>
 
     <!-- 阅读内容区 -->
-    <div class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content reading-content">
+    <div
+      v-if="noteMissing"
+      class="flex-1 min-h-0 flex flex-col items-center justify-center gap-3 acrylic-content"
+    >
+      <FileQuestion class="w-10 h-10" :style="{ color: 'var(--color-text-tertiary)' }" />
+      <p class="text-[14px]" :style="{ color: 'var(--color-text-secondary)' }">
+        这篇笔记不存在或已被删除
+      </p>
+      <button
+        class="h-8 px-3 rounded-[10px] text-[12px] cursor-pointer transition-colors duration-150 hover:bg-[var(--color-surface-hover)]"
+        :style="{ color: 'var(--color-primary)', border: '1px solid var(--color-border)' }"
+        @click="router.push('/notes')"
+      >
+        返回笔记列表
+      </button>
+    </div>
+
+    <div v-else class="flex-1 min-w-0 overflow-y-auto cho-scrollbar acrylic-content reading-content">
       <div class="max-w-[720px] mx-auto py-14 px-8 pb-24">
         <article class="prose prose-custom reading-fade-in">
           <header class="mb-10">
@@ -44,9 +61,9 @@
               {{ currentNote?.title || '无标题' }}
             </h1>
             <div class="flex items-center gap-2.5 text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">
-              <span>{{ formatDate(currentNote?.createdAt) }}</span>
+              <span>{{ formatDate(currentNote?.createdAt, 'date') }}</span>
               <span class="opacity-50">·</span>
-              <span>{{ currentNote?.wordCount || 0 }} 字</span>
+              <span>{{ stats.words || 0 }} 字</span>
               <span class="opacity-50">·</span>
               <span>阅读约 {{ readingTime }} 分钟</span>
             </div>
@@ -60,7 +77,7 @@
     <!-- 底部状态栏 -->
     <div class="cho-statusbar justify-between">
       <span class="cho-statusbar-hint">
-        {{ currentNote?.wordCount || 0 }} 字 · {{ currentNote?.charCount || 0 }} 字符 · {{ currentNote?.lineCount || 0 }} 行
+        {{ stats.words || 0 }} 字 · {{ stats.chars || 0 }} 字符 · {{ stats.lines || 0 }} 行
       </span>
       <span class="cho-statusbar-meta">
         阅读模式
@@ -74,18 +91,34 @@ import { ref, computed, watch, onMounted, nextTick } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { renderMarkdown, renderMermaidInContainer } from '@/utils/markdown'
-import { ArrowLeft, Edit3 } from 'lucide-vue-next'
+import { computeTextStats, estimateReadingMinutes } from '@/utils/textStats'
+import { formatDate } from '@/utils/format'
+import { ArrowLeft, Edit3, FileQuestion } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const noteStore = useNoteStore()
 const contentRef = ref(null)
 
-const currentNote = computed(() => noteStore.currentNote)
+const routeId = computed(() => String(route.params.id || ''))
+/**
+ * 直接用 noteStore.currentNote 会在 id 失效时静默显示上一篇笔记，
+ * 用户以为在读 A，实际上在读 B。这里按路由 id 精确取，取不到就是「不存在」。
+ */
+const currentNote = computed(() =>
+  noteStore.notes.find(n => n.id === routeId.value) || null
+)
+const noteMissing = computed(() => !!routeId.value && !currentNote.value)
 
 const renderedContent = computed(() => {
-  return renderMarkdown(currentNote.value?.content || '')
+  const content = currentNote.value?.content || ''
+  // 必须传 resolveTarget：否则所有 [[双链]] 都被渲染成"未创建"的红色未解析态，
+  // 点击 ![[嵌入]] 还会顺手新建一个空笔记
+  return renderMarkdown(content, { resolveTarget: noteStore.resolveWikiForRender })
 })
+
+const stats = computed(() => computeTextStats(currentNote.value?.content || ''))
+const readingTime = computed(() => estimateReadingMinutes(stats.value.words))
 
 async function updateMermaid() {
   await nextTick()
@@ -93,11 +126,6 @@ async function updateMermaid() {
     renderMermaidInContainer(contentRef.value)
   }
 }
-
-const readingTime = computed(() => {
-  const words = currentNote.value?.wordCount || 0
-  return Math.max(1, Math.ceil(words / 300))
-})
 
 function goBack() {
   router.push('/notes')
@@ -107,15 +135,6 @@ function goToEditor() {
   if (currentNote.value) {
     router.push(`/editor/${currentNote.value.id}`)
   }
-}
-
-function formatDate(date) {
-  if (!date) return ''
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
 }
 
 watch(() => route.params.id, (newId) => {

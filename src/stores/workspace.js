@@ -1,29 +1,10 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { IS_ELECTRON as isElectron } from '@/utils/env'
+import { readLocal, writeLocal } from '@/utils/storage'
 
 const LS_WORKSPACES = 'choyeon-workspaces'
 const LS_ACTIVE_WS = 'choyeon-active-workspace'
-
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI
-
-function readLocal(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return fallback
-    const parsed = JSON.parse(raw)
-    return parsed ?? fallback
-  } catch {
-    return fallback
-  }
-}
-
-function writeLocal(key, value) {
-  try {
-    localStorage.setItem(key, JSON.stringify(value))
-  } catch {
-    /* 配额不足或隐私模式，忽略：内存态仍然可用 */
-  }
-}
 
 const generateId = () => `ws_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
 

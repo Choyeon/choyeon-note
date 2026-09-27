@@ -51,6 +51,8 @@
                 >
                   <component :is="cmd.icon || Command" class="cp-item-icon" />
                   <div class="cp-item-label">{{ cmd.label }}</div>
+                  <!-- 角标由 useCommands 统一提供：只认快捷键注册表（getBinding → formatBinding），
+                       注册表里没有这条命令（如「导出」「设置字号」）则为空串、不渲染 -->
                   <kbd v-if="cmd.hotkey" class="cp-item-kbd">{{ cmd.hotkey }}</kbd>
                 </button>
               </template>
@@ -77,10 +79,18 @@ import { useNoteStore } from '@/stores/note'
 import { Command, Search } from 'lucide-vue-next'
 import { rankCommands, useCommands } from '@/composables/useCommands'
 import { formatBinding } from '@/constants/shortcuts'
+import { createLogger } from '@/utils/logger'
+import { LOG_MODULES } from '@/constants/logging'
 
 const appStore = useAppStore()
 const noteStore = useNoteStore()
 const router = useRouter()
+
+// 诊断出口。取 commands 的子模块 palette 而不是平级的新模块名：
+// 这里是「命令面板」这个 UI 壳捕获的异常，与 useCommands 内部的执行命令属于同一条
+// 命令链路，日志里要能一眼看出是同一族（[commands:palette]），而不是两个互不相干的
+// 模块名；原先 '[command-palette] ' 这个前缀由模块标签接管，不再写进 msg。
+const log = createLogger(LOG_MODULES.commands).child('palette')
 
 const query = ref('')
 const selected = ref(0)
@@ -171,7 +181,9 @@ function run(cmd) {
   try {
     cmd.action?.()
   } catch (e) {
-    console.error('[command-palette] action failed:', cmd.id, e)
+    // id 与异常分开放：id 是注册表常量，留在 msg 里会让同一类失败 msg 各不相同，
+    // 只能堆 aaa/bbb 尾巴；放进 data 才能按字段过滤。e 交给 logger 拆 stack。
+    log.error('命令执行失败（action 抛出异常）', { id: cmd.id, err: e })
   }
 }
 function close() {
@@ -217,7 +229,6 @@ onBeforeUnmount(() => {
   background: rgba(15, 17, 21, 0.45);
   backdrop-filter: blur(6px) saturate(140%);
   -webkit-backdrop-filter: blur(6px) saturate(140%);
-  animation: cp-fade-in 0.16s var(--ease-out-quart) both;
 }
 
 .command-palette-panel {
@@ -232,7 +243,6 @@ onBeforeUnmount(() => {
   backdrop-filter: blur(24px) saturate(180%);
   -webkit-backdrop-filter: blur(24px) saturate(180%);
   box-shadow: 0 30px 80px rgba(0, 0, 0, 0.28), 0 8px 24px rgba(0, 0, 0, 0.12);
-  animation: cp-pop-in 0.22s var(--ease-spring-soft) both;
 }
 :global([data-theme='dark']) .command-palette-panel {
   background: var(--acrylic-bg-dark, rgba(24, 25, 28, 0.9));
@@ -379,17 +389,23 @@ onBeforeUnmount(() => {
   align-items: center;
 }
 
-.modal-enter-active,
-.modal-leave-active {
+/* 遮罩与面板是一对：同时入场、同时退场，必须共用同一条时长/曲线才像一个整体。
+   退场比入场快 ~20%（0.18s → 0.14s）：关闭是"清场"，用户已经决定，慢只会拖沓。 */
+.modal-enter-active {
   transition: opacity 0.18s var(--ease-out-quart);
+}
+.modal-leave-active {
+  transition: opacity 0.14s var(--ease-out-quart);
+}
+.modal-enter-active .command-palette-panel {
+  transition: transform 0.18s var(--ease-spring-soft), opacity 0.18s var(--ease-out-quart);
+}
+.modal-leave-active .command-palette-panel {
+  transition: transform 0.14s var(--ease-out-quart), opacity 0.14s var(--ease-out-quart);
 }
 .modal-enter-from,
 .modal-leave-to {
   opacity: 0;
-}
-.modal-enter-active .command-palette-panel,
-.modal-leave-active .command-palette-panel {
-  transition: transform 0.2s var(--ease-spring-soft), opacity 0.18s var(--ease-out-quart);
 }
 .modal-enter-from .command-palette-panel,
 .modal-leave-to .command-palette-panel {
@@ -397,12 +413,11 @@ onBeforeUnmount(() => {
   opacity: 0;
 }
 
-@keyframes cp-fade-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-@keyframes cp-pop-in {
-  from { opacity: 0; transform: translateY(-14px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
+/* 降低动效偏好：保留淡入（opacity 帮助理解"出现了什么"），去掉位移与缩放 */
+@media (prefers-reduced-motion: reduce) {
+  .modal-enter-from .command-palette-panel,
+  .modal-leave-to .command-palette-panel {
+    transform: none;
+  }
 }
 </style>

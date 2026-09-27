@@ -1,24 +1,28 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { IS_ELECTRON as isElectron } from '@/utils/env'
+import { readLocal } from '@/utils/storage'
+import { createLogger } from '../utils/logger.js'
+import { LOG_MODULES } from '../constants/logging.js'
+
+/**
+ * 密码本的模块 logger。
+ *
+ * 记录纪律（与 utils/logSanitize.js 文件头的口径一致，**违反即泄露**）：
+ *   · `entry.value`（明文）与 `entry.valueEnc`（safeStorage 密文）永不入日志；
+ *   · `secret` 条目的 `key` / `note` 由内核自动一并遮蔽，所以即使不小心把整条
+ *     条目塞进 data，也只剩结构信息 —— 但**不要依赖这层兜底**，能不记就不记；
+ *   · 需要「记了什么」时只记计数、长度、id 这类**不含内容**的事实。
+ */
+const vaultLog = createLogger(LOG_MODULES.vault)
 
 const LS_VAULT = 'choyeon-kv-vault'
 
-const isElectron = typeof window !== 'undefined' && !!window.electronAPI
-
 const SAVE_DEBOUNCE_MS = 400
+/** 空闲多久自动锁定（掩码 + 清空已展开项） */
+const AUTO_LOCK_MS = 5 * 60 * 1000
 
 const generateId = () => `kv_${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`
-
-function readLocal(key, fallback) {
-  try {
-    const raw = localStorage.getItem(key)
-    if (!raw) return fallback
-    const parsed = JSON.parse(raw)
-    return parsed ?? fallback
-  } catch {
-    return fallback
-  }
-}
 
 /**
  * 预置条目类型。作用不只是打标签：
@@ -48,7 +52,106 @@ export const useVaultStore = defineStore('vault', () => {
   const workspaceId = ref('default')
   const isLoading = ref(false)
   const revealed = ref(new Set()) // 临时放掩码的条目 id（不落盘）
+  /** 主进程 safeStorage 是否可用：决定敏感值是加密落盘还是明文落盘 */
+  const encryptionAvailable = ref(false)
+  /** 锁定态：锁定后所有敏感值强制掩码 */
+  const locked = ref(false)
   let saveTimer = null
+  let idleTimer = null
+
+  // ---------------------------------------------------------------- 加密
+  async function refreshEncryptionState() {
+    if (!isElectron || !window.electronAPI?.vaultEncryptionAvailable) {
+      encryptionAvailable.value = false
+      return false
+    }
+    try {
+      encryptionAvailable.value = !!(await window.electronAPI.vaultEncryptionAvailable())
+    } catch {
+      encryptionAvailable.value = false
+    }
+    return encryptionAvailable.value
+  }
+
+  async function encryptValue(plain) {
+    if (!encryptionAvailable.value || !window.electronAPI?.vaultEncrypt) return null
+    try {
+      return await window.electronAPI.vaultEncrypt(String(plain ?? ''))
+    } catch {
+      return null
+    }
+  }
+
+  async function decryptValue(cipher) {
+    if (!encryptionAvailable.value || !cipher || !window.electronAPI?.vaultDecrypt) return null
+    try {
+      return await window.electronAPI.vaultDecrypt(cipher)
+    } catch {
+      return null
+    }
+  }
+
+  /**
+   * 落盘形状：敏感条目把明文换成 safeStorage 密文。
+   * safeStorage 用操作系统凭据库（Windows DPAPI / macOS Keychain / Linux libsecret）
+   * 加密，密钥不在应用数据里，任何直接读 vaults/*.json 的程序拿不到明文。
+   * 加密不可用时保留明文（并把状态回报给 UI，由界面明确提示风险）。
+   */
+  async function toPersistable() {
+    const out = []
+    for (const e of entries.value) {
+      const plain = { ...e }
+      if (plain.secret && encryptionAvailable.value) {
+        const cipher = await encryptValue(plain.value)
+        if (cipher) {
+          plain.value = ''
+          plain.valueEnc = cipher
+        }
+      }
+      out.push(plain)
+    }
+    return out
+  }
+
+  /** 载入形状 → 内存形状：把密文还原成明文 */
+  async function fromPersisted(list) {
+    const out = []
+    for (const e of list) {
+      const item = { ...e }
+      if (item.valueEnc) {
+        const plain = await decryptValue(item.valueEnc)
+        item.value = plain ?? ''
+        // 解密失败（换了机器 / keyring 不可用）时不要把密文当成值展示
+        if (plain === null) item.decryptFailed = true
+        delete item.valueEnc
+      }
+      out.push(item)
+    }
+    return out
+  }
+
+  // ---------------------------------------------------------------- 自动锁定
+  function resetIdleTimer() {
+    if (idleTimer) clearTimeout(idleTimer)
+    if (locked.value) return
+    idleTimer = setTimeout(() => lockNow(), AUTO_LOCK_MS)
+  }
+
+  /** 任何与敏感数据相关的操作都要调用，推迟自动锁定 */
+  function markActivity() {
+    if (!locked.value) resetIdleTimer()
+  }
+
+  function lockNow() {
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
+    revealed.value.clear()
+    locked.value = true
+  }
+
+  function unlock() {
+    locked.value = false
+    resetIdleTimer()
+  }
 
   // ---------------------------------------------------------------- 派生数据
   const groups = computed(() => {
@@ -114,36 +217,76 @@ export const useVaultStore = defineStore('vault', () => {
     }, SAVE_DEBOUNCE_MS)
   }
 
-  function flush() {
+  /**
+   * 立即落盘。敏感值先加密再写。
+   *
+   * localStorage 只在**非 Electron（浏览器预览）**环境当后备存储用：
+   * Electron 下如果再往 localStorage 写一份明文副本，任何渲染进程脚本或 XSS
+   * 都能绕过加密直接读走全部凭据 —— 等于加密白做。
+   */
+  async function flush() {
     if (saveTimer) {
       clearTimeout(saveTimer)
       saveTimer = null
     }
-    try {
-      localStorage.setItem(LS_VAULT, JSON.stringify(entries.value))
-    } catch {
-      /* 忽略配额错误 */
-    }
+    const payload = await toPersistable()
+
     if (isElectron) {
-      // 传给 IPC 的必须是纯对象：Vue 响应式代理无法被结构化克隆
-      window.electronAPI.saveVault(workspaceId.value, JSON.parse(JSON.stringify(entries.value)))
+      try {
+        await window.electronAPI.saveVault(workspaceId.value, JSON.parse(JSON.stringify(payload)))
+      } catch (error) {
+        // 只记异常本身 —— payload（可能含明文 value / safeStorage 密文 valueEnc）
+        // 绝不能进 data，否则「保存失败」这条日志就成了泄密现场。
+        vaultLog.error('保存失败', { err: error })
+      }
+    } else {
+      try {
+        localStorage.setItem(LS_VAULT, JSON.stringify(payload))
+      } catch {
+        /* 忽略配额错误 */
+      }
     }
   }
 
+  let hydrateToken = 0
+
   async function hydrate(wsId) {
+    const token = ++hydrateToken
     isLoading.value = true
     workspaceId.value = wsId || 'default'
+    await refreshEncryptionState()
     try {
+      let loaded
       if (isElectron) {
-        const loaded = await window.electronAPI.loadVault(workspaceId.value)
-        entries.value = normalize(loaded)
+        loaded = await window.electronAPI.loadVault(workspaceId.value)
       } else {
-        entries.value = normalize(readLocal(LS_VAULT, []))
+        loaded = readLocal(LS_VAULT, [])
       }
-    } catch {
+      if (token !== hydrateToken) return // 过期响应丢弃，避免快速进出页面互相覆盖
+      entries.value = normalize(await fromPersisted(Array.isArray(loaded) ? loaded : []))
+    } catch (error) {
+      // 载入失败绝不能再静默吞掉：密码本「加载不出来」与「本来就是空的」在 UI 上
+      // 长得一模一样，没有这条记录就永远分不清是 IPC 挂了、文件被拒，还是库真的
+      // 是空的 —— 而误判成后者，用户会以为自己把密码弄丢了。
+      //
+      // 记录内容的边界（与 logSanitize.js 文件头的纪律一致）：
+      //   · 只记**环境事实**：哪个工作区、加密通道是否可用、这次响应是否已过期；
+      //   · 条目本身（key / value / valueEnc / note）一条都不进日志 —— 明文与
+      //     safeStorage 密文同属禁区；即便将来有人误塞，内核也会按敏感 key 与
+      //     secret 条目规则整体遮蔽，但**不要依赖这层兜底**。
+      vaultLog.error('载入失败，回退到本地后备存储', {
+        workspace: workspaceId.value,
+        encrypted: encryptionAvailable.value,
+        stale: token !== hydrateToken,
+        err: error
+      })
+      if (token !== hydrateToken) return
       entries.value = normalize(readLocal(LS_VAULT, []))
     } finally {
-      isLoading.value = false
+      if (token === hydrateToken) {
+        isLoading.value = false
+        resetIdleTimer()
+      }
     }
   }
 
@@ -216,15 +359,18 @@ export const useVaultStore = defineStore('vault', () => {
   }
 
   function toggleReveal(id) {
+    markActivity()
     if (revealed.value.has(id)) revealed.value.delete(id)
     else revealed.value.add(id)
   }
 
   function isRevealed(id) {
-    return revealed.value.has(id)
+    // 锁定态下即使之前展开过也强制掩码
+    return !locked.value && revealed.value.has(id)
   }
 
   function revealAll() {
+    markActivity()
     entries.value.filter(e => e.secret).forEach(e => revealed.value.add(e.id))
   }
 
@@ -250,10 +396,10 @@ export const useVaultStore = defineStore('vault', () => {
   // ---------------------------------------------------------------- 批量
   function importEntries(list) {
     const normalized = normalize(list)
-    const existingKeys = new Set(entries.value.map(e => `${e.key} ${e.group}`))
+    const existingKeys = new Set(entries.value.map(e => `${e.key}\u0000${e.group}`))
     let added = 0
     for (const item of normalized) {
-      if (existingKeys.has(`${item.key} ${item.group}`)) continue
+      if (existingKeys.has(`${item.key}\u0000${item.group}`)) continue
       items_push(item)
       added++
     }
@@ -316,7 +462,14 @@ export const useVaultStore = defineStore('vault', () => {
   function clearAll() {
     entries.value = []
     revealed.value.clear()
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
     scheduleSave()
+  }
+
+  /** 页面卸载时清理定时器，避免闲置锁定回调打到已销毁的组件 */
+  function dispose() {
+    if (saveTimer) { clearTimeout(saveTimer); saveTimer = null }
+    if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
   }
 
   return {
@@ -326,6 +479,8 @@ export const useVaultStore = defineStore('vault', () => {
     workspaceId,
     isLoading,
     revealed,
+    encryptionAvailable,
+    locked,
     groups,
     filteredEntries,
     favoriteCount,
@@ -340,11 +495,15 @@ export const useVaultStore = defineStore('vault', () => {
     isRevealed,
     revealAll,
     hideAll,
+    lockNow,
+    unlock,
+    markActivity,
     mask,
     displayValue,
     importEntries,
     exportEntries,
     parseCsv,
-    clearAll
+    clearAll,
+    dispose
   }
 })

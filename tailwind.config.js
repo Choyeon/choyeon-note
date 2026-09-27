@@ -4,28 +4,11 @@ export default {
     "./index.html",
     "./src/**/*.{vue,js,ts,jsx,tsx}",
   ],
-  darkMode: 'class',
+  // 应用写的是 documentElement 上的 data-theme="dark"，不是祖先的 .dark 类。
+  // 配成 'class' 会让模板里所有 dark: 工具类全部失效（实际生效的只有 CSS 变量兜底）。
+  darkMode: ['selector', '[data-theme="dark"]'],
   theme: {
     extend: {
-      colors: {
-        background: 'var(--color-bg)',
-        foreground: 'var(--color-text-primary)',
-        secondary: 'var(--color-secondary)',
-        'secondary-foreground': 'var(--color-text-on-primary)',
-        accent: 'var(--color-accent)',
-        'accent-foreground': 'var(--color-text-primary)',
-        muted: 'var(--color-bg-tertiary)',
-        'muted-foreground': 'var(--color-text-tertiary)',
-        card: 'var(--card-bg)',
-        'card-foreground': 'var(--color-text-primary)',
-        popover: 'var(--color-bg)',
-        'popover-foreground': 'var(--color-text-primary)',
-        primary: 'var(--color-primary)',
-        'primary-foreground': 'var(--color-text-on-primary)',
-        border: 'var(--color-border)',
-        input: 'var(--color-border-light)',
-        ring: 'var(--color-primary-ring)',
-      },
       borderRadius: {
         sm: 'var(--radius-sm)',
         md: 'var(--radius-md)',

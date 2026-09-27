@@ -136,10 +136,16 @@ import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
 import { PenLine, FolderOpen, FolderPlus, FileText, CheckCircle, Loader2 } from 'lucide-vue-next'
+import { createLogger } from '@/utils/logger'
+import { LOG_MODULES } from '@/constants/logging'
 
 const router = useRouter()
 const noteStore = useNoteStore()
 const appStore = useAppStore()
+
+// 欢迎页没有专属模块名：这里两处失败属于应用启动/引导期的诊断，归到 app，
+// 与设置页的取值范围保持一致，避免为单个页面新增一次性的模块名。
+const log = createLogger(LOG_MODULES.app)
 
 const selectedPath = ref(null)
 const isLoading = ref(false)
@@ -152,7 +158,7 @@ onMounted(async () => {
       const version = await window.electronAPI.getVersion()
       if (version) appVersion.value = version
     } catch (e) {
-      console.error('Failed to get version:', e)
+      log.error('获取版本号失败', e)
     }
   }
 })
@@ -197,7 +203,8 @@ async function confirmPath() {
   try {
     await loadNotes(selectedPath.value)
   } catch (error) {
-    console.error('Failed to load notes:', error)
+    // 日志只负责任诊断；alert 是面向用户的提示，两者不该互相替代，因此 alert 保留
+    log.error('加载笔记失败', error)
     alert('加载笔记失败，请检查文件夹权限')
   } finally {
     isLoading.value = false

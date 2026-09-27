@@ -106,11 +106,25 @@
           v-for="item in recentSearches"
           :key="item"
           class="flex items-center gap-3 mx-4 my-0.5 px-3 h-11 rounded-[10px] cursor-pointer transition-colors duration-150 hover:bg-[var(--color-surface-hover)]"
-          @click="searchQuery = item; onSearch()"
+          @click="submitNow(item)"
         >
           <Clock class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
           <span class="text-[13.5px] flex-1" :style="{ color: 'var(--color-text-secondary)' }">{{ item }}</span>
-          <span class="text-[11px] font-mono" :style="{ color: 'var(--color-text-tertiary)' }">↵</span>
+          <button
+            class="flex items-center justify-center w-5 h-5 rounded-full cursor-pointer hover:bg-[var(--color-surface-hover)]"
+            :style="{ color: 'var(--color-text-tertiary)' }"
+            title="移除这条记录"
+            @click.stop="removeRecent(item)"
+          >
+            <X class="w-3 h-3" />
+          </button>
+        </div>
+        <div
+          v-if="!recentSearches.length"
+          class="px-6 py-1 text-[12px]"
+          :style="{ color: 'var(--color-text-tertiary)' }"
+        >
+          还没有搜索记录
         </div>
 
         <div class="px-6 py-2 mt-3">
@@ -154,7 +168,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { useAppStore } from '@/stores/app'
@@ -165,29 +179,93 @@ const router = useRouter()
 const noteStore = useNoteStore()
 const appStore = useAppStore()
 
-const searchQuery = ref('')
-const isFocused = ref(false)
-const recentSearches = ['周报', 'API', 'Vue学习']
+const RECENT_KEY = 'choyeon-recent-searches'
+const RECENT_MAX = 8
 
+const searchQuery = ref('')
+/** 真正参与过滤的词（防抖后的），避免每敲一个字就全库扫一遍 */
+const committedQuery = ref('')
+const isFocused = ref(false)
+const recentSearches = ref(loadRecent())
+
+/**
+ * 搜索完全在本视图内完成，不再写 noteStore.searchQuery。
+ * 之前 searchQuery 存在全局 store 里且离开页面不清空，之后打开「全部笔记」
+ * 列表会被一个看不见的关键词过滤，表现为"笔记凭空少了一半"。
+ */
 const filteredNotes = computed(() => {
-  if (!searchQuery.value) return []
-  return noteStore.filteredNotes
+  const q = committedQuery.value.trim().toLowerCase()
+  if (!q) return []
+  const list = noteStore.notes
+  const result = []
+  for (const note of list) {
+    const title = (note.title || '').toLowerCase()
+    const content = (note.content || '').toLowerCase()
+    // 标题命中的排前面，符合直觉
+    if (title.includes(q)) result.push({ note, score: 0 })
+    else if (content.includes(q)) result.push({ note, score: 1 })
+  }
+  result.sort((a, b) => {
+    if (a.score !== b.score) return a.score - b.score
+    return new Date(b.note.updatedAt) - new Date(a.note.updatedAt)
+  })
+  return result.map(r => r.note)
 })
+
+function loadRecent() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(RECENT_KEY) || '[]')
+    return Array.isArray(raw) ? raw.slice(0, RECENT_MAX) : []
+  } catch (e) {
+    return []
+  }
+}
+
+function persistRecent(list) {
+  try { localStorage.setItem(RECENT_KEY, JSON.stringify(list.slice(0, RECENT_MAX))) } catch (e) { /* ignore */ }
+}
+
+function pushRecent(term) {
+  const t = String(term || '').trim()
+  if (!t) return
+  const next = [t, ...recentSearches.value.filter(x => x !== t)].slice(0, RECENT_MAX)
+  recentSearches.value = next
+  persistRecent(next)
+}
+
+function removeRecent(term) {
+  recentSearches.value = recentSearches.value.filter(x => x !== term)
+  persistRecent(recentSearches.value)
+}
+
+let searchTimer = null
+function onSearch() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchTimer = setTimeout(() => {
+    committedQuery.value = searchQuery.value
+    if (searchQuery.value.trim().length >= 2) pushRecent(searchQuery.value)
+  }, 180)
+}
+
+function clearSearch() {
+  if (searchTimer) clearTimeout(searchTimer)
+  searchQuery.value = ''
+  committedQuery.value = ''
+}
+
+/** 结果数少于预期时的兜底：立即提交一次（例如点了最近搜索项） */
+function submitNow(term) {
+  searchQuery.value = term
+  if (searchTimer) clearTimeout(searchTimer)
+  committedQuery.value = term
+  pushRecent(term)
+}
 
 const quickActions = computed(() => [
   { label: '新建笔记', icon: FilePlus, shortcut: formatBinding(appStore.getBinding('app.newNote')), action: () => createNote() },
   { label: '设置', icon: Settings, shortcut: formatBinding(appStore.getBinding('app.settings')), action: () => router.push('/settings') },
   { label: '日历视图', icon: CalendarDays, shortcut: formatBinding(appStore.getBinding('view.calendar')), action: () => router.push('/calendar') }
 ])
-
-function onSearch() {
-  noteStore.setSearchQuery(searchQuery.value)
-}
-
-function clearSearch() {
-  searchQuery.value = ''
-  noteStore.setSearchQuery('')
-}
 
 function openNote(id) {
   noteStore.selectNote(id)
@@ -214,16 +292,44 @@ function escapeHtml(text) {
     .replace(/'/g, '&#39;')
 }
 
-// 高亮匹配的搜索关键词
 function highlightMatch(text) {
-  const safeText = escapeHtml(text || '')
-  if (!searchQuery.value) return safeText
-  // 转义正则特殊字符
-  const safeQuery = escapeHtml(searchQuery.value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  if (!safeQuery) return safeText
-  const regex = new RegExp(`(${safeQuery})`, 'gi')
-  return safeText.replace(regex, '<mark class="search-mark">$1</mark>')
+  const raw = String(text || '')
+  const q = committedQuery.value.trim()
+  if (!q) return escapeHtml(raw)
+  // 先在**未转义**的原文上按关键词切分，再逐段转义后拼 <mark>。
+  // 之前先 escapeHtml 再对转义后的串跑正则，一旦关键词里含 & < > 就会错配。
+  const idx = []
+  const lowerRaw = raw.toLowerCase()
+  const lowerQ = q.toLowerCase()
+  let from = 0
+  while (from <= lowerRaw.length) {
+    const hit = lowerRaw.indexOf(lowerQ, from)
+    if (hit === -1) break
+    idx.push([hit, hit + q.length])
+    from = hit + q.length
+  }
+  if (!idx.length) return escapeHtml(raw)
+
+  let out = ''
+  let cursor = 0
+  for (const [start, end] of idx) {
+    out += escapeHtml(raw.slice(cursor, start))
+    out += `<mark class="search-mark">${escapeHtml(raw.slice(start, end))}</mark>`
+    cursor = end
+  }
+  out += escapeHtml(raw.slice(cursor))
+  return out
 }
+
+onMounted(() => {
+  // 清掉历史遗留的全局搜索词，避免"全部笔记"列表被隐形过滤
+  if (noteStore.searchQuery) noteStore.setSearchQuery('')
+})
+
+onUnmounted(() => {
+  if (searchTimer) clearTimeout(searchTimer)
+  if (noteStore.searchQuery) noteStore.setSearchQuery('')
+})
 </script>
 
 <style scoped>

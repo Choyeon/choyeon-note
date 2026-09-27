@@ -255,6 +255,22 @@
         </div>
       </Transition>
     </Teleport>
+    <!-- =============== 应用内弹窗（替代 window.prompt / alert / confirm） =============== -->
+    <!-- 原生弹窗不跟随主题（深色模式下是系统白框）、阻塞主线程、在 Electron 下
+         window.prompt 可能被禁用直接返回 null 导致功能静默失效，这里统一换成
+         主题化的 PromptDialog，由 askDialog() 以 Promise 形式串起原有流程。 -->
+    <PromptDialog
+      v-if="dialog"
+      :mode="dialog.mode"
+      :title="dialog.title"
+      :message="dialog.message"
+      :placeholder="dialog.placeholder"
+      :default-value="dialog.defaultValue"
+      :danger="dialog.danger"
+      :confirm-text="dialog.confirmText"
+      @confirm="onDialogConfirm"
+      @cancel="onDialogCancel"
+    />
   </aside>
 </template>
 
@@ -269,6 +285,7 @@ import {
   Pencil, Copy, Trash2
 } from 'lucide-vue-next'
 import FolderNode from './FolderNode.vue'
+import PromptDialog from './common/PromptDialog.vue'
 import { dndCtxKey, createDndCtx } from '@/composables/folderDnd.js'
 import { formatBinding } from '@/constants/shortcuts'
 import { useAppStore } from '@/stores/app'
@@ -280,9 +297,13 @@ const router = useRouter()
 const noteStore = useNoteStore()
 const appStore = useAppStore()
 
-/** 快速跳转提示与注册表保持一致（设置页改键后这里同步变化） */
-const quickSwitcherHint = formatBinding(appStore.getBinding('app.quickSwitcher'))
-const newNoteHint = formatBinding(appStore.getBinding('app.newNote'))
+/**
+ * 快捷键提示必须是 computed：setup 期求值一次的话，用户在设置页改完快捷键，
+ * 侧边栏这里的提示会永远是旧值。
+ * （<script setup> 里模板访问 ref/computed 会自动解包，无需写 .value）
+ */
+const quickSwitcherHint = computed(() => formatBinding(appStore.getBinding('app.quickSwitcher')))
+const newNoteHint = computed(() => formatBinding(appStore.getBinding('app.newNote')))
 
 // =====================================================================
 // 给 FolderNode 递归树注入真实 DnD/Rename 上下文。
@@ -308,6 +329,150 @@ const siblingDrop = reactive({ kind: '', path: '', folder: '' })
 const ctxMenu = reactive({ show: false, x: 0, y: 0, kind: 'folder', target: '', name: '', sourceFolder: '' })
 const renameState = reactive({ active: false, target: '', value: '' })
 const rootRenameInputRef = ref(null)
+
+// =====================================================================
+// 应用内弹窗（替代 window.prompt / alert / confirm）
+// 为什么不用原生弹窗：
+//   1. 不跟随主题 —— 深色模式下弹的是系统白框，视觉直接割裂；
+//   2. 阻塞 JS 主线程，且拿不到焦点/无障碍/键盘控制；
+//   3. 部分 Chromium/Electron 配置会禁用 window.prompt，直接返回 null，
+//      新建文件夹/重命名会变成"点了没反应"。
+// 用法：const v = await askDialog({ mode: 'prompt', title: '...' })
+//      prompt 返回字符串或 null；alert/confirm 返回 true 或 null（falsy 即放弃）。
+// =====================================================================
+const dialog = ref(null) // { mode, title, message, placeholder, defaultValue, danger, confirmText, resolve }
+
+/**
+ * 打开一个弹窗并返回 Promise。
+ * @param {{ mode?: string, title?: string, message?: string, placeholder?: string,
+ *           defaultValue?: string, danger?: boolean, confirmText?: string }} options
+ * @returns {Promise<string|boolean|null>} confirm 的结果，或 null（取消）
+ */
+function askDialog (options = {}) {
+  return new Promise((resolve) => {
+    dialog.value = { mode: 'confirm', danger: false, ...options, resolve }
+  })
+}
+
+/** 弹窗确认：prompt 回传输入框内容，alert/confirm 回传 true */
+function onDialogConfirm (value) {
+  dialog.value?.resolve?.(value)
+  dialog.value = null
+}
+
+/** 弹窗取消 / 遮罩点击 / Escape：统一回传 null，调用方 `if (!v) return` 即可放弃 */
+function onDialogCancel () {
+  dialog.value?.resolve?.(null)
+  dialog.value = null
+}
+
+// =====================================================================
+// OpResult → 用户可见提示（移动 / 重命名）
+//
+// T03 之后 moveNote / renameNote 都改成了 async，返回 { ok, code, message, failed }。
+// 这里必须遵守两条口径：
+//   1. **按 code 分支，不要按 ok 分支** —— `rename-partial` 的 ok 是 false，
+//      但磁盘上的文件确实已经改名成功了。提示必须是「已改名为 X，但有 N 处没写入」，
+//      说成「操作失败」会让用户再改一次，反而可能制造重复文件。
+//   2. **不把英文 code 直接抛给用户** —— 由 UI 侧维护这张中文映射表，
+//      表里没有的码退回 result.message（T03 已经把它写成中文兜底文案）。
+// =====================================================================
+const OP_NOTICE_TEXT = {
+  'target-exists': '目标位置已存在同名笔记，未做任何改动',
+  permission: '磁盘只读或没有权限，未做任何改动',
+  'write-failed': '写入磁盘失败，未做任何改动',
+  'not-found': '找不到这篇笔记或它的文件',
+  'invalid-title': '标题不能为空',
+  conflict: '源文件和目标文件同时存在，可能已产生重复文件，请手动确认'
+}
+
+/** 成功与「无需变更」都不该打扰用户 */
+const OP_SILENT_CODES = ['ok', 'noop']
+
+/**
+ * id → 笔记标题；查不到就退回 id，保证提示里不会出现 undefined。
+ * @param {string} id 笔记 id
+ * @returns {string} 标题或 id
+ */
+function titleOfNoteId (id) {
+  return noteStore.notes.find(n => n.id === id)?.title || id
+}
+
+/**
+ * 把 OpResult 翻译成一条用户能看懂的提示。
+ *
+ * @param {object|boolean|undefined} result moveNote / renameNote 的返回值
+ * @param {{ verb?: string, title?: string }} [ctx={}] verb 动作名；title 新标题（rename-partial 用）
+ * @returns {boolean} 是否成功（ok / noop 都算成功，供调用方决定后续动作，例如展开目标目录）
+ */
+function reportOpResult (result, ctx = {}) {
+  // store 未实现或仍是旧版布尔返回时没有契约可依，保持静默（store 自己会上报）
+  if (!result || typeof result !== 'object') return Boolean(result)
+  const code = String(result.code || (result.ok ? 'ok' : ''))
+  if (OP_SILENT_CODES.indexOf(code) > -1) return true
+  const verb = ctx.verb || '操作'
+
+  // rename-partial：文件已经在磁盘上改名了，不能说「失败」，只能说「部分没写进去」
+  if (code === 'rename-partial') {
+    const failed = Array.isArray(result.failed) ? result.failed : []
+    const names = failed.map(f => titleOfNoteId(f.id)).join('、')
+    const label = ctx.title ? `「${ctx.title}」` : ''
+    appStore.pushToast({
+      type: 'error',
+      message: `笔记已改名为${label}，但有 ${failed.length} 处内容没能写入磁盘${names ? `：${names}` : ''}。请检查磁盘是否只读后手动保存这几篇。`,
+      duration: 8000
+    })
+    return false
+  }
+
+  const text = OP_NOTICE_TEXT[code] || result.message || '操作失败'
+  appStore.pushToast({ type: 'error', message: `${verb}失败：${text}`, duration: 6000 })
+  return false
+}
+
+/**
+ * 统计某个文件夹（含全部子文件夹）下的笔记数。
+ *
+ * 命中范围刻意与 note.js deleteFolder 保持一致（folder 全等，或以「路径 + /」开头）。
+ * 为什么在这里再数一遍：store 没有导出 collectFolderNotes，而确认弹窗必须在动手
+ * **之前**告诉用户「这一下会带走几篇」，这个数字只能由调用方自己算。
+ *
+ * @param {string} folderPath 文件夹路径
+ * @returns {number} 笔记数
+ */
+function countNotesUnder (folderPath) {
+  if (!folderPath) return 0
+  return noteStore.notes.filter(n => {
+    const f = n.folder || ''
+    return f === folderPath || f.startsWith(folderPath + '/')
+  }).length
+}
+
+/**
+ * 删除文件夹并如实告知结果。
+ *
+ * 为什么必须看返回值：deleteFolder 在目录删不掉时会走降级分支 —— 笔记被重新挂回
+ * **根目录**（folder 置空）。用户点的是「删除文件夹」，看到的却是笔记摊平到根目录，
+ * 不说明白就会被当成「数据丢了」或「笔记位置错了」（PRD R-D4）。
+ *
+ * @param {string} folderPath 文件夹路径
+ * @param {string} folderName 用于文案展示的文件夹名
+ * @returns {Promise<void>}
+ */
+async function deleteFolderWithNotice (folderPath, folderName) {
+  const count = countNotesUnder(folderPath)
+  // 只认显式 false：store 未实现时返回 undefined，不该弹出「删除失败」
+  const removed = await noteStore.deleteFolder?.(folderPath)
+  if (removed === false) {
+    await askDialog({
+      mode: 'alert',
+      title: `没能删除文件夹「${folderName}」`,
+      message: count > 0
+        ? `目录没能从磁盘删除（可能已不存在、被其它程序占用，或回收站不可用）。\n\n${count} 篇笔记已放回根目录，磁盘上的文件仍在原来的目录里。请检查后重试。`
+        : '目录没能从磁盘删除（可能已不存在、被其它程序占用，或回收站不可用）。请检查后重试。'
+    })
+  }
+}
 
 const viewItems = [
   { id: 'notes', label: '所有笔记', icon: FolderOpen, route: '/notes' },
@@ -364,17 +529,23 @@ const treeFolders = computed(() => {
 
 const sortedTreeFolders = computed(() => treeFolders.value)
 
-const allFolderPaths = computed(() => {
-  const paths = []
-  function walk(list) {
-    for (const n of list) {
-      paths.push(n.path)
-      if (n.children?.length) walk(n.children)
+/**
+ * path → folder 节点的扁平索引（递归建好，任意深度都能 O(1) 查到名字）。
+ * 之前只在两层 concat/flatMap 里找，三级以上嵌套的文件夹显示不出名字。
+ */
+const folderIndex = computed(() => {
+  const map = new Map()
+  function walk (list) {
+    for (const node of list) {
+      map.set(node.path, node)
+      if (node.children?.length) walk(node.children)
     }
   }
   walk(treeFolders.value)
-  return paths
+  return map
 })
+
+const allFolderPaths = computed(() => Array.from(folderIndex.value.keys()))
 
 const allExpanded = computed(() => {
   if (allFolderPaths.value.length === 0) return false
@@ -396,8 +567,8 @@ function createNewNote() {
   const note = noteStore.createNote(folder, '新笔记')
   router.push(`/editor/${note.id}`)
 }
-function createFolderAtRoot() {
-  const name = window.prompt('新文件夹名称', '新文件夹')
+async function createFolderAtRoot() {
+  const name = await askDialog({ mode: 'prompt', title: '新文件夹名称', defaultValue: '新文件夹' })
   if (!name) return
   noteStore.createFolder(name.trim())
 }
@@ -414,11 +585,18 @@ function startRenameRootNote(id) {
     rootRenameInputRef.value?.select?.()
   })
 }
-function commitRootRename() {
+async function commitRootRename() {
   if (!renameState.active) return
+  const targetId = renameState.target
   const v = renameState.value.trim()
-  if (v) noteStore.renameNote?.(renameState.target, v)
+  // 先把输入框复位再 await：等 IPC 的这几十毫秒里 UI 不该停在编辑态，
+  // 否则用户看到的是「名字改了但树没动」。复位后 blur 再次触发本函数会被
+  // renameState.active 挡住，不会重复提交。
   cancelRootRename()
+  // 空标题直接还原即可 —— 输入框弹回原标题本身就是反馈，不必再弹提示
+  if (!v) return
+  const result = await noteStore.renameNote?.(targetId, v)
+  reportOpResult(result, { verb: '重命名', title: v })
 }
 function cancelRootRename() {
   renameState.active = false
@@ -433,8 +611,8 @@ function openRootContextMenu(e) {
 function openContextMenuForItem(e, kind, target) {
   let name = ''
   if (kind === 'folder') {
-    const f = [...treeFolders.value].concat(...treeFolders.value.map(x => x.children || [])).find(f => f.path === target)
-    name = f?.name || target
+    const node = folderIndex.value.get(target)
+    name = node?.name || String(target || '').split('/').pop() || target
   } else if (kind === 'note') {
     name = noteStore.notes.find(n => n.id === target)?.title || ''
   } else {
@@ -472,34 +650,38 @@ function createNoteHere() {
   if (folder) noteStore.setExpandedFolders([...noteStore.expandedFolders, folder])
   router.push(`/editor/${note.id}`)
 }
-function createSubfolderHere() {
+async function createSubfolderHere() {
   closeContextMenu()
   if (ctxMenu.kind !== 'folder') return
-  const name = window.prompt('新子文件夹名称', '新文件夹')
+  const name = await askDialog({ mode: 'prompt', title: '新子文件夹名称', defaultValue: '新文件夹' })
   if (!name) return
   const path = `${ctxMenu.target}/${name.trim()}`
   noteStore.createFolder(path)
   noteStore.setExpandedFolders([...noteStore.expandedFolders, ctxMenu.target, path])
 }
-function renameItemHere() {
+async function renameItemHere() {
   closeContextMenu()
   if (ctxMenu.kind === 'folder') {
-    const f = [...treeFolders.value, ...treeFolders.value.flatMap(x => x.children || [])].find(x => x.path === ctxMenu.target)
-    if (!f) return
-    const newName = window.prompt('文件夹新名称', f.name)
-    if (newName && newName.trim() !== f.name) {
+    const node = folderIndex.value.get(ctxMenu.target)
+    if (!node) return
+    const newName = await askDialog({ mode: 'prompt', title: '文件夹新名称', defaultValue: node.name })
+    // 原实现里这里误写成 `f.name`（f 未定义，一按确认就抛 ReferenceError），
+    // 换弹窗载体时顺手修正为比较该文件夹自己的名字 node.name。
+    if (newName && newName.trim() !== node.name) {
       noteStore.renameFolder?.(ctxMenu.target, newName.trim())
     }
   } else if (ctxMenu.kind === 'note') {
     const n = noteStore.notes.find(x => x.id === ctxMenu.target)
     if (!n) return
-    const newName = window.prompt('笔记新标题', n.title)
-    if (newName && newName.trim() !== n.title) {
-      noteStore.renameNote?.(ctxMenu.target, newName.trim())
-    }
+    const newName = await askDialog({ mode: 'prompt', title: '笔记新标题', defaultValue: n.title })
+    if (!newName) return
+    const clean = newName.trim()
+    if (!clean || clean === n.title) return
+    const result = await noteStore.renameNote?.(ctxMenu.target, clean)
+    reportOpResult(result, { verb: '重命名', title: clean })
   }
 }
-function duplicateItem() {
+async function duplicateItem() {
   closeContextMenu()
   if (ctxMenu.kind === 'note') {
     const n = noteStore.notes.find(x => x.id === ctxMenu.target)
@@ -509,27 +691,49 @@ function duplicateItem() {
     router.push(`/editor/${created.id}`)
   } else if (ctxMenu.kind === 'folder') {
     // 简单实现：提示暂不支持文件夹批量复制
-    alert('文件夹复制功能待实现，请复制其中的笔记。')
+    await askDialog({ mode: 'alert', title: '无法复制文件夹', message: '文件夹复制功能待实现，请复制其中的笔记。' })
   }
 }
-function deleteItemHere() {
+async function deleteItemHere() {
   closeContextMenu()
   if (ctxMenu.kind === 'note') {
-    if (!confirm('确定删除这篇笔记吗？（不可恢复）')) return
+    const ok = await askDialog({
+      mode: 'confirm',
+      title: '删除笔记',
+      // deleteNote → electronAPI.deleteFile → 主进程 shell.trashItem（失败退化为库内 .trash），
+      // 是「进回收站」而不是物理删除，旧文案写「不可恢复」与真实行为相反。
+      message: '确定删除这篇笔记吗？文件会被移入回收站，可以在回收站里找回。',
+      danger: true
+    })
+    if (!ok) return
     noteStore.deleteNote(ctxMenu.target)
   } else if (ctxMenu.kind === 'folder') {
-    if (!confirm(`确定删除文件夹「${ctxMenu.name}」？该文件夹下的所有笔记会被移到根目录。`)) return
-    noteStore.deleteFolder?.(ctxMenu.target)
+    const count = countNotesUnder(ctxMenu.target)
+    const ok = await askDialog({
+      mode: 'confirm',
+      title: `删除文件夹「${ctxMenu.name}」`,
+      // 与 deleteFolder 的真实行为逐条对应：它先把目录内（含子目录）所有笔记
+      // 从库中移除，再把整个目录交给 removeDir 进系统回收站（不可用时退化为库内
+      // .trash）。笔记**不会**被移到根目录 —— 旧文案正好说反了。
+      message: count > 0
+        ? `该文件夹及其子文件夹下的 ${count} 篇笔记会随目录一起被删除，文件进入回收站，可以找回。\n\n注意：笔记不会被移到根目录，而是和目录一起被移走。`
+        : '该文件夹会被删除，目录内容进入回收站，可以找回。',
+      danger: true
+    })
+    if (!ok) return
+    await deleteFolderWithNotice(ctxMenu.target, ctxMenu.name)
   }
 }
 
 // ============= 递归组件事件接收器 =============
-function receiveRename(p) {
+async function receiveRename(p) {
   if (!p) return
   if (p.type === 'folder') {
     noteStore.renameFolder?.(p.target, p.value)
   } else if (p.type === 'note') {
-    noteStore.renameNote?.(p.target, p.value)
+    // 来自 FolderNode 内联重命名：原来是同步调用，返回值（含失败原因）被丢掉
+    const result = await noteStore.renameNote?.(p.target, p.value)
+    reportOpResult(result, { verb: '重命名', title: String(p.value || '').trim() })
   }
 }
 function receiveCreateNote(p) {
@@ -541,10 +745,18 @@ function receiveCreateNote(p) {
 function receiveCreateFolder(p) {
   if (p?.path) noteStore.createFolder(p.path)
 }
-function receiveDeleteItem(p) {
+async function receiveDeleteItem(p) {
   if (!p) return
-  if (p.kind === 'note') noteStore.deleteNote(p.id)
-  else if (p.kind === 'folder') noteStore.deleteFolder?.(p.path)
+  if (p.kind === 'note') {
+    noteStore.deleteNote(p.id)
+    return
+  }
+  if (p.kind === 'folder') {
+    // 与右键菜单走同一套删除 + 降级告知，两条入口的文案不会各自漂移
+    const node = folderIndex.value.get(p.path)
+    const name = node?.name || String(p.path || '').split('/').pop() || p.path
+    await deleteFolderWithNotice(p.path, name)
+  }
 }
 
 // ============= DnD 接收器 =============
@@ -552,16 +764,17 @@ function clearDropState() { rootDrop.value = false; siblingDrop.kind = ''; sibli
 
 function onRootDragOver(e) { rootDrop.value = true }
 
-function onRootDrop(e) {
+async function onRootDrop(e) {
   clearDropState()
   const payload = readDndPayload(e)
   if (!payload) return
-  if (payload.type === 'note') noteStore.moveNote?.(payload.id, '')
-  else if (payload.type === 'folder') {
+  if (payload.type === 'note') {
+    const result = await noteStore.moveNote?.(payload.id, '')
+    reportOpResult(result, { verb: '移动' })
+  } else if (payload.type === 'folder') {
+    // 拖到根：renameFolder 只能改路径最后一段，跨层移动必须走 moveFolder
     if (!payload.parent) return
-    // 根级：重新 renameFolder(old => name) 使其成为 top-level
-    const name = payload.path.split('/').pop()
-    noteStore.renameFolder?.(payload.path, name)
+    await noteStore.moveFolder?.(payload.path, '')
   }
 }
 
@@ -582,17 +795,17 @@ function onSiblingDragOver(e, path, kind, folder) {
   siblingDrop.folder = folder
 }
 
-function onSiblingDrop(e, path, kind, folder) {
+async function onSiblingDrop(e, path, kind, folder) {
   const payload = readDndPayload(e)
   const zone = siblingDrop.kind || 'after'
   clearDropState()
   if (!payload) return
-  applyDndTarget({ source: payload, targetKind: kind, targetPath: path, zone, parentPath: folder, targetFolderContainer: folder })
+  await applyDndTarget({ source: payload, targetKind: kind, targetPath: path, zone, parentPath: folder, targetFolderContainer: folder })
 }
 
-function receiveDnd(p) {
+async function receiveDnd(p) {
   if (!p) return
-  applyDndTarget(p)
+  await applyDndTarget(p)
 }
 
 function readDndPayload(e) {
@@ -602,70 +815,54 @@ function readDndPayload(e) {
   return data
 }
 
-function applyDndTarget({ source, targetKind, targetPath, targetFolderContainer, zone, parentPath }) {
+/**
+ * 拖放落地。T03 之后 moveNote 是 async 且会返回 OpResult，所以这里必须 async：
+ * 树结构要等磁盘搬完才刷新（一次 IPC 往返），换来的是不再出现
+ * 「先变过去、失败再弹回」（PRD R-D3）。
+ *
+ * @param {object} p 拖放描述 { source, targetKind, targetPath, targetFolderContainer, zone, parentPath }
+ * @returns {Promise<void>}
+ */
+async function applyDndTarget({ source, targetKind, targetPath, targetFolderContainer, zone, parentPath }) {
   // 处理笔记移动到文件夹（zone==='on' 且 kind==='folder' 或 kind==='note' 则把 zone==='on' 视作 进入那个 note 所在文件夹）
   if (source.type === 'note') {
     if (targetKind === 'folder' && zone === 'on') {
-      noteStore.moveNote?.(source.id, targetPath)
-      if (!noteStore.expandedFolders.includes(targetPath)) noteStore.setExpandedFolders([...noteStore.expandedFolders, targetPath])
+      const result = await noteStore.moveNote?.(source.id, targetPath)
+      // 只在真的落进去之后才展开目标目录：失败时展开会让人以为已经进去了
+      if (reportOpResult(result, { verb: '移动' }) && !noteStore.expandedFolders.includes(targetPath)) {
+        noteStore.setExpandedFolders([...noteStore.expandedFolders, targetPath])
+      }
       return
     }
     if (targetKind === 'note') {
       const targetNote = noteStore.notes.find(n => n.id === targetPath)
       const destFolder = targetNote?.folder || ''
-      noteStore.moveNote?.(source.id, destFolder)
+      const result = await noteStore.moveNote?.(source.id, destFolder)
+      reportOpResult(result, { verb: '移动' })
       // before/after 目前仅做排序占位（未来可实现真顺序）
       return
     }
     // folder 的 before/after：放进 parent folder (root or targetFolderContainer)
-    noteStore.moveNote?.(source.id, parentPath || targetFolderContainer || '')
+    const result = await noteStore.moveNote?.(source.id, parentPath || targetFolderContainer || '')
+    reportOpResult(result, { verb: '移动' })
   } else if (source.type === 'folder') {
     // 禁止把文件夹拖到自己或后代里（简单检测）
     if (targetKind === 'folder' && (targetPath === source.path || targetPath.startsWith(source.path + '/'))) return
     if (targetKind === 'folder' && zone === 'on') {
-      // 作为子文件夹：renameFolder(oldPath => newPath under target)
-      const base = source.path.split('/').pop()
-      const dest = `${targetPath}/${base}`
-      noteStore.renameFolder?.(source.path, base)
-      // renameFolder 支持 oldPath/newName 语义；这里若需要更复杂路径移动则用 renameFolder(parent + old)
-      // 尝试用 renameFolder(old, target + name) 的方式需接口支持；若不支持则先进入目标子再 rename：
-      if (dest !== source.path) {
-        // 保证目标父目录存在
-        noteStore.createFolder?.(targetPath)
-        // 使用移动语义：复用 renameFolder(oldPath=source.path, newFolderPath=targetPath + '/' + base)
-        // 若 store 只支持「同级 rename」，则我们仅能 move 到 parent；这种情况下退化为展开目标文件夹
-        try { renameFolderCross(source.path, targetPath, base) } catch {}
+      // 真正把整棵树搬过去：磁盘目录 + 内存 folder/filePath + 派生索引都一起改。
+      // 之前这里连调两次 renameFolder 再补一个只改内存的 hack，跨层移动完全不通，
+      // 拖完看着对，重启目录树就"复活"，后续写盘还会留下孤儿文件。
+      // moveFolder 返回的是 boolean（不是 OpResult），失败原因由 store 自己上报，
+      // 这里只保证「没成功就别展开目标目录」，避免看起来像搬进去了。
+      const moved = await noteStore.moveFolder?.(source.path, targetPath)
+      if (moved === false) return
+      if (!noteStore.expandedFolders.includes(targetPath)) {
+        noteStore.setExpandedFolders([...noteStore.expandedFolders, targetPath])
       }
       return
     }
     // 其它情况：保持相同 parent 层级；暂不调整顺序
   }
-}
-
-// Cross-level folder move (emulated via renameFolder when it supports prefix change)
-function renameFolderCross(oldPath, parentPath, baseName) {
-  // 检查 renameFolder 的实现：如果 oldPath.startsWith(parentPath+'/') 则无变化；否则通过直接修改 store 中的 note.folder
-  const newFull = parentPath ? `${parentPath}/${baseName}` : baseName
-  if (newFull === oldPath) return
-  const store = noteStore
-  // Try: renameFolder(oldPath, newFull) 并不匹配语义。用 hack：直接改 notes 的 folder + 重建 state
-  const notes = store.notes || []
-  notes.forEach(n => {
-    if (n.folder === oldPath) n.folder = newFull
-    else if (n.folder && n.folder.startsWith(oldPath + '/')) {
-      n.folder = newFull + n.folder.slice(oldPath.length)
-    }
-  })
-  // updated expandedFolders
-  store.setExpandedFolders(
-    store.expandedFolders.map(p => {
-      if (p === oldPath) return newFull
-      if (p.startsWith(oldPath + '/')) return newFull + p.slice(oldPath.length)
-      return p
-    })
-  )
-  // re-assert selectedFolder
-  if (store.selectedFolder === oldPath) store.setSelectedFolder(newFull)
 }
 </script>
 

@@ -3,7 +3,8 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
-dist-electron/
+# 带数字后缀的是「输出目录被锁死时换目录重打」的产物（dist-electron2/3/…），同样不能提交
+dist-electron*/
 out/
 
 # Electron builder output

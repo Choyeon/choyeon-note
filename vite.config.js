@@ -15,7 +15,9 @@ export default defineConfig({
     strictPort: true
   },
   test: {
-    environment: 'node',
+    // store 依赖 localStorage / window.matchMedia，组件测试也需要 DOM。
+    // 固定为 node 会让这些文件根本没法测。
+    environment: 'jsdom',
     include: ['tests/**/*.test.js']
   }
 })

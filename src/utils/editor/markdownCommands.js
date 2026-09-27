@@ -536,9 +536,49 @@ export function insertTable(rows = 3, cols = 3) {
   }
 }
 
+/**
+ * 插入 Obsidian 风格 callout：头行 `> [!note] ` + 内容行 `> `。
+ *
+ * 格式必须与项目里三处既有解析同构，否则刚插进去的块在阅读视图 / 实时预览里不渲染：
+ * - `useLinks.js` 的 `parseCallouts`（头行 CALLOUT_LINE，其后连续的 `>` 行算块内）
+ * - `livePreview/constants.js` 的 `CALLOUT_RE`（`^>\s*\[!type]`）
+ * - `livePreview/scan.js` 的 `collectCalloutBlocksRaw`（头行起直到非 `>` 行）
+ *
+ * 三种上下文必须分别处理，否则插完格式会碎：
+ * - 行首且上一行为空（或就是首行）→ 原地插入，不额外留空行；
+ * - 行中间 → 先补换行，把当前行剩余内容顶到下一行；
+ * - 行首但上一行非空 → 补换行，保证块前有空行（Markdown 块级语法要求）。
+ * 另外：当前行已有引用前缀（`> ` / `  > `）时复用该前缀（含缩进），
+ * 避免叠出 `> > [!note]` 这种双层引用。
+ */
+export const insertCallout = (view) => {
+  const { state } = view
+  const range = state.selection.main
+  const line = state.doc.lineAt(range.from)
+  const quote = line.text.match(QUOTE_RE)
+  // `>x`（无空格）虽然也能被 CALLOUT_RE 认，但补齐一个空格才对齐 parseCallouts 的常规写法
+  const prefix = quote ? (quote[0].endsWith(' ') ? quote[0] : `${quote[0]} `) : '> '
+  const atLineStart = range.from === line.from
+  const prevBlank = line.number === 1 || state.doc.line(line.number - 1).text.trim() === ''
+  const lead = atLineStart && prevBlank ? '' : '\n'
+  const insert = `${lead}${prefix}[!note] \n${prefix}\n`
+  // 光标停在头行末尾，用户可以直接敲标题
+  const titlePos = range.from + lead.length + prefix.length + '[!note] '.length
+  view.dispatch({
+    changes: { from: range.from, to: range.to, insert },
+    selection: EditorSelection.cursor(titlePos),
+    scrollIntoView: true,
+    userEvent: 'input.insert'
+  })
+  return true
+}
+
 export function insertText(text, selectOffset = text.length) {
   return (view) => insertAtCursor(view, text, selectOffset)
 }
+
+/** 插入标签起始符 `#`：后面接着敲文字即成标签，候选项由 obsidianAutocomplete 接管 */
+export const insertTag = insertText('#')
 
 export function insertTemplate(template) {
   return (view) => {

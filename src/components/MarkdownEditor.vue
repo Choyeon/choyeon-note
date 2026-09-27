@@ -5,7 +5,7 @@
 </template>
 
 <script setup>
-import { computed, onMounted, watch } from 'vue'
+import { computed, onMounted, watch, nextTick } from 'vue'
 import { useEditor } from '@/composables/useEditor'
 import { useAppStore } from '@/stores/app'
 
@@ -99,6 +99,8 @@ const {
   getBinding: (id) => appStore.getBinding(id),
   getSpellErrors: (text) => appStore.getSpellErrors(text),
   getSpellVersion: () => appStore.spellVersion,
+  // 双链解析（未创建的笔记要标灰）：与阅读视图走同一个 noteStore 解析器
+  resolveWiki: (target) => props.completionContext?.resolveWiki?.(target),
 
   onChange: (val) => {
     emit('update:modelValue', val)
@@ -128,27 +130,52 @@ watch(() => props.modelValue, (val) => {
   if (typeof val === 'string' && val !== content.value) setContent(val)
 }, { flush: 'post' })
 
-watch(() => props.completionContext, syncDataSources, { deep: true, immediate: true })
+// 补全上下文每次击键都会重新生成（outline 由正文推导），deep watch 会对整个对象
+// 做深度遍历——里面是全库笔记数组，长库 + 长文下是每键一次全量递归。
+// 真正影响补全与大纲缓存的只有这 4 个字段，改成浅层按字段订阅：
+// 值没变就不触发 syncDataSources，也就不会再误清大纲缓存。
+watch(
+  [
+    () => props.completionContext?.notes?.length,
+    () => props.completionContext?.currentNoteId,
+    () => props.completionContext?.tags,
+    () => props.completionContext?.outline
+  ],
+  syncDataSources,
+  { immediate: true }
+)
 
 watch(() => props.livePreview, (v) => setLivePreview(v))
 
 watch(() => appStore.spellCheck, (v) => setSpellEnabled(v))
+
+// 「忽略单词 / 加入词典」只递增了 spellVersion，没有任何地方监听它，
+// 红波浪线要等用户下次敲键触发防抖重算才消失。这里补上监听。
+watch(() => appStore.spellVersion, () => forceRefreshSpell())
+
+// 拼写数据从磁盘 hydrate 完成后同样要重算（设置页导入词典等场景）
+watch([() => appStore.ignoredWords.size, () => appStore.customDictionary.size], () => forceRefreshSpell())
 
 // 主题 / 行号 / 换行走 Compartment 热切换，撤销栈与光标位置都保留
 watch(() => appStore.effectiveTheme, (t) => reconfigureTheme(t === 'dark'))
 watch([() => appStore.showLineNumbers, () => appStore.wordWrap], reconfigureLayout)
 
 // 快捷键重建是不可避免的 setState，用 JSON 快照做去重，避免每次设置页输入都重建
-let lastHotkeySnapshot = JSON.stringify(appStore.hotkeys)
+// 快照用 immediate 初始化：setup 期快照会漏掉 store 异步 hydrate 之后的首次变更
+let lastHotkeySnapshot = ''
 watch(() => appStore.hotkeys, (v) => {
   const snapshot = JSON.stringify(v)
   if (snapshot === lastHotkeySnapshot) return
   lastHotkeySnapshot = snapshot
   refreshKeymap()
-}, { deep: true })
+}, { deep: true, immediate: true })
 
-// 切换笔记时整篇内容换掉，装饰必须重算
-watch(() => props.docKey, () => forceRefreshSpell())
+// 切换笔记时整篇内容换掉，装饰必须重算。
+// 必须等 modelValue 的 setContent（flush: 'post'）执行完再跑，否则会在旧文档上重算。
+watch(() => props.docKey, async () => {
+  await nextTick()
+  forceRefreshSpell()
+}, { flush: 'post' })
 
 watch(isFocused, (v) => emit(v ? 'focus' : 'blur'))
 

@@ -33,9 +33,11 @@ import { searchKeymap, highlightSelectionMatches, search } from '@codemirror/sea
 import { autocompletion, completionKeymap, snippetCompletion as snip } from '@codemirror/autocomplete'
 import { getEditorTheme } from '../utils/editor/themes'
 import { spellCheckExtension, forceSpellUpdate, spellRectOf } from '../utils/editor/spellcheck'
-import { createLivePreviewPlugin, toggleLivePreview } from '../utils/editor/livePreview'
+import { createLivePreviewPlugin, toggleLivePreview, setWikiResolver } from '../utils/editor/livePreview'
 import * as md from '../utils/editor/markdownCommands'
+import { normalizeBinding } from '../constants/shortcuts.js'
 import { extractOutline } from '../composables/useLinks.js'
+import { computeTextStats } from '../utils/textStats'
 
 /**
  * 编辑器核心。
@@ -50,6 +52,10 @@ import { extractOutline } from '../composables/useLinks.js'
  * 3. 外部 setContent（切换笔记 / 磁盘回写）打上 addToHistory=false，
  *    不会污染撤销栈。
  * 4. 快捷键统一从注册表读取，用户改了设置立即生效。
+ * 5. **编辑器里不绑定任何 app scope 的命令**。曾经这里硬编码过 `Mod-s`，
+ *    结果是「用户把 app.save 改成别的键后，编辑器里按 Mod-s 仍然保存」+「与 App.vue 的
+ *    全局调度各触发一次」。保存现在是 app scope，由 App.vue 捕获阶段统一调度（T09）。
+ *    `options.onSave` 作为对外接口保留（MarkdownEditor 仍透传 `@save`），但不再挂 keymap。
  */
 
 // ---------------------------------------------------------------------------
@@ -95,8 +101,21 @@ export const EDITOR_COMMANDS = {
   'insert.wikiLink': md.insertWikiLink,
   'insert.table': md.insertTable(3, 3),
   'insert.date': md.insertText(new Date().toLocaleDateString('zh-CN')),
-  'insert.time': md.insertText(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }))
+  'insert.time': md.insertText(new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })),
+  'insert.callout': md.insertCallout,
+  'insert.tag': md.insertTag
 }
+
+/**
+ * 编辑器命令的 id 全集，由 `EDITOR_COMMANDS` 派生 —— 不存在第二份手工清单。
+ *
+ * 唯一用途：喂给 `auditShortcuts({ editorCommandIds: EDITOR_COMMAND_IDS })` 做
+ * 「注册表 ↔ 执行器」覆盖校验。手工维护清单必然漂移（清单里多一条 = 假绿，少一条 = 假红），
+ * 派生写法把「新增命令」收敛成一个动作：往 `EDITOR_COMMANDS` 里加一个键即可。
+ *
+ * @type {string[]}
+ */
+export const EDITOR_COMMAND_IDS = Object.keys(EDITOR_COMMANDS)
 
 /** 编辑器内置、不参与用户自定义的行为键（列表续行 / 智能退格） */
 const BEHAVIOR_KEYS = [
@@ -104,19 +123,33 @@ const BEHAVIOR_KEYS = [
   { key: 'Backspace', run: md.smartBackspace }
 ]
 
+/**
+ * 绑定串 → 比较键。
+ *
+ * 直接复用注册表的 `normalizeBinding`，不再自己 `toLowerCase()`。
+ * 原因：只做小写化时，`Shift-Mod-d`（老用户 localStorage 里的旧写法）与 CodeMirror
+ * defaultKeymap 里的 `Mod-Shift-d` 对不上，`withoutKeys` 剔除不干净 → 同一个键被
+ * 自定义层和默认层各处理一次（典型表现：按一次触发两下）。
+ *
+ * @param {unknown} key CodeMirror keymap 的 key 字段，或注册表的绑定串
+ * @returns {string} 规范串；`''` 表示空 / 非法（缺主键）
+ */
 function normalizeKey(key) {
-  return String(key || '').toLowerCase().replace(/^mod-/, 'mod-')
+  return normalizeBinding(key)
 }
 
 function withoutKeys(bindings, keys) {
-  const blocked = new Set(keys.map(k => normalizeKey(k)))
+  // 空串不能进剔除集合：否则任何解析不出主键的绑定都会被整片误删
+  const blocked = new Set(keys.map(k => normalizeKey(k)).filter(Boolean))
   const out = []
   for (const binding of bindings || []) {
     if (Array.isArray(binding)) {
       out.push(withoutKeys(binding, keys))
       continue
     }
-    if (binding && !blocked.has(normalizeKey(binding.key))) out.push(binding)
+    if (!binding) continue
+    const key = normalizeKey(binding.key)
+    if (!key || !blocked.has(key)) out.push(binding)
   }
   return out
 }
@@ -145,6 +178,9 @@ export function useEditor(options = {}) {
   const themeCompartment = new Compartment()
   const lineNumbersCompartment = new Compartment()
   const wrapCompartment = new Compartment()
+  // 用户改键位时只重配置这一层：早先这里直接 setState(EditorState.create(...))，
+  // 会把撤销栈、折叠状态、搜索面板一起清空——正在编辑的长文改一条键位就没法撤销了。
+  const hotkeyCompartment = new Compartment()
 
   const dataSources = shallowRef({
     notes: [],
@@ -155,7 +191,30 @@ export function useEditor(options = {}) {
     onCreateNote: null
   })
 
+  /**
+   * 笔记集合的「身份指纹」：笔记 id 序列 + 当前笔记 id。
+   * 只有这两者变化才意味着笔记增删 / 切换笔记 / 切库，此时旧的大纲缓存才真的作废。
+   *
+   * 之前只要调用 setDataSources 就无条件 clear()，而上层每次击键都会推一次新的
+   * 补全上下文（里面带 outline），于是每敲一个字都要把全库笔记的大纲缓存清空、
+   * 下次输入 `[[笔记#` 时再全量重解析一遍。
+   */
+  let notesFingerprint = ''
+
+  function noteSetFingerprint(notes, currentNoteId) {
+    const ids = (notes || []).map(n => (n && n.id != null ? String(n.id) : ''))
+    return `${ids.join('\u0000')}\u0001${currentNoteId != null ? String(currentNoteId) : ''}`
+  }
+
   function setDataSources(next) {
+    if (next && next.notes) {
+      const fingerprint = noteSetFingerprint(next.notes, next.currentNoteId)
+      // 笔记集合没变 → 各笔记的大纲也没变，缓存继续有效
+      if (fingerprint !== notesFingerprint) {
+        notesFingerprint = fingerprint
+        outlineCache.clear()
+      }
+    }
     dataSources.value = { ...dataSources.value, ...next }
   }
 
@@ -201,6 +260,25 @@ export function useEditor(options = {}) {
     return null
   }
 
+  // 其它笔记的大纲按需解析 + 缓存。键是 note id，值是大纲数组。
+  // 上层只要重新 setDataSources（笔记增删 / 切库）就会重建本实例，缓存随之失效。
+  const outlineCache = new Map()
+
+  function outlineOfNote (n) {
+    const cached = outlineCache.get(n.id)
+    if (cached !== undefined) return cached
+    let result = []
+    try {
+      result = (typeof n.outlineOf === 'function')
+        ? (n.outlineOf(n.id) || [])
+        : safeOutline(n.content)
+    } catch (err) {
+      result = []
+    }
+    outlineCache.set(n.id, result)
+    return result
+  }
+
   function noteCompletions(query) {
     const { notes, outline } = dataSources.value || {}
     const q = (query || '').toLowerCase()
@@ -226,9 +304,12 @@ export function useEditor(options = {}) {
       })
 
       if (hashQ) {
+        // 只在用户真的输入了 `#` 时才去解析目标笔记的大纲，并且结果按 id 缓存。
+        // 之前补全上下文里带着全库每篇笔记的 content，敲一个字符就要重算一次
+        // 全库拷贝；而大纲只有搜索 `#` 时才用得到。
         const headings = n.id === dataSources.value.currentNoteId
           ? (outline || [])
-          : safeOutline(n.content)
+          : outlineOfNote(n)
         for (const h of headings) {
           if (!h.text.toLowerCase().includes(hashQ)) continue
           list.push({
@@ -433,23 +514,29 @@ export function useEditor(options = {}) {
   // 统计
   // -------------------------------------------------------------------------
   function computeStats(text) {
-    charCount.value = text.length
-    lineCount.value = text.split('\n').length
-    // 中英混排计数：CJK 按字计，拉丁文按词计，避免纯中文文档只算 1 个词
-    const cjk = (text.match(/[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/g) || []).length
-    const latin = (text.replace(/[\u4e00-\u9fa5\u3040-\u30ff\uac00-\ud7af]/g, ' ')
-      .match(/[A-Za-z0-9_'’\-]+/g) || []).length
-    wordCount.value = cjk + latin
+    // 与 store / 阅读视图共用同一份口径，避免同一篇笔记两处字数不一致
+    const stats = computeTextStats(text)
+    charCount.value = stats.chars
+    lineCount.value = stats.lines
+    wordCount.value = stats.words
   }
 
   // -------------------------------------------------------------------------
   // 扩展装配
   // -------------------------------------------------------------------------
+  /**
+   * 从注册表（经 options.getBinding）读出每条编辑器命令的当前键位，生成 CodeMirror keymap。
+   *
+   * 交给 `keymap.of()` 之前**必须**过一遍 `normalizeBinding`：用户 localStorage 里存的
+   * 可能是老写法（`Shift-Mod-d`、`MOD-SHIFT-D`、`Ctrl+Alt+X`），CodeMirror 的键位解析器
+   * 只认规范序 `Mod-Shift-Alt-<主键>`，裸喂进去要么不生效、要么解析成另一个键。
+   */
   function buildHotkeyBindings() {
     const bindings = []
     const getBinding = options.getBinding || (() => '')
     for (const [id, command] of Object.entries(EDITOR_COMMANDS)) {
-      const key = getBinding(id)
+      const key = normalizeBinding(getBinding(id))
+      // 空串 = 用户没绑键（或被规范化判定为非法，如 `Mod-`）→ 不进 keymap
       if (!key) continue
       bindings.push({ key, run: command, preventDefault: true })
     }
@@ -460,14 +547,19 @@ export function useEditor(options = {}) {
     const isDark = options.isDark?.() ?? document.documentElement.getAttribute('data-theme') === 'dark'
     const hotkeyBindings = buildHotkeyBindings()
     const hotkeyKeys = hotkeyBindings.map(b => b.key)
+    // 双链目标是否存在：与阅读视图共用 noteStore 的解析器，否则实时预览里的
+    // 「未创建」链接不会变灰，两种模式看上去就不一致了
+    setWikiResolver(options.resolveWiki)
 
     const extensions = [
-      // ---- 高优先级：Markdown 行为键 + 用户自定义快捷键 + 保存 ----
-      Prec.high(keymap.of([
+      // ---- 高优先级：Markdown 行为键 + 用户自定义快捷键 ----
+      // 这里曾经硬编码过 `{ key: 'Mod-s', run: onSave }`：它不受用户改键影响（把 app.save
+      // 改成别的键后，编辑器里按 Mod-s 照样保存），而且会与 App.vue 的 app scope 调度
+      // 各触发一次 = 保存两次。app.save 现在是 app scope 命令，由 App.vue 统一调度。
+      hotkeyCompartment.of(Prec.high(keymap.of([
         ...hotkeyBindings,
-        ...BEHAVIOR_KEYS,
-        { key: 'Mod-s', preventDefault: true, run: () => { options.onSave?.(); return true } }
-      ])),
+        ...BEHAVIOR_KEYS
+      ]))),
       // ---- 默认键位（剔除已被上面接管的键，避免重复触发）----
       keymap.of([
         ...withoutKeys(defaultKeymap, hotkeyKeys),
@@ -591,17 +683,24 @@ export function useEditor(options = {}) {
     })
   }
 
-  /** 快捷键改了要重建整个 keymap —— 这是唯一会重置 State 的情况，频率极低 */
+  /**
+   * 键位改了只需重配置 hotkey compartment，撤销栈 / 折叠 / 搜索面板全部保留。
+   * 刻意不重建 view（早先这里直接 setState(EditorState.create(...))，长文改一条键位
+   * 就没法撤销了）。
+   *
+   * 默认键位层里被剔除的键集合（withoutKeys(defaultKeymap, hotkeyKeys)）只在建实例时
+   * 算一次，改键后可能与新键位不完全一致（被释放的旧键仍留在剔除集合里）；
+   * 但两侧现在都走 normalizeBinding，至少同键写法一定对得上，而自定义键位始终跑在
+   * Prec.high 层，优先级高于默认层，不会出现"改了键没反应"。
+   */
   function refreshKeymap() {
     if (!view.value) return
-    const prev = view.value.state
-    view.value.setState(
-      EditorState.create({
-        doc: prev.doc,
-        selection: prev.selection,
-        extensions: createExtensions()
-      })
-    )
+    view.value.dispatch({
+      effects: hotkeyCompartment.reconfigure(Prec.high(keymap.of([
+        ...buildHotkeyBindings(),
+        ...BEHAVIOR_KEYS
+      ])))
+    })
   }
 
   function init() {

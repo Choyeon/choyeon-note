@@ -9,7 +9,7 @@
       <button 
         class="px-3 py-1.5 rounded-lg cursor-pointer transition-all duration-200 hover:opacity-90 active:scale-95 text-[13px] font-medium text-white"
         :style="{ background: 'var(--color-primary)' }"
-        @click="showCreateTag = true"
+        @click="openCreateTag"
       >
         <Plus class="w-4 h-4 inline mr-1" />新建标签
       </button>
@@ -69,12 +69,64 @@
               {{ note.title }}
             </span>
             <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">
-              {{ formatDate(note.updatedAt) }}
+              {{ formatDate(note.updatedAt, 'date') }}
             </span>
           </div>
         </div>
       </div>
     </div>
+
+      <!-- 新建标签：之前按钮只把 showCreateTag 置 true，但模板里根本没有弹窗，纯死代码 -->
+      <Teleport to="body">
+        <div
+          v-if="showCreateTag"
+          class="fixed inset-0 z-[200] flex items-center justify-center"
+          :style="{ background: 'rgba(0,0,0,0.35)' }"
+          @click.self="closeCreateTag"
+        >
+          <div
+            class="w-[380px] rounded-[14px] p-5"
+            :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border)', boxShadow: 'var(--shadow-lg)' }"
+            role="dialog"
+            aria-modal="true"
+            aria-label="新建标签"
+            @keydown.esc="closeCreateTag"
+          >
+            <h3 class="text-[15px] font-semibold mb-1" :style="{ color: 'var(--color-text-primary)' }">新建标签</h3>
+            <p class="text-[12px] mb-3" :style="{ color: 'var(--color-text-tertiary)' }">
+              标签来自笔记正文里的 #标签。新建时会同时创建一篇同名笔记作为该标签的入口。
+            </p>
+            <input
+              ref="tagInputRef"
+              v-model="newTagName"
+              type="text"
+              placeholder="标签名，例如 读书"
+              class="w-full h-9 px-3 rounded-[8px] text-[13px] outline-none"
+              :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border)' }"
+              @keydown.enter="confirmCreateTag"
+            />
+            <p v-if="createTagError" class="text-[12px] mt-1.5" :style="{ color: 'var(--state-error)' }">
+              {{ createTagError }}
+            </p>
+            <div class="flex justify-end gap-2 mt-4">
+              <button
+                class="h-8 px-3 rounded-[8px] text-[13px] cursor-pointer"
+                :style="{ color: 'var(--color-text-secondary)', border: '1px solid var(--color-border)' }"
+                @click="closeCreateTag"
+              >
+                取消
+              </button>
+              <button
+                class="h-8 px-3 rounded-[8px] text-[13px] font-medium text-white cursor-pointer"
+                :style="{ background: 'var(--color-primary)' }"
+                @click="confirmCreateTag"
+              >
+                创建
+              </button>
+            </div>
+          </div>
+        </div>
+      </Teleport>
 
     <div class="cho-statusbar">
       <span class="cho-statusbar-meta">
@@ -85,9 +137,10 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
+import { formatDate } from '@/utils/format'
 import { Tag, Plus, ArrowLeft, FileText } from 'lucide-vue-next'
 
 const router = useRouter()
@@ -95,32 +148,78 @@ const noteStore = useNoteStore()
 
 const selectedTag = ref(null)
 const showCreateTag = ref(false)
+const newTagName = ref('')
+const createTagError = ref('')
+const tagInputRef = ref(null)
 
 const allTags = computed(() => noteStore.allTags)
 
 const filteredByTag = computed(() => {
   if (!selectedTag.value) return []
-  return noteStore.notes.filter(n => n.tags.includes(selectedTag.value))
+  const tag = selectedTag.value
+  // 兼容 note.tags 尚未同步的旧数据：正文里出现的标签同样算命中
+  return noteStore.notes.filter(n =>
+    (Array.isArray(n.tags) && n.tags.includes(tag))
+  )
 })
 
 function getTagNoteCount(tag) {
-  return noteStore.notes.filter(n => n.tags.includes(tag)).length
+  let count = 0
+  for (const n of noteStore.notes) {
+    if (Array.isArray(n.tags) && n.tags.includes(tag)) count++
+  }
+  return count
 }
 
 function filterByTag(tag) {
   selectedTag.value = tag
 }
 
+function openCreateTag() {
+  newTagName.value = ''
+  createTagError.value = ''
+  showCreateTag.value = true
+  nextTick(() => tagInputRef.value?.focus())
+}
+
+function closeCreateTag() {
+  showCreateTag.value = false
+  newTagName.value = ''
+  createTagError.value = ''
+}
+
+function confirmCreateTag() {
+  const raw = String(newTagName.value || '').trim()
+  if (!raw) {
+    createTagError.value = '请输入标签名'
+    return
+  }
+  // 标签名不能含空白与 #，否则无法在正文中稳定匹配
+  const name = raw.replace(/^#/, '').replace(/\s+/g, '-')
+  if (!name) {
+    createTagError.value = '标签名不合法'
+    return
+  }
+  if (allTags.value.includes(name)) {
+    createTagError.value = '该标签已存在'
+    return
+  }
+  const note = noteStore.createNote('', name)
+  noteStore.updateNoteContent(note.id, `# ${name}\n\n#${name}\n`)
+  closeCreateTag()
+  selectedTag.value = name
+  router.push(`/editor/${note.id}`)
+}
+
+watch(showCreateTag, (open) => {
+  if (open) nextTick(() => tagInputRef.value?.focus())
+})
+
 function openNote(id) {
   noteStore.selectNote(id)
   router.push(`/editor/${id}`)
 }
 
-function formatDate(date) {
-  if (!date) return ''
-  const d = new Date(date)
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
-}
 </script>
 
 <style scoped>

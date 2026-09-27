@@ -5,7 +5,9 @@ import { tags as t } from '@lezer/highlight'
 const lightTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
-    color: 'var(--color-text-primary)',
+    // 正文色与阅读视图保持一致（.markdown-body p/li 用的就是 --color-text-body）；
+    // 标题 / 引用 / 链接等各自显式覆盖，因此「编辑即所得」不会被带偏。
+    color: 'var(--color-text-body)',
     fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
     lineHeight: '1.72'
@@ -109,7 +111,7 @@ const lightTheme = EditorView.theme({
 const darkTheme = EditorView.theme({
   '&': {
     backgroundColor: 'transparent',
-    color: 'var(--color-text-primary)',
+    color: 'var(--color-text-body)',
     fontSize: 'calc(var(--font-size-body) * var(--editor-zoom, 1))',
     fontFamily: "var(--font-body), 'Segoe UI', system-ui, sans-serif",
     lineHeight: '1.72'
@@ -215,16 +217,49 @@ const darkTheme = EditorView.theme({
  * 两种模式因此拥有一致的字号 / 间距 / 颜色 —— 「编辑即所得」。
  * 主题无关，light / dark 共用一份。
  */
+/** callout 配色：与 style.css 的 .callout-* 分组完全一致 */
+const CALLOUT_ACCENTS = [
+  [['note', 'info', 'abstract', 'summary', 'tldr'], 'var(--state-info)'],
+  [['tip', 'hint', 'important', 'success'], 'var(--state-success)'],
+  [['warning', 'caution', 'attention'], 'var(--state-warning)'],
+  [['danger', 'error', 'fail', 'failure', 'bug', 'missing'], 'var(--state-error)'],
+  [['question', 'example', 'quote', 'todo'], 'var(--color-accent)']
+]
+
+/**
+ * 展开成 `.cm-md-callout-xxx { --callout-accent }` + 标题同色。
+ * 只暴露 CSS 变量，颜色本身统一由 `var(--callout-accent, …)` 消费 ——
+ * 与 style.css 的 `.callout-*` 分组写法一致，两种模式算出来的颜色必然相同。
+ */
+function buildCalloutRules() {
+  const rules = {}
+  for (const [types, accent] of CALLOUT_ACCENTS) {
+    rules[types.map(t => `.cm-line.cm-md-callout-${t}`).join(', ')] = { '--callout-accent': accent }
+    rules[types.map(t => `.cm-line.cm-md-callout-${t} .cm-md-callout-title`).join(', ')] = {
+      color: 'var(--callout-accent, var(--color-primary))'
+    }
+  }
+  return rules
+}
+
 const mdDecorationsTheme = EditorView.theme({
-  // ---- 标题 ----
-  '.cm-md-heading': { fontWeight: '700', lineHeight: '1.3' },
-  '.cm-md-h1': { fontSize: '1.9em', marginTop: '0.9em', marginBottom: '0.45em', letterSpacing: '-0.01em' },
-  '.cm-md-h2': { fontSize: '1.5em', marginTop: '0.8em', marginBottom: '0.4em' },
-  '.cm-md-h3': { fontSize: '1.25em', marginTop: '0.7em', marginBottom: '0.35em', fontWeight: '600' },
-  '.cm-md-h4': { fontSize: '1.1em', marginTop: '0.6em', marginBottom: '0.3em', fontWeight: '600' },
-  '.cm-md-h5, .cm-md-h6': { fontSize: '1em', marginTop: '0.5em', marginBottom: '0.25em', fontWeight: '600', color: 'var(--color-text-secondary)' },
+  // ---- 标题（字号/字重/间距与 .markdown-body h1~h6 一致）----
+  '.cm-line.cm-md-heading': {
+    fontFamily: 'var(--font-title)',
+    fontWeight: '600',
+    color: 'var(--color-text-primary)',
+    lineHeight: '1.3',
+    letterSpacing: '-0.3px'
+  },
+  '.cm-line.cm-md-h1': { fontSize: '1.86em', marginTop: '1.6em', marginBottom: '0.5em' },
+  '.cm-line.cm-md-h2': { fontSize: '1.53em', marginTop: '1.6em', marginBottom: '0.5em' },
+  '.cm-line.cm-md-h3': { fontSize: '1.27em', marginTop: '1.6em', marginBottom: '0.5em' },
+  '.cm-line.cm-md-h4': { fontSize: '1.07em', marginTop: '1.6em', marginBottom: '0.5em' },
+  '.cm-line.cm-md-h5': { fontSize: '0.93em', marginTop: '1.6em', marginBottom: '0.5em' },
+  '.cm-line.cm-md-h6': { fontSize: '0.87em', marginTop: '1.6em', marginBottom: '0.5em', color: 'var(--color-text-secondary)' },
   // ---- 行内强调 ----
-  '.cm-md-strong': { fontWeight: '700', color: 'var(--color-text-primary)' },
+  // 加粗只改字重：颜色继承所在行，才能与阅读视图里 strong 的表现一致
+  '.cm-md-strong': { fontWeight: '700' },
   '.cm-md-em': { fontStyle: 'italic' },
   '.cm-md-highlight': {
     background: 'rgba(255, 213, 79, 0.4)',
@@ -233,30 +268,54 @@ const mdDecorationsTheme = EditorView.theme({
     padding: '0 1px'
   },
   '.cm-md-strike': { textDecoration: 'line-through', color: 'var(--color-text-tertiary)' },
+  // 行内代码：背景 / 圆角 / 内边距 / 颜色全部对齐 .markdown-body :not(pre) > code
   '.cm-md-inline-code': {
-    fontFamily: 'var(--font-mono), Consolas, monospace',
-    fontSize: '0.9em',
+    fontFamily: 'var(--font-mono)',
+    fontSize: 'calc(13px * var(--editor-zoom, 1))',
     background: 'var(--color-bg-tertiary)',
-    border: '1px solid var(--color-border-light)',
     borderRadius: '5px',
-    padding: '1px 5px',
-    color: 'var(--state-error)'
+    padding: '2px 6px',
+    color: 'var(--color-primary-darker)'
   },
   // ---- 链接 / 双链 / 标签 ----
+  // 双链对齐 a.wikilink：胶囊底 + 主色
   '.cm-md-wikilink': {
+    display: 'inline',
     color: 'var(--color-primary)',
-    cursor: 'pointer',
+    background: 'var(--color-primary-surface)',
+    padding: '1px 6px',
+    borderRadius: '5px',
     textDecoration: 'none',
+    cursor: 'pointer',
     fontWeight: '500',
-    borderRadius: '3px'
+    border: '1px solid transparent'
   },
-  '.cm-md-wikilink:hover': { background: 'var(--color-primary-surface)' },
+  '.cm-md-wikilink:hover': { background: 'var(--color-primary-lighter)' },
+  // 未创建的笔记：与 `a.wikilink.is-unresolved` 完全一致（灰 / 斜体 / 虚线 / 尾部 +）
+  '.cm-md-wikilink-missing': {
+    color: 'var(--color-text-tertiary)',
+    background: 'var(--color-bg-tertiary)',
+    borderStyle: 'dashed',
+    borderColor: 'var(--color-border)',
+    fontStyle: 'italic'
+  },
+  '.cm-md-wikilink-missing::after': {
+    content: "'+'",
+    marginLeft: '3px',
+    fontWeight: '600',
+    opacity: '0.6'
+  },
+  // 普通链接对齐 .markdown-body a：默认无下划线，hover 才有
   '.cm-md-link, .cm-md-bare-url': {
     color: 'var(--color-primary)',
-    textDecoration: 'underline',
-    textUnderlineOffset: '2px',
+    textDecoration: 'none',
     cursor: 'pointer'
   },
+  '.cm-md-link:hover, .cm-md-bare-url:hover': {
+    textDecoration: 'underline',
+    textUnderlineOffset: '2px'
+  },
+  '.cm-md-image': { color: 'var(--color-primary)' },
   '.cm-md-tag': {
     color: 'var(--color-primary)',
     background: 'var(--color-primary-surface)',
@@ -266,14 +325,14 @@ const mdDecorationsTheme = EditorView.theme({
     fontWeight: '500'
   },
   // ---- 列表 / 任务 ----
-  '.cm-md-list-line': { paddingLeft: '6px' },
+  '.cm-line.cm-md-list-line': { paddingLeft: '6px' },
   '.cm-md-list-marker': {
-    color: 'var(--color-primary)',
+    color: 'var(--color-text-tertiary)',
     fontWeight: '600',
     display: 'inline-block',
     minWidth: '1.1em'
   },
-  '.cm-md-task-line': { paddingLeft: '2px' },
+  '.cm-line.cm-md-task-line': { paddingLeft: '2px' },
   '.cm-md-checkbox-wrap': { display: 'inline-flex', alignItems: 'center', marginRight: '2px', verticalAlign: 'middle' },
   '.cm-md-checkbox': {
     width: '15px',
@@ -281,29 +340,152 @@ const mdDecorationsTheme = EditorView.theme({
     accentColor: 'var(--color-primary)',
     cursor: 'pointer'
   },
-  // ---- 引用 / callout ----
-  '.cm-md-quote-line': {
+  // ---- 引用：对齐 .markdown-body blockquote ----
+  '.cm-line.cm-md-quote-line': {
+    padding: '0.6em 1em',
     borderLeft: '3px solid var(--color-border)',
-    paddingLeft: '12px',
-    color: 'var(--color-text-secondary)'
+    background: 'var(--color-bg-secondary)',
+    borderRadius: '0 8px 8px 0',
+    color: 'var(--color-text-body)'
   },
-  '.cm-md-callout': { borderLeftWidth: '3px', paddingLeft: '12px' },
-  '.cm-md-callout-note': { borderLeftColor: 'var(--color-primary)' },
-  '.cm-md-callout-warning': { borderLeftColor: 'var(--state-warning, #f59e0b)' },
-  '.cm-md-callout-tip': { borderLeftColor: 'var(--state-success, #22c55e)' },
-  '.cm-md-callout-danger, .cm-md-callout-error': { borderLeftColor: 'var(--state-error)' },
-  '.cm-md-callout-title': { fontWeight: '700' },
-  // ---- 代码块 / frontmatter / 分隔线 ----
-  '.cm-md-code-fence': { fontFamily: 'var(--font-mono), Consolas, monospace', fontSize: '0.9em' },
+  // ---- callout：对齐 .obsidian-callout（4px accent 左边框 / 10px 圆角 / secondary 底）----
+  '.cm-line.cm-md-callout': {
+    borderLeftWidth: '4px',
+    borderLeftColor: 'var(--callout-accent, var(--color-primary))',
+    background: 'var(--color-bg-secondary)'
+  },
+  // 正文行：对应 .callout-body 的左右 14px（纵向间距交给行高，避免每行都加 padding）
+  '.cm-line.cm-md-callout:not(.cm-md-callout-first)': { padding: '0 14px', borderRadius: '0' },
+  // 末行：底部圆角 + 收口（对应 .callout-body 的 8px 14px 10px）
+  '.cm-line.cm-md-callout:not(.cm-md-callout-first).cm-md-callout-last': {
+    borderBottomLeftRadius: '10px',
+    borderBottomRightRadius: '10px',
+    padding: '0 14px 10px'
+  },
+  // 首行：标题栏（对应 .callout-header 的 8px 12px / 600 / accent 12% 底 / accent 字色）
+  '.cm-line.cm-md-callout-first': {
+    borderTopLeftRadius: '10px',
+    borderTopRightRadius: '10px',
+    padding: '8px 12px',
+    fontWeight: '600',
+    background: 'color-mix(in srgb, var(--callout-accent, var(--color-primary)) 12%, transparent)',
+    color: 'var(--callout-accent, var(--color-primary))'
+  },
+  '.cm-md-callout-title': { fontWeight: '600' },
+  ...buildCalloutRules(),
+  // ---- 表格：与 .markdown-body table / th / td 逐一对应 ----
+  '.cm-md-table': {
+    width: '100%',
+    borderCollapse: 'collapse',
+    borderRadius: '10px',
+    overflow: 'hidden',
+    fontSize: 'calc(14px * var(--editor-zoom, 1))',
+    boxShadow: 'var(--shadow-xs)',
+    margin: '0.85em 0',
+    color: 'var(--color-text-primary)'
+  },
+  '.cm-md-table th, .cm-md-table td': {
+    padding: '8px 12px',
+    border: '1px solid var(--color-border-light)',
+    borderTop: 'none',
+    borderLeft: 'none'
+  },
+  '.cm-md-table th': {
+    background: 'var(--color-bg-secondary)',
+    fontWeight: '600',
+    textAlign: 'left',
+    color: 'var(--color-text-primary)'
+  },
+  '.cm-md-table td': { color: 'var(--color-text-body)' },
+  '.cm-md-table tr:last-child td': { borderBottom: 'none' },
+  '.cm-md-table th:last-child, .cm-md-table td:last-child': { borderRight: 'none' },
+  // 光标在表格内时的源码态：等宽 + 表头底色，列结构仍然可见
+  '.cm-line.cm-md-table-row': {
+    fontFamily: 'var(--font-mono)',
+    fontSize: '0.92em'
+  },
+  '.cm-line.cm-md-table-header': { fontWeight: '600', background: 'var(--color-bg-secondary)' },
+  // ---- 代码块：逐行拼成一个盒子，视觉等同 pre.code-block ----
+  '.cm-line.cm-md-code-line': {
+    fontFamily: 'var(--font-mono)',
+    fontSize: 'calc(13px * var(--editor-zoom, 1))',
+    lineHeight: '1.6',
+    background: 'var(--color-bg-secondary)',
+    borderLeft: '1px solid var(--color-border-light)',
+    borderRight: '1px solid var(--color-border-light)',
+    paddingLeft: '16px',
+    paddingRight: '16px'
+  },
+  '.cm-line.cm-md-code-first': {
+    position: 'relative',
+    borderTop: '1px solid var(--color-border-light)',
+    borderTopLeftRadius: '10px',
+    borderTopRightRadius: '10px',
+    paddingTop: '16px'
+  },
+  '.cm-line.cm-md-code-last': {
+    borderBottom: '1px solid var(--color-border-light)',
+    borderBottomLeftRadius: '10px',
+    borderBottomRightRadius: '10px',
+    paddingBottom: '14px'
+  },
+  // 语言角标：与 .markdown-body pre.code-block::before 完全同款
+  '.cm-line.cm-md-code-first::before': {
+    content: 'attr(data-code-lang)',
+    position: 'absolute',
+    top: '6px',
+    right: '10px',
+    fontSize: '10px',
+    letterSpacing: '0.08em',
+    textTransform: 'uppercase',
+    color: 'var(--color-text-tertiary)',
+    fontFamily: 'var(--font-mono)'
+  },
+  '.cm-line.cm-md-code-fence': { fontFamily: 'var(--font-mono)', fontSize: '0.9em' },
   '.cm-md-code-lang': { color: 'var(--color-text-tertiary)', fontStyle: 'italic' },
-  '.cm-md-raw-block': { fontFamily: 'var(--font-mono), Consolas, monospace', fontSize: '0.9em' },
-  '.cm-md-frontmatter-fence': { color: 'var(--color-text-tertiary)', opacity: '0.7' },
+  '.cm-line.cm-md-raw-block': { fontFamily: 'var(--font-mono)', fontSize: '0.9em' },
+  // 注：`.cm-md-frontmatter-fence` 已随 buildForLine 里那段 frontmatter 分支一起移除 ——
+  // frontmatter 整段现在由 collectFrontmatterLines 负责，统一走 .cm-md-raw-block。
+  // 与 .markdown-body hr 同款：1px 实色条（用 height+background，不用 border-top）
   '.cm-md-hr': {
     border: 'none',
-    borderTop: '1px solid var(--color-border)',
-    margin: '14px 0'
-  }
+    height: '1px',
+    background: 'var(--color-border)',
+    margin: '1.5em 0'
+  },
+  // ---- 嵌入 / 图片 ----
+  '.cm-md-embed': {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '2px 8px',
+    borderRadius: '6px',
+    background: 'var(--color-bg-tertiary)',
+    border: '1px solid var(--color-border-light)',
+    fontSize: '0.9em',
+    color: 'var(--color-text-secondary)'
+  },
+  '.cm-md-image-wrap': { display: 'inline-block', maxWidth: '100%' },
+  '.cm-md-image': {
+    maxWidth: '100%',
+    borderRadius: '10px',
+    boxShadow: 'var(--shadow-sm)',
+    verticalAlign: 'middle'
+  },
+  '.cm-md-image-fallback': { color: 'var(--color-text-tertiary)', fontSize: '0.9em' }
 }, { dark: false })
+
+/**
+ * 深色下的少量差异项（阅读视图用 [data-theme='dark'] 覆盖同一批属性）。
+ *
+ * ⚠️ CodeMirror 挂载 style module 时传的是
+ *    `StyleModule.mount(root, styleModules.concat(baseTheme).reverse())`
+ *    —— 数组会被**反转**后再写进样式表（见 @codemirror/view dist 第 8308 行），
+ *    所以「想让它生效的覆盖」必须放在数组**更前面**，而不是后面。
+ */
+const mdDecorationsDarkTheme = EditorView.theme({
+  '.cm-md-inline-code': { color: 'var(--color-primary-light)' }
+}, { dark: true })
 
 function safeTag(tagExpr) {
   try {
@@ -409,5 +591,9 @@ export function getEditorTheme(isDark) {
   const base = isDark
     ? [darkTheme, syntaxHighlighting(darkHighlightStyle)]
     : [lightTheme, syntaxHighlighting(lightHighlightStyle)]
-  return [...base, mdDecorationsTheme]
+  // 注意顺序：styleModules 会被 reverse 后写入样式表（见 mdDecorationsDarkTheme 注释），
+  // 因此深色覆盖必须排在 mdDecorationsTheme **之前**才能真正覆盖它。
+  return isDark
+    ? [...base, mdDecorationsDarkTheme, mdDecorationsTheme]
+    : [...base, mdDecorationsTheme]
 }

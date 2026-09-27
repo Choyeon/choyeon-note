@@ -483,86 +483,10 @@ html.platform-win32 #app {
   background: transparent;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root[data-theme='system'] {
-    --color-primary: #8ab4f8;
-    --color-primary-light: #aecbfa;
-    --color-primary-lighter: #1a3a5c;
-    --color-primary-lightest: #202124;
-    --color-primary-dark: #669df6;
-    --color-primary-darker: #4285f4;
-    --color-primary-ring: rgba(138, 180, 248, 0.25);
-    --color-primary-surface: rgba(138, 180, 248, 0.12);
-
-    --color-secondary: #81c995;
-    --color-secondary-light: #a8dab5;
-    --color-secondary-lighter: #1e3a28;
-    --color-secondary-lightest: #1c2b1f;
-    --color-secondary-dark: #5bb974;
-
-    --color-accent: #fdd663;
-    --color-accent-light: #fce8b3;
-    --color-accent-lighter: #3d3522;
-
-    --state-success: #81c995;
-    --state-warning: #fdd663;
-    --state-error: #f28b82;
-    --state-info: #8ab4f8;
-
-    --color-error-surface: rgba(242, 139, 130, 0.1);
-    --color-error-surface-hover: rgba(242, 139, 130, 0.15);
-    --color-success-surface: rgba(129, 201, 149, 0.1);
-    --color-warning-surface: rgba(253, 214, 99, 0.1);
-
-    --color-bg: #202124;
-    --color-bg-secondary: #292a2d;
-    --color-surface: #292a2d;
-    --color-surface-elevated: #303134;
-    --color-surface-hover: #3c4043;
-
-    --color-border: #5f6368;
-    --color-border-light: #3c4043;
-    --color-border-focus: #8ab4f8;
-
-    --color-text-primary: #f1f3f4;
-    --color-text-secondary: #9aa0a6;
-    --color-text-tertiary: #6b7280;
-    --color-text-inverse: #202124;
-    --color-text-on-primary: #202124;
-    --color-text-body: #dfe3e8;
-    --reading-bg: #1c1d20;
-
-    --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.3);
-    --shadow-md: 0 4px 8px rgba(0, 0, 0, 0.4), 0 2px 4px rgba(0, 0, 0, 0.3);
-    --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.5), 0 4px 12px rgba(0, 0, 0, 0.4);
-    --shadow-float: 0 16px 32px rgba(0, 0, 0, 0.6), 0 6px 16px rgba(0, 0, 0, 0.4);
-    --shadow-focus: 0 0 0 2px rgba(138, 180, 248, 0.3);
-
-    --glass-bg: rgba(32, 33, 36, 0.9);
-    --glass-border: rgba(95, 99, 104, 0.5);
-
-    --titlebar-bg: rgba(32, 33, 36, 0.65);
-    --titlebar-blur: 30px;
-    --titlebar-saturate: 160%;
-    --titlebar-border: rgba(255, 255, 255, 0.06);
-
-    --sidebar-bg: rgba(28, 29, 32, 0.7);
-    --sidebar-border: rgba(255, 255, 255, 0.06);
-    --sidebar-blur: 28px;
-    --sidebar-saturate: 150%;
-
-    --content-bg: rgba(32, 33, 36, 0.93);
-    --content-blur: 14px;
-    --content-saturate: 140%;
-
-    --card-bg: rgba(41, 42, 45, 0.7);
-    --card-blur: 20px;
-    --card-saturate: 140%;
-    --card-border: rgba(255, 255, 255, 0.06);
-    --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.35), 0 1px 2px rgba(0, 0, 0, 0.25);
-  }
-}
+/* 跟随系统主题：由 app store 的 matchMedia 监听把 effectiveTheme 解析成 light/dark
+   后写到 html 的 data-theme 上，因此这里不再需要 `:root[data-theme='system']`
+   变量表。之前那份既永不命中（html 上永远是 light/dark），又与
+   [data-theme='dark'] 块漂移（缺 --color-bg-tertiary、阴影值不一致），删除以免误导。 */
 
 h1,
 h2,
@@ -608,13 +532,32 @@ a:focus-visible,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* 目标是"降噪"，不是"全关"。淡入淡出要保留 —— 它告诉用户"这里出现了新东西"；
+     真正引发前庭不适的是位移、缩放、旋转和无限循环，这些才必须去掉。 */
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    /* 过渡保留一个很短的时长而不是归零：状态变化仍然需要视觉连续性，
+       但 0.01ms 会让 hover / 展开变得像故障闪跳 */
+    transition-duration: 120ms !important;
     scroll-behavior: auto !important;
+  }
+
+  /* 位移 / 缩放类入场统一降级为纯淡入（类选择器优先级高于上面的 * 规则） */
+  .slide-up,
+  .slide-down,
+  .scale-in,
+  .fade-in {
+    animation: fadeIn 140ms linear both !important;
+  }
+
+  /* 加载指示器属于"状态反馈"，不是装饰动效，去掉反而让人以为卡死了，予以保留 */
+  .spinner-ring,
+  .loading-spinner {
+    animation-duration: 900ms !important;
+    animation-iteration-count: infinite !important;
   }
 }
 
@@ -1529,9 +1472,12 @@ a:focus-visible,
    Electron 原生亚克力模式（Windows Acrylic / macOS Vibrancy）
    ============================================================ */
 
-.electron-mode html,
-.electron-mode body,
-.electron-mode #app {
+/* .electron-mode 加在 .app-container 上（与 #app / body 是后代关系），
+   所以「.electron-mode html / body / #app」这种后代选择器永远命中不了。
+   祖先元素的透明背景改由 App.vue 在 <html> 上挂 .electron-app 类来实现。 */
+html.electron-app,
+html.electron-app body,
+html.electron-app #app {
   background: transparent !important;
 }
 
@@ -1540,7 +1486,8 @@ a:focus-visible,
   border: none !important;
 }
 
-.electron-mode .app-container {
+/* 两个 class 在同一个元素上，必须用复合选择器而不是后代选择器 */
+.electron-mode.app-container {
   background: transparent;
 }
 
@@ -2180,7 +2127,8 @@ a:focus-visible,
   border-collapse: collapse;
   border-radius: 10px;
   overflow: hidden;
-  font-size: 14px;
+  /* 与编辑器共用缩放基准，切换源码/实时/阅读视图时表格不会跳字号 */
+  font-size: calc(14px * var(--editor-zoom, 1));
   box-shadow: var(--shadow-xs);
 }
 .markdown-body th,
@@ -2204,10 +2152,27 @@ a:focus-visible,
   border-right: none;
 }
 
+/* ==高亮== 与 #标签：与实时预览的 .cm-md-highlight / .cm-md-tag 同款，
+   两种模式看到的是同一套视觉（高亮/标签由 markdown.js 预处理时转换） */
+.markdown-body mark {
+  background: rgba(255, 213, 79, 0.4);
+  color: inherit;
+  border-radius: 3px;
+  padding: 0 1px;
+}
+.markdown-body .md-tag {
+  color: var(--color-primary);
+  background: var(--color-primary-surface);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 0.86em;
+  font-weight: 500;
+}
+
 /* code-block + inline code */
 .markdown-body code {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: calc(13px * var(--editor-zoom, 1));
 }
 .markdown-body :not(pre) > code {
   background: var(--color-bg-tertiary);
@@ -2226,7 +2191,7 @@ a:focus-visible,
   background: var(--color-bg-secondary);
   border: 1px solid var(--color-border-light);
   box-shadow: var(--shadow-xs);
-  font-size: 13px;
+  font-size: calc(13px * var(--editor-zoom, 1));
   line-height: 1.6;
 }
 .markdown-body pre.code-block::before {
@@ -2613,11 +2578,6 @@ a.wikilink.is-unresolved::after {
   box-shadow: var(--shadow-md);
   font-size: 13px;
   color: var(--color-text-primary);
-  animation: toast-in 0.22s var(--ease-spring-soft) both;
-}
-@keyframes toast-in {
-  from { opacity: 0; transform: translateY(8px) scale(0.98); }
-  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* 响应式收缩：小屏命令面板宽度放宽 */

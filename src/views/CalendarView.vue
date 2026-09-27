@@ -240,7 +240,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { 
@@ -251,9 +251,25 @@ import {
 const router = useRouter()
 const noteStore = useNoteStore()
 
-const today = new Date()
-const currentYear = ref(today.getFullYear())
-const currentMonth = ref(today.getMonth())
+// 应用跨零点运行后，setup 期固定的 `new Date()` 会让"今天"永远停在启动那天，
+// isToday 高亮与「回到今天」全部指错。改成可刷新的 ref，并在跨日/回到前台时校准。
+const today = ref(new Date())
+let todayRefreshTimer = null
+
+function refreshToday() {
+  const now = new Date()
+  const prev = today.value
+  if (
+    now.getDate() !== prev.getDate() ||
+    now.getMonth() !== prev.getMonth() ||
+    now.getFullYear() !== prev.getFullYear()
+  ) {
+    today.value = now
+  }
+}
+
+const currentYear = ref(today.value.getFullYear())
+const currentMonth = ref(today.value.getMonth())
 const selectedDate = ref(new Date())
 
 const weekDays = ['周一', '周二', '周三', '周四', '周五', '周六', '周日']
@@ -322,27 +338,23 @@ const selectedDateNotes = computed(() => {
   return noteStore.getNotesByDate(selectedDate.value)
 })
 
-const noteCountThisMonth = computed(() => {
+// 一次遍历同时算出「有笔记的天数」与「笔记总数」：
+// 之前两个 computed 各全量扫一遍 notes，逻辑还高度重复
+const monthStats = computed(() => {
   const datesWithNotes = new Set()
-  noteStore.notes.forEach(note => {
+  let total = 0
+  for (const note of noteStore.notes) {
     const d = new Date(note.updatedAt)
     if (d.getFullYear() === currentYear.value && d.getMonth() === currentMonth.value) {
       datesWithNotes.add(d.getDate())
+      total++
     }
-  })
-  return datesWithNotes.size
+  }
+  return { days: datesWithNotes.size, total }
 })
 
-const totalNotesThisMonth = computed(() => {
-  let count = 0
-  noteStore.notes.forEach(note => {
-    const d = new Date(note.updatedAt)
-    if (d.getFullYear() === currentYear.value && d.getMonth() === currentMonth.value) {
-      count++
-    }
-  })
-  return count
-})
+const noteCountThisMonth = computed(() => monthStats.value.days)
+const totalNotesThisMonth = computed(() => monthStats.value.total)
 
 function getNotesForDate(year, month, date) {
   const targetDate = new Date(year, month, date)
@@ -354,9 +366,9 @@ function getDayNotes(day) {
 }
 
 function isToday(day) {
-  return day.date === today.getDate() && 
-         day.month === today.getMonth() && 
-         day.year === today.getFullYear()
+  return day.date === today.value.getDate() &&
+         day.month === today.value.getMonth() &&
+         day.year === today.value.getFullYear()
 }
 
 function isSelected(day) {
@@ -392,15 +404,19 @@ function nextMonth() {
 }
 
 function goToToday() {
-  currentYear.value = today.getFullYear()
-  currentMonth.value = today.getMonth()
-  selectedDate.value = new Date()
+  refreshToday()
+  currentYear.value = today.value.getFullYear()
+  currentMonth.value = today.value.getMonth()
+  selectedDate.value = new Date(today.value)
 }
 
 function formatSelectedDate() {
   const d = selectedDate.value
+  if (!d || Number.isNaN(d.getTime())) return '未选择日期'
   const weekdays = ['星期日', '星期一', '星期二', '星期三', '星期四', '星期五', '星期六']
-  const isToday = d.toDateString() === today.toDateString()
+  // today 是 ref，必须取 .value —— 写成 today.toDateString() 会在运行时抛
+  // "toDateString is not a function"，且只在跨零点刷新后才会被触发，很容易漏测
+  const isToday = d.toDateString() === today.value.toDateString()
   return `${d.getMonth() + 1}月${d.getDate()}日 ${weekdays[d.getDay()]}${isToday ? ' · 今天' : ''}`
 }
 
@@ -441,6 +457,20 @@ async function createNoteForDate(date = selectedDate.value) {
   const note = noteStore.createNote('', title)
   router.push(`/editor/${note.id}`)
 }
+
+onMounted(() => {
+  // 每分钟校准一次"今天"，并在窗口重新可见时立刻校准（休眠唤醒后补一次）
+  todayRefreshTimer = setInterval(refreshToday, 60 * 1000)
+  document.addEventListener('visibilitychange', refreshToday)
+})
+
+onUnmounted(() => {
+  if (todayRefreshTimer) {
+    clearInterval(todayRefreshTimer)
+    todayRefreshTimer = null
+  }
+  document.removeEventListener('visibilitychange', refreshToday)
+})
 </script>
 
 <style scoped>

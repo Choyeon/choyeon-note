@@ -132,219 +132,21 @@
       </div>
 
       <!-- ================= 右栏 ================= -->
-      <aside
-        class="w-[300px] min-w-[300px] h-full acrylic-sidebar flex flex-col overflow-hidden border-l"
-        :style="{ borderColor: 'var(--sidebar-border)' }"
-      >
-        <div
-          class="flex items-stretch h-10 min-h-10 border-b px-2 gap-1 overflow-x-auto cho-scrollbar"
-          :style="{ borderColor: 'var(--color-border)' }"
-        >
-          <template v-for="tab in rightPanelTabs" :key="tab.key">
-            <div
-              class="flex items-center px-2 cursor-pointer border-b-2 transition-colors whitespace-nowrap shrink-0"
-              :style="rightPanelTab === tab.key ? { borderColor: 'var(--color-primary)' } : { borderColor: 'transparent' }"
-              @click="rightPanelTab = tab.key"
-            >
-              <component :is="tab.icon" class="w-3.5 h-3.5 mr-1" :style="{ color: rightPanelTab === tab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
-              <span class="text-[12px] font-medium" :style="{ color: rightPanelTab === tab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">{{ tab.label }}</span>
-              <span
-                v-if="tab.badge !== undefined && tab.badge > 0"
-                class="ml-1 text-[10px] px-1.5 rounded-full"
-                :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
-              >{{ tab.badge }}</span>
-            </div>
-          </template>
-        </div>
-
-        <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar p-2" ref="rightPanelRef">
-          <!-- ============= 大纲 ============= -->
-          <div v-if="rightPanelTab === 'outline'" class="flex flex-col gap-0.5">
-            <div
-              v-for="(item, index) in outlineItems"
-              :key="'o'+index"
-              class="outline-item flex items-center h-7 px-2 rounded-md cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-              :class="{ 'outline-item-active': index === 0 }"
-              :style="{ paddingLeft: `${8 + (item.level - 1) * 12}px` }"
-              @click="scrollToHeading(item)"
-            >
-              <span
-                class="text-[13px] whitespace-nowrap overflow-hidden text-ellipsis"
-                :style="{
-                  fontWeight: item.level === 1 ? '600' : '500',
-                  color: index === 0 ? 'var(--color-primary)' : 'var(--color-text-secondary)'
-                }"
-              >{{ item.text }}</span>
-            </div>
-            <div v-if="outlineItems.length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
-              暂无大纲，使用 # 标题 生成
-            </div>
-          </div>
-
-          <!-- ============= 反向链接 ============= -->
-          <div v-else-if="rightPanelTab === 'backlinks'" class="flex flex-col gap-2">
-            <div v-if="backlinksList.length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
-              暂无反向链接，使用 [[笔记名]] 来建立引用
-            </div>
-            <template v-else>
-              <div v-for="group in groupedBacklinks" :key="group.id" class="rounded-lg overflow-hidden" :style="{ border: '1px solid var(--color-border-light)' }">
-                <div
-                  class="flex items-center justify-between px-2.5 h-8 cursor-pointer transition-colors"
-                  :style="{ background: 'var(--color-surface)' }"
-                  @click="openNoteById(group.id)"
-                  @mouseenter="($event.currentTarget.style.background='var(--color-surface-hover)')"
-                  @mouseleave="($event.currentTarget.style.background='var(--color-surface)')"
-                >
-                  <div class="flex items-center min-w-0">
-                    <FileText class="w-3.5 h-3.5 mr-2 shrink-0" :style="{ color: 'var(--color-text-secondary)' }" />
-                    <span class="text-[13px] font-medium truncate" :style="{ color: 'var(--color-text-primary)' }">{{ group.title }}</span>
-                  </div>
-                  <ChevronRight class="w-3.5 h-3.5 shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
-                </div>
-                <div
-                  v-for="(m, idx) in group.matches"
-                  :key="idx"
-                  class="px-3 py-2 text-[12px] border-t cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-                  :style="{ borderColor: 'var(--color-border-light)', color: 'var(--color-text-secondary)' }"
-                  @click="openNoteById(group.id)"
-                >
-                  <span v-html="highlightWikiContext(m.context || '')"></span>
-                </div>
-              </div>
-            </template>
-          </div>
-
-          <!-- ============= 出站链接 ============= -->
-          <div v-else-if="rightPanelTab === 'outgoing'" class="flex flex-col gap-2">
-            <div v-if="outgoingList.length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
-              暂无出站链接
-            </div>
-            <template v-else>
-              <div class="rounded-lg px-2.5 py-1.5 mb-1" :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border-light)' }">
-                <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">已解析 {{ outgoingList.length }} 个链接 · {{ unresolvedOutgoing.length }} 个未找到</span>
-              </div>
-              <div
-                v-for="(link, idx) in outgoingList"
-                :key="'out'+idx"
-                class="flex items-center justify-between px-2.5 h-9 rounded-lg cursor-pointer transition-colors"
-                :class="{ 'opacity-70': !link.resolvedId }"
-                :style="{ border: '1px solid var(--color-border-light)' }"
-                @click="openOutgoingLink(link)"
-                @mouseenter="($event.currentTarget.style.background='var(--color-surface-hover)')"
-                @mouseleave="($event.currentTarget.style.background='transparent')"
-              >
-                <div class="flex items-center min-w-0 flex-1">
-                  <component
-                    :is="link.embed ? ImageIcon : ExternalLink"
-                    class="w-3.5 h-3.5 mr-2 shrink-0"
-                    :style="{ color: link.resolvedId ? 'var(--color-primary)' : 'var(--state-warning)' }"
-                  />
-                  <div class="min-w-0">
-                    <div class="text-[13px] font-medium truncate" :style="{ color: 'var(--color-text-primary)' }">
-                      {{ link.alias || link.displayTitle || link.target }}
-                    </div>
-                    <div class="text-[11px] truncate" :style="{ color: 'var(--color-text-tertiary)' }">
-                      {{ link.resolvedId ? (link.targetFolder || '根目录') : '未创建 · 点击可新建' }}
-                    </div>
-                  </div>
-                </div>
-                <span
-                  v-if="link.embed"
-                  class="text-[10px] px-1.5 rounded shrink-0 ml-2"
-                  :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
-                >嵌入</span>
-              </div>
-            </template>
-          </div>
-
-          <!-- ============= 属性/Frontmatter ============= -->
-          <div v-else-if="rightPanelTab === 'properties'" class="flex flex-col gap-1.5 px-0.5">
-            <div class="flex items-center justify-between px-2 py-1.5">
-              <span class="text-[11px] font-medium tracking-wide uppercase" :style="{ color: 'var(--color-text-tertiary)' }">属性 Frontmatter</span>
-              <button
-                class="text-[11px] px-2 py-0.5 rounded-md transition-colors"
-                :style="{ color: 'var(--color-primary)' }"
-                @click="ensureFrontmatter"
-              >+ 添加</button>
-            </div>
-            <div v-if="Object.keys(frontmatter).length === 0" class="text-[13px] px-2 py-4 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
-              还没有设置属性，点击右上「添加」或直接在文档顶部写 YAML。
-            </div>
-            <template v-else>
-              <div
-                v-for="(value, key) in frontmatter"
-                :key="key"
-                class="flex flex-col rounded-lg px-2.5 py-1.5 transition-colors"
-                :style="{ border: '1px solid var(--color-border-light)' }"
-                @mouseenter="($event.currentTarget.style.background='var(--color-surface-hover)')"
-                @mouseleave="($event.currentTarget.style.background='transparent')"
-              >
-                <div class="flex items-center justify-between">
-                  <span class="text-[11px] font-medium" :style="{ color: 'var(--color-text-tertiary)' }">{{ key }}</span>
-                  <button
-                    class="text-[11px] opacity-60 hover:opacity-100"
-                    :style="{ color: 'var(--state-error)' }"
-                    @click="removeProperty(key)"
-                  >删除</button>
-                </div>
-                <input
-                  v-if="!Array.isArray(value)"
-                  type="text"
-                  class="mt-0.5 text-[13px] bg-transparent outline-none"
-                  :value="String(value ?? '')"
-                  :style="{ color: 'var(--color-text-primary)' }"
-                  @change="updateProperty(key, $event.target.value)"
-                />
-                <div v-else class="mt-0.5 flex flex-wrap gap-1.5">
-                  <template v-for="(tag, i) in value" :key="i">
-                    <span
-                      class="inline-flex items-center gap-1 text-[12px] px-2 py-0.5 rounded-full"
-                      :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
-                    >
-                      {{ tag }}
-                      <button
-                        class="opacity-60 hover:opacity-100"
-                        @click="removeArrayItem(key, i)"
-                      >×</button>
-                    </span>
-                  </template>
-                  <input
-                    type="text"
-                    placeholder="+ 新值"
-                    class="text-[12px] bg-transparent outline-none w-16"
-                    :style="{ color: 'var(--color-text-secondary)' }"
-                    @keydown.enter.prevent="appendArrayItem(key, $event.target)"
-                  />
-                </div>
-              </div>
-              <div class="mt-2">
-                <div class="text-[11px] px-2 mb-1" :style="{ color: 'var(--color-text-tertiary)' }">新建属性</div>
-                <div class="flex items-center gap-1.5 px-2">
-                  <input
-                    v-model="newProp.key"
-                    type="text"
-                    placeholder="Key"
-                    class="flex-1 text-[12px] px-2 py-1 rounded-md outline-none"
-                    :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
-                  />
-                  <input
-                    v-model="newProp.value"
-                    type="text"
-                    placeholder="Value"
-                    class="flex-1 text-[12px] px-2 py-1 rounded-md outline-none"
-                    :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
-                  />
-                  <button
-                    class="text-[12px] px-2 py-1 rounded-md"
-                    :style="{ background: 'var(--color-primary)', color: 'white' }"
-                    @click="addNewProperty"
-                  >+</button>
-                </div>
-              </div>
-            </template>
-          </div>
-        </div>
-      </aside>
+      <!-- 四个 Tab（大纲 / 反向链接 / 出站链接 / 属性）连同派生数据与编辑动作
+           整体内聚在 EditorRightPanel，这里只做接线：
+           · tab 走 appStore（localStorage 持久化），用 v-model:tab 双向绑定
+           · 显隐同样读 appStore.rightPanelVisible
+           · open-note / scroll-to-heading / update:content 需要父级的模式判定与落盘上下文 -->
+      <EditorRightPanel
+        v-show="appStore.rightPanelVisible"
+        v-model:tab="rightPanelTab"
+        :content="content"
+        :note="currentNote"
+        :outline="outlineItems"
+        @open-note="onPanelOpenNote"
+        @scroll-to-heading="scrollToHeading"
+        @update:content="onPanelContentChange"
+      />
     </div>
 
     <!-- ================= 状态栏 ================= -->
@@ -376,168 +178,27 @@
       @copy="(w) => copyText(w)"
     />
 
-    <!-- ================= 浮动选区工具栏 ================= -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div
-          v-if="floatingToolbar.show"
-          class="fixed z-50"
-          :style="{
-            left: floatingToolbar.x + 'px',
-            top: floatingToolbar.y + 'px',
-            transform: floatingToolbar.placement === 'top'
-              ? 'translate(-50%, -100%)'
-              : 'translate(-50%, 0)'
-          }"
-          @mousedown.prevent
-        >
-          <div
-            class="floating-toolbar flex items-center gap-0.5 rounded-lg overflow-hidden shadow-lg"
-            :style="{
-              background: 'var(--card-bg)',
-              border: '1px solid var(--card-border)',
-              padding: '4px'
-            }"
-          >
-            <button class="ft-btn" title="加粗" @mousedown.prevent="editorApi?.applyCommand('format.bold')">
-              <Bold class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="斜体" @mousedown.prevent="editorApi?.applyCommand('format.italic')">
-              <Italic class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="删除线" @mousedown.prevent="editorApi?.applyCommand('format.strikethrough')">
-              <Strikethrough class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="行内代码" @mousedown.prevent="editorApi?.applyCommand('format.code')">
-              <Code class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="高亮" @mousedown.prevent="editorApi?.applyCommand('format.highlight')">
-              <Highlighter class="w-3.5 h-3.5" />
-            </button>
-            <button class="ft-btn" title="链接" @mousedown.prevent="editorApi?.applyCommand('format.link')">
-              <Link class="w-3.5 h-3.5" />
-            </button>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- ================= 浮动选区工具栏 =================
+         定位与按钮样式内聚在 EditorSelectionToolbar：父级只给选区坐标，
+         命令执行仍走 editorApi（只有父级知道当前是不是只读的阅读模式） -->
+    <EditorSelectionToolbar :coords="selectionCoords" @command="onFloatingCommand" />
 
-    <!-- ================= 右键菜单 ================= -->
-    <Teleport to="body">
-      <Transition name="fade">
-        <div
-          v-if="contextMenu.show"
-          class="fixed inset-0 z-50"
-          @click="closeContextMenu"
-          @contextmenu.prevent="closeContextMenu"
-        >
-          <div
-            class="context-menu absolute rounded-lg overflow-hidden shadow-lg"
-            :style="{
-              left: contextMenu.x + 'px',
-              top: contextMenu.y + 'px',
-              background: 'var(--color-surface-elevated)',
-              border: '1px solid var(--color-border)',
-              minWidth: '240px',
-              padding: '6px',
-              backdropFilter: 'none',
-              zIndex: 9999
-            }"
-            @click.stop
-          >
-            <template v-if="contextMenu.hasSelection">
-              <div class="context-menu-label">格式化</div>
-              <button class="context-menu-item" @click="contextMenuAction('format.bold')">
-                <Bold class="w-3.5 h-3.5" />
-                <span>粗体</span>
-                <span class="context-menu-shortcut">{{ shortcutHint('format.bold') }}</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.italic')">
-                <Italic class="w-3.5 h-3.5" />
-                <span>斜体</span>
-                <span class="context-menu-shortcut">{{ shortcutHint('format.italic') }}</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.code')">
-                <Code class="w-3.5 h-3.5" />
-                <span>行内代码</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.link')">
-                <Link class="w-3.5 h-3.5" />
-                <span>链接</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.highlight')">
-                <Highlighter class="w-3.5 h-3.5" />
-                <span>高亮</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.strikethrough')">
-                <Strikethrough class="w-3.5 h-3.5" />
-                <span>删除线</span>
-              </button>
-              <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="contextMenuAction('format.h1')">
-                <Heading1 class="w-3.5 h-3.5" />
-                <span>一级标题</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.h2')">
-                <Heading2 class="w-3.5 h-3.5" />
-                <span>二级标题</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.h3')">
-                <Heading3 class="w-3.5 h-3.5" />
-                <span>三级标题</span>
-              </button>
-              <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="contextMenuAction('format.quote')">
-                <Quote class="w-3.5 h-3.5" />
-                <span>引用</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.bulletList')">
-                <List class="w-3.5 h-3.5" />
-                <span>无序列表</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('format.taskList')">
-                <CheckSquare class="w-3.5 h-3.5" />
-                <span>待办事项</span>
-              </button>
-              <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="copySelection">
-                <Copy class="w-3.5 h-3.5" />
-                <span>复制</span>
-                <span class="context-menu-shortcut">{{ nativeHint('C') }}</span>
-              </button>
-              <button class="context-menu-item" @click="cutSelection">
-                <Scissors class="w-3.5 h-3.5" />
-                <span>剪切</span>
-                <span class="context-menu-shortcut">{{ nativeHint('X') }}</span>
-              </button>
-            </template>
-            <template v-else>
-              <button class="context-menu-item" @click="pasteFromClipboard">
-                <ClipboardPaste class="w-3.5 h-3.5" />
-                <span>粘贴</span>
-                <span class="context-menu-shortcut">{{ nativeHint('V') }}</span>
-              </button>
-              <div class="context-menu-divider"></div>
-              <button class="context-menu-item" @click="contextMenuAction('edit.selectAll')">
-                <Check class="w-3.5 h-3.5" />
-                <span>全选</span>
-                <span class="context-menu-shortcut">{{ shortcutHint('edit.selectAll') }}</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('edit.undo')">
-                <Undo2 class="w-3.5 h-3.5" />
-                <span>撤销</span>
-                <span class="context-menu-shortcut">{{ shortcutHint('edit.undo') }}</span>
-              </button>
-              <button class="context-menu-item" @click="contextMenuAction('edit.redo')">
-                <Redo2 class="w-3.5 h-3.5" />
-                <span>重做</span>
-                <span class="context-menu-shortcut">{{ shortcutHint('edit.redo') }}</span>
-              </button>
-            </template>
-          </div>
-        </div>
-      </Transition>
-    </Teleport>
+    <!-- ================= 右键菜单 =================
+         菜单项与快捷键文案内聚在 EditorContextMenu；父级仍持有显隐与坐标状态
+         （切笔记 / 切模式要一键复位），并负责真正落到编辑器的那些动作 -->
+    <EditorContextMenu
+      :show="contextMenu.show"
+      :x="contextMenu.x"
+      :y="contextMenu.y"
+      :has-selection="contextMenu.hasSelection"
+      :shortcut-hint="shortcutHint"
+      :native-hint="nativeHint"
+      @close="closeContextMenu"
+      @action="contextMenuAction"
+      @copy="copySelection"
+      @cut="cutSelection"
+      @paste="pasteFromClipboard"
+    />
   </div>
 </template>
 
@@ -549,17 +210,19 @@ import { useAppStore } from '@/stores/app'
 import { renderMarkdown, renderMermaidInContainer } from '@/utils/markdown'
 import { suggestCorrections } from '@/utils/spellcheck'
 import { formatBinding, isMac } from '@/constants/shortcuts'
+import { formatDate } from '@/utils/format'
 import MarkdownEditor from '@/components/MarkdownEditor.vue'
 import SpellMenu from '@/components/editor/SpellMenu.vue'
+import EditorRightPanel from '@/components/editor/EditorRightPanel.vue'
+import EditorContextMenu from '@/components/editor/EditorContextMenu.vue'
+import EditorSelectionToolbar from '@/components/editor/EditorSelectionToolbar.vue'
 import {
   Bold, Italic, Code, Link, List, CheckSquare, ArrowLeft,
-  Heading1, Heading2, Heading3, Quote, Minus, Highlighter,
-  Strikethrough, Copy, Scissors, ClipboardPaste, Check,
-  FileText, Eye, Pencil, Zap, ChevronRight, ExternalLink,
-  ListTree, Link2, Settings2, Undo2, Redo2,
-  Image as ImageIcon, Code2, GitBranch, PieChart, BarChart3
+  Heading1, Heading2, Heading3, Quote, Minus,
+  FileText, Eye, Pencil, Zap, Undo2, Redo2,
+  Code2, GitBranch, PieChart, BarChart3
 } from 'lucide-vue-next'
-import { parseFrontmatter, extractOutline } from '@/composables/useLinks.js'
+import { extractOutline } from '@/composables/useLinks.js'
 
 const route = useRoute()
 const router = useRouter()
@@ -577,9 +240,20 @@ const editorMode = computed({
   },
   set: (mode) => appStore.setEditorMode(mode)
 })
-const rightPanelTab = ref('outline')
-const newProp = ref({ key: '', value: '' })
-const rightPanelRef = ref(null)
+// 右栏 Tab：托管到 store 并持久化（localStorage: choyeon-right-panel-tab），
+// 这样"切到反向链接"这类选择能跨笔记、跨重启保留——之前这里是本地 ref，
+// store 里那份状态一直没人读，等于持久化了个寂寞。
+const rightPanelTab = computed({
+  get: () => {
+    const t = appStore.rightPanelTab
+    return ['outline', 'backlinks', 'outgoing', 'properties'].includes(t) ? t : 'outline'
+  },
+  set: (tab) => {
+    // app.js 提供了 setter（顺带落 localStorage）；没有就直接写 Pinia state
+    if (typeof appStore.setRightPanelTab === 'function') appStore.setRightPanelTab(tab)
+    else appStore.rightPanelTab = tab
+  }
+})
 const content = ref('')
 const mdEditorRef = ref(null)
 const previewBodyRef = ref(null)
@@ -589,7 +263,12 @@ const editorApi = shallowRef(null)
 
 const contextMenu = ref({ show: false, x: 0, y: 0, hasSelection: false })
 
-const floatingToolbar = ref({ show: false, x: 0, y: 0, placement: 'top' })
+/**
+ * 当前选区的屏幕坐标；null = 不显示浮动工具栏。
+ * 这里只存原始坐标，居中 / 视口夹取 / 上下翻转都交给 EditorSelectionToolbar ——
+ * 那是纯展示逻辑，留在父级只会多一份需要同步的状态副本。
+ */
+const selectionCoords = ref(null)
 
 const spellMenu = ref({
   show: false,
@@ -651,7 +330,11 @@ function nativeHint(key) {
 // =========================== 笔记载入 / 内容同步 ===========================
 const currentNote = computed(() => noteStore.currentNote)
 
-const renderedContent = computed(() => renderMarkdown(content.value || ''))
+const renderedContent = computed(() => {
+  // 必须传 resolveTarget，否则预览里所有 [[双链]] 都是"未创建"红色态，
+  // 点击 ![[嵌入]] 还会顺手新建一个空笔记
+  return renderMarkdown(content.value || '', { resolveTarget: noteStore.resolveWikiForRender })
+})
 
 const outlineItems = computed(() => {
   try { return extractOutline(content.value || '') } catch { return [] }
@@ -670,9 +353,13 @@ const isPreview = computed(() => editorMode.value === 'preview')
 
 function onContentChange(newContent) {
   const val = typeof newContent === 'string' ? newContent : content.value
-  if (currentNote.value?.id) {
-    noteStore.updateNoteContent(currentNote.value.id, val)
+  // id 失效（笔记被删 / 库被切换后 id 重新生成）时静默丢弃编辑是最糟的一类
+  // 数据丢失：编辑器照常显示、照常能输入，但内容既不进 store 也不落盘。
+  if (!currentNote.value?.id) {
+    appStore.pushToast({ type: 'error', message: '当前笔记已失效，改动未保存。请从列表重新打开一篇笔记。' })
+    return
   }
+  noteStore.updateNoteContent(currentNote.value.id, val)
 }
 
 /**
@@ -680,28 +367,27 @@ function onContentChange(newContent) {
  * updateNoteContent 在关闭自动保存时只更新内存，这里再 flush 一次补上写盘。
  */
 function saveNote() {
-  if (currentNote.value?.id) {
-    noteStore.updateNoteContent(currentNote.value.id, content.value)
-    noteStore.flushSave(currentNote.value.id)
+  if (!currentNote.value?.id) {
+    appStore.pushToast({ type: 'error', message: '当前笔记已失效，无法保存。' })
+    return
   }
+  noteStore.updateNoteContent(currentNote.value.id, content.value)
+  noteStore.flushSave(currentNote.value.id)
 }
 
-/** 记住进入阅读模式前的可编辑模式，Mod-Shift-E 切回时按原样恢复 */
-const lastEditableMode = ref(editorMode.value === 'edit' ? 'edit' : 'live')
-
+/**
+ * 切换编辑器模式：只做「校验 + 委托」，副作用统一交给下面的 watch。
+ *
+ * 这里刻意只委托到 store，不做别的（`selectionCoords` 重置、聚焦编辑器都移走了）：
+ * 模式切换现在有三条入口——顶部三个分段按钮、`Mod-Shift-E` 全局快捷键、命令面板——
+ * 全局快捷键、命令面板——后两条走的是 app scope 分发到 `appStore.toggleReadingMode()`，
+ * 那条链路拿不到 `mdEditorRef`。副作用写在 watch 里才能让三条入口行为一致。
+ *
+ * @param {'edit'|'live'|'preview'} mode 目标模式
+ */
 function setMode(mode) {
   if (!['edit', 'live', 'preview'].includes(mode)) return
-  if (mode !== 'preview') lastEditableMode.value = mode
-  editorMode.value = mode
-  if (mode !== 'preview') {
-    floatingToolbar.value.show = false
-    nextTick(() => mdEditorRef.value?.focus())
-  }
-}
-
-/** Mod-Shift-E：编辑（源码/实时） ↔ 预览 */
-function toggleReadingMode() {
-  setMode(editorMode.value === 'preview' ? lastEditableMode.value : 'preview')
+  appStore.setEditorMode(mode)
 }
 
 // =========================== 编辑器 API 装配 ===========================
@@ -722,19 +408,48 @@ function onEditorReady() {
   }
 }
 
+/**
+ * 编辑器命令的统一执行入口 —— 注册给 appStore 的 `editorRunner`（T12）。
+ *
+ * 命令面板靠它执行 editor scope 命令（加粗 / 一级标题 / 插入表格…）：
+ * 面板本身拿不到 CodeMirror 实例，只能经 `appStore.runEditorCommand(id)` 转发到这里。
+ *
+ * 两条守卫与现有交互保持一致，不多也不少：
+ * 1. 编辑器实例还没就绪（首帧 / 组件销毁中）→ 返回 false，由面板侧决定是否提示；
+ * 2. 阅读模式是只读视图：编辑器被 v-show 隐藏，改文档等于"改了看不见的东西"，
+ *    因此只放行 `edit.selectAll` —— 与右键菜单 `contextMenuAction` 的口径完全一致。
+ *
+ * @param {string} id 编辑器命令 id（注册表里的 editor scope 命令）
+ * @returns {boolean} 是否真的执行了
+ */
+function runEditorCommand (id) {
+  const editor = mdEditorRef.value
+  if (!editor) return false
+  if (isPreview.value) {
+    if (id !== 'edit.selectAll') return false
+    editor.selectAll?.()
+    return true
+  }
+  return editor.applyCommand?.(id) ?? false
+}
+
 // =========================== 补全上下文 ===========================
 const completionContext = computed(() => {
+  // 刻意不带 content：补全只在用户输入 `#` 时才需要目标笔记的大纲，
+  // 带上全库正文会让每次按键都触发 computed 失效 + 全库字符串拷贝。
   const notes = (noteStore.notes || []).map(n => ({
     id: n.id,
     title: n.title,
     folder: n.folder,
-    content: n.content
+    outlineOf: (id) => noteStore.getNoteOutline?.(id) || []
   }))
   return {
     notes,
     tags: noteStore.allTags || [],
     currentNoteId: currentNote.value?.id || null,
     outline: outlineItems.value,
+    // 实时预览要靠它判断 [[双链]] 指向的笔记是否存在（不存在则标灰，与阅读视图一致）
+    resolveWiki: (target) => noteStore.resolveWikiForRender?.(target),
     onCreateNote: (target) => {
       const folder = currentNote.value?.folder || ''
       return noteStore.createNoteFromWikiTarget?.(target, folder) || noteStore.createNote(folder, target)
@@ -742,104 +457,13 @@ const completionContext = computed(() => {
   }
 })
 
-// =========================== 右栏 Tabs ===========================
-const rightPanelTabs = computed(() => [
-  { key: 'outline', label: '大纲', icon: ListTree, badge: outlineItems.value.length || undefined },
-  { key: 'backlinks', label: '反向链接', icon: Link2, badge: backlinksList.value.length || undefined },
-  { key: 'outgoing', label: '出站链接', icon: ExternalLink, badge: outgoingList.value.length || undefined },
-  { key: 'properties', label: '属性', icon: Settings2 }
-])
-
-// =========================== Frontmatter ===========================
-const parsedFrontmatter = computed(() => parseFrontmatter(content.value || ''))
-const frontmatter = computed(() => parsedFrontmatter.value.frontmatter || {})
-
-function ensureFrontmatter() {
-  const { body, hasFrontmatter } = parsedFrontmatter.value
-  if (hasFrontmatter) return
-  const preamble = '---\ntitle: ' + JSON.stringify(currentNote.value?.title || '无标题') + '\ntags: []\ndate: ' + new Date().toISOString().slice(0, 10) + '\n---\n\n'
-  content.value = preamble + (body || content.value || '')
+// =========================== 右栏接线 ===========================
+// 右栏四个 Tab 的模板 / 派生数据 / 编辑动作已整体搬到 EditorRightPanel，
+// 父级只保留需要"全局上下文"的出口：改正文要落盘、打开笔记要动路由。
+/** 右栏直接改正文（例如给没有 frontmatter 的笔记补 preamble）时同步进 store */
+function onPanelContentChange(next) {
+  content.value = typeof next === 'string' ? next : content.value
   onContentChange(content.value)
-}
-
-function updateProperty(key, value) {
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: value })
-}
-
-function removeProperty(key) {
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: undefined })
-}
-
-function addNewProperty() {
-  const k = newProp.value.key?.trim()
-  if (!k) return
-  let v = newProp.value.value
-  if (k === 'tags' || k === 'tag' || k === 'categories' || k === 'category') {
-    v = v ? String(v).split(',').map(s => s.trim()).filter(Boolean) : []
-  }
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [k]: v })
-  newProp.value = { key: '', value: '' }
-}
-
-function appendArrayItem(key, inputEl) {
-  const v = (inputEl.value || '').trim()
-  if (!v) return
-  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
-  if (!arr.includes(v)) arr.push(v)
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
-  inputEl.value = ''
-}
-
-function removeArrayItem(key, index) {
-  const arr = Array.isArray(frontmatter.value[key]) ? [...frontmatter.value[key]] : []
-  arr.splice(index, 1)
-  noteStore.updateNoteFrontmatter?.(currentNote.value?.id, { [key]: arr })
-}
-
-// =========================== 反向 / 出站链接 ===========================
-const backlinksList = computed(() => {
-  const id = currentNote.value?.id
-  if (!id) return []
-  try { return noteStore.getBacklinks?.(id) || [] } catch { return [] }
-})
-
-const groupedBacklinks = computed(() => {
-  const map = new Map()
-  for (const b of backlinksList.value) {
-    const key = b.fromId || b.raw || ''
-    if (!map.has(key)) {
-      map.set(key, { id: b.fromId, title: b.fromTitle || '(未知笔记)', matches: [] })
-    }
-    map.get(key).matches.push({ context: b.context || b.raw, alias: b.alias })
-  }
-  return Array.from(map.values())
-})
-
-const outgoingList = computed(() => {
-  const id = currentNote.value?.id
-  if (!id) return []
-  let raw = []
-  try { raw = noteStore.getOutgoing?.(id) || [] } catch { raw = [] }
-  const notesMap = new Map((noteStore.notes || []).map(n => [n.id, n]))
-  return raw.map(link => {
-    const resolvedNote = link.resolvedId ? notesMap.get(link.resolvedId) : null
-    return {
-      ...link,
-      displayTitle: resolvedNote?.title || link.target,
-      targetFolder: resolvedNote?.folder || ''
-    }
-  })
-})
-
-const unresolvedOutgoing = computed(() => outgoingList.value.filter(l => !l.resolvedId))
-
-function highlightWikiContext(text) {
-  if (!text) return ''
-  const escaped = String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-  return escaped.replace(/(!?\[\[[^\[\]]*?\]\])/g, '<span style="color:var(--color-primary);font-weight:500;">$1</span>')
 }
 
 function openNoteById(id) {
@@ -848,18 +472,17 @@ function openNoteById(id) {
   router.replace(`/editor/${id}`)
 }
 
-function openOutgoingLink(link) {
-  if (!link) return
-  if (link.resolvedId) {
-    openNoteById(link.resolvedId)
-    if (link.hash) {
-      nextTick(() => scrollToHeadingAnyMode(link.hash))
-    }
-    return
-  }
-  const folder = currentNote.value?.folder || ''
-  const created = noteStore.createNoteFromWikiTarget?.(link.target, folder) || noteStore.createNote(folder, link.target)
-  if (created?.id) openNoteById(created.id)
+/**
+ * 右栏（反向链接 / 出站链接）打开笔记。
+ * payload 支持两种形态：纯 id 字符串，或 { id, hash }（带标题锚点）。
+ */
+function onPanelOpenNote(payload) {
+  const id = typeof payload === 'string' ? payload : payload?.id
+  if (!id) return
+  openNoteById(id)
+  const hash = typeof payload === 'string' ? '' : (payload?.hash || '')
+  // 笔记刚切过去，DOM / 编辑器要等这一轮渲染完才能定位锚点
+  if (hash) nextTick(() => scrollToHeadingAnyMode(hash))
 }
 
 // =========================== 预览区 wikilink 点击 ===========================
@@ -987,7 +610,12 @@ function replaceSpellWordAll(word) {
   const target = spellMenu.value.word
   if (!target) return
   const escaped = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  content.value = content.value.replace(new RegExp(escaped, 'g'), word)
+  // 必须带词边界，否则替换 teh 会把 tehre / steh 里的片段一起吃掉。
+  // 这里不能用 \b：中文不属于 \w，\b 对中文前后完全失效，所以改用前后断言，
+  // 要求命中片段的前后都不是「单词字符或汉字」。
+  const pattern = new RegExp(`(?<![\\w\\u4e00-\\u9fa5])${escaped}(?![\\w\\u4e00-\\u9fa5])`, 'g')
+  // 替换值用函数形式：word 里若含 $& / $1 会被当成替换模式展开
+  content.value = content.value.replace(pattern, () => word)
   onContentChange(content.value)
   closeSpellMenu()
 }
@@ -1010,28 +638,14 @@ async function copyText(text) {
 }
 
 // =========================== 浮动选区工具栏 ===========================
+/** 显隐判定留在父级（要看当前模式与选区），坐标换算交给工具栏自己 */
 function onSelectionChange(info) {
-  if (editorMode.value === 'preview') {
-    floatingToolbar.value.show = false
-    return
-  }
-  if (!info?.hasSelection || !info?.coords) {
-    floatingToolbar.value.show = false
-    return
-  }
-  const { coords } = info
-  const width = 268
-  const height = 40
-  const margin = 8
-  let x = (coords.left + coords.right) / 2
-  x = Math.max(margin + width / 2, Math.min(window.innerWidth - margin - width / 2, x))
-  const showBelow = coords.top < height + 60
-  floatingToolbar.value = {
-    show: true,
-    x,
-    y: showBelow ? coords.bottom + 10 : coords.top - 10,
-    placement: showBelow ? 'bottom' : 'top'
-  }
+  const usable = editorMode.value !== 'preview' && info?.hasSelection && info?.coords
+  selectionCoords.value = usable ? info.coords : null
+}
+
+function onFloatingCommand(commandId) {
+  editorApi.value?.applyCommand(commandId)
 }
 
 // =========================== 右键菜单 ===========================
@@ -1048,7 +662,7 @@ function onContextMenu(event) {
     y = event.clientY - estimatedHeight
     if (y < 8) y = 8
   }
-  floatingToolbar.value.show = false
+  selectionCoords.value = null
   contextMenu.value = { show: true, x, y, hasSelection }
 }
 
@@ -1097,46 +711,66 @@ async function pasteFromClipboard() {
 // =========================== 编辑区鼠标 ===========================
 function onEditMouseDown() {
   // 点击编辑区任意位置时收起浮动工具栏（spellMenu 自行管理关闭逻辑）
-  if (floatingToolbar.value.show) floatingToolbar.value.show = false
+  if (selectionCoords.value) selectionCoords.value = null
 }
 
 // =========================== 生命周期 / 路由 ===========================
-function formatDate(date) {
-  if (!date) return ''
-  const d = new Date(date)
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  const hours = String(d.getHours()).padStart(2, '0')
-  const minutes = String(d.getMinutes()).padStart(2, '0')
-  return `${year}-${month}-${day} ${hours}:${minutes}`
-}
+// 日期格式化统一走 @/utils/format：'datetime' → YYYY-MM-DD HH:mm，
+// 与这里原来的本地实现逐字一致（空值同样返回 ''）。
 
+/**
+ * 从路由载入笔记。
+ * 关键：selectNote 不校验 id 是否存在。若 id 失效（笔记已删 / 切换库后 id 由
+ * 路径重新生成 / localStorage 残留旧 id），currentNote 会是 null，而编辑器仍
+ * 显示上一篇笔记的正文——用户以为在编辑 A，实际写入的是 null，全部丢弃。
+ * 这里显式校验并回退到列表首篇 + 纠正路由。
+ */
 function loadFromRoute() {
   const routeId = route.params.id
-  if (routeId) {
+  if (routeId && noteStore.notes.some(n => n.id === routeId)) {
     noteStore.selectNote(routeId)
-  } else if (noteStore.notes && noteStore.notes.length > 0) {
+  } else if (noteStore.notes.length > 0) {
     const firstNote = noteStore.notes[0]
-    if (firstNote && firstNote.id) {
-      noteStore.selectNote(firstNote.id)
+    noteStore.selectNote(firstNote.id)
+    // 只在 id 无效 / 缺失时纠正路由，避免每次载入都多一次 replace
+    if (!routeId || routeId !== firstNote.id) {
       router.replace(`/editor/${firstNote.id}`)
     }
+  } else {
+    noteStore.selectNote(null)
+    content.value = ''
+    return
   }
-  if (currentNote.value) {
-    content.value = currentNote.value.content
-  }
+  // 切换笔记时清掉上一笔记残留的 UI 态（新增属性输入、右键菜单、浮动工具栏、拼写菜单）
+  resetTransientUiState()
+  content.value = currentNote.value?.content || ''
+}
+
+function resetTransientUiState() {
+  // 右栏「新建属性」输入框的复位已随右栏一起搬到 EditorRightPanel（它 watch note.id）
+  contextMenu.value = { show: false, x: 0, y: 0, hasSelection: false }
+  selectionCoords.value = null
+  spellMenu.value = { show: false, rect: null, word: '', from: 0, to: 0, suggestions: [], occurrences: 1 }
 }
 
 watch(() => route.params.id, () => {
   loadFromRoute()
 })
 
-watch(currentNote, (note) => {
-  if (note && typeof note.content === 'string') {
-    content.value = note.content
+// 只比对 content 字符串：deep watch 会遍历整个 note 对象（含正文），
+// 每次输入都做一次全量深度遍历，长文下开销明显
+watch(() => currentNote.value?.content, (next) => {
+  if (typeof next === 'string' && next !== content.value) {
+    content.value = next
   }
-}, { deep: true })
+})
+
+// 笔记被外部删除 / 库被切换导致当前指针失效时，纠正路由而不是静默继续
+watch(() => noteStore.notes.length, () => {
+  if (!currentNote.value && noteStore.notes.length > 0) {
+    loadFromRoute()
+  }
+})
 
 // 预览模式下内容变化时重渲染 mermaid
 watch([content, editorMode], async () => {
@@ -1146,20 +780,16 @@ watch([content, editorMode], async () => {
   }
 })
 
-/** 阅读模式快捷键（Mod-Shift-E）：从注册表读取，用户改键后立即生效 */
-function onModeKeydown(e) {
-  const readingKey = String(appStore.getBinding('view.readingMode') || '').toLowerCase()
-  if (!readingKey) return
-  const mod = e.ctrlKey || e.metaKey
-  const k = (e.key || '').toLowerCase()
-  // Mod-Shift-e → 匹配 readingKey
-  const needShift = readingKey.includes('shift')
-  const keyPart = readingKey.split('-').pop()
-  if (mod && e.shiftKey === needShift && k === keyPart.toLowerCase()) {
-    e.preventDefault()
-    toggleReadingMode()
-  }
-}
+// 进入任意可编辑模式（edit / live）时收敛焦点：
+// 原来这份副作用写在 setMode 里，只能覆盖顶部按钮；模式切换改由 app scope 分发后，
+// 快捷键 / 命令面板走的是 appStore.toggleReadingMode()，拿不到编辑器实例。
+// 收敛到 watcher 后三条入口行为一致，避免「按快捷键切回编辑模式后光标不进编辑器」。
+// watch 只在值变化时触发（首次挂载不触发），所以不会出现"一进页面就抢焦点"。
+watch(editorMode, (next) => {
+  if (next === 'preview') return
+  selectionCoords.value = null
+  nextTick(() => mdEditorRef.value?.focus())
+})
 
 onMounted(async () => {
   loadFromRoute()
@@ -1169,11 +799,20 @@ onMounted(async () => {
   if (editorMode.value === 'preview' && previewBodyRef.value) {
     renderMermaidInContainer(previewBodyRef.value)
   }
-  window.addEventListener('keydown', onModeKeydown, true)
+  // T12：把「跑编辑器命令」的能力注册进 store，命令面板据此显示 / 执行 editor scope 命令。
+  // 与下面的 setEditorRunner(null) 必须成对，否则编辑器卸载后面板仍显示编辑器命令
+  // （点了会作用在已销毁的 CodeMirror view 上）。
+  appStore.setEditorRunner(runEditorCommand)
 })
 
 onUnmounted(() => {
-  window.removeEventListener('keydown', onModeKeydown, true)
+  // 离开编辑器（切到列表/图谱/设置、或关闭应用）时必须落盘，
+  // 否则自动保存关闭时整段会话的改动都不会写出去
+  if (currentNote.value?.id) {
+    noteStore.flushSave(currentNote.value.id)
+  }
+  // 离开编辑器必须注销 runner：留着就是「面板里还能点到编辑器命令、却什么都不会发生」
+  appStore.setEditorRunner(null)
 })
 </script>
 
@@ -1220,62 +859,11 @@ onUnmounted(() => {
   word-break: break-word;
 }
 
-.markdown-body :deep(code) {
-  font-family: var(--font-mono);
-  font-size: 0.9em !important;
-  background: var(--color-bg-tertiary);
-  padding: 2px 6px;
-  border-radius: 6px;
-  border: 1px solid var(--color-border-light);
-  color: var(--state-error);
-}
-
-.markdown-body :deep(pre) {
-  background: var(--color-bg-secondary);
-  border-radius: 10px;
-  border: 1px solid var(--color-border-light);
-  padding: 14px 16px;
-  margin: 10px 0;
-  overflow-x: auto;
-}
-
-.markdown-body :deep(pre code) {
-  background: transparent;
-  padding: 0;
-  border: none;
-  color: var(--color-text-primary);
-}
-
-.markdown-body :deep(mark) {
-  background: rgba(255, 213, 79, 0.4);
-  color: inherit;
-  padding: 1px 4px;
-  border-radius: 4px;
-}
-
-.markdown-body :deep(a) {
-  color: var(--color-primary);
-  text-decoration: none;
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease;
-}
-.markdown-body :deep(a:hover) {
-  border-bottom-color: var(--color-primary);
-}
-
-.markdown-body :deep(blockquote) {
-  padding: 4px 14px;
-  border-left: 3px solid var(--color-text-tertiary);
-  background: transparent;
-  margin: 10px 0;
-  color: var(--color-text-secondary);
-}
-
-.markdown-body :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--color-border);
-  margin: 22px 0;
-}
+/* 行内代码 / pre / mark / 链接 / 引用 / 分隔线 的样式一律交给 style.css 的
+   `.markdown-body` 规范块：这里曾经有一份 :deep() 覆盖（行内代码红色、
+   font-size .9em !important、引用无底色……），结果阅读视图和实时预览对不上，
+   而实时预览的装饰层（themes.js）只能读全局 CSS 变量，无法跟着 scoped 规则走。
+   现在两边共用同一份定义，改一处即同步。 */
 
 .markdown-body :deep(input[type="checkbox"]) {
   margin-right: 8px;
@@ -1285,33 +873,8 @@ onUnmounted(() => {
   accent-color: var(--color-primary);
 }
 
-/* ===== 浮动工具栏 ===== */
-.ft-btn {
-  width: 30px;
-  height: 30px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  cursor: pointer;
-  color: var(--color-text-secondary);
-  background: transparent;
-  border: none;
-  transition: background 0.15s ease;
-}
-
-.ft-btn:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-primary);
-}
-
-.fade-enter-active,
-.fade-leave-active {
-  transition: opacity 0.14s ease;
-}
-
-.fade-enter-from,
-.fade-leave-to {
-  opacity: 0;
-}
+/* 浮动工具栏按钮（.ft-btn）与 fade 过渡已随 EditorSelectionToolbar /
+   EditorContextMenu 搬进各自的 scoped style：这两块都 Teleport 到 body，
+   拿不到本组件的 scoped 规则，必须由各自组件自带一份（全局 .fade-* 用的是
+   CSS 变量，时长与曲线不同，不能借全局那份）。 */
 </style>

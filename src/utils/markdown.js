@@ -2,16 +2,38 @@ import { marked } from 'marked'
 // 用 common 精简集（约 40 种主流语言）替代全量 190+ 语言，主 bundle 显著减小；
 // 罕见语言会退化为 highlightAuto 兜底（无高亮但不报错）
 import hljs from 'highlight.js/lib/common'
+// 主题 CSS 以 ?raw 方式打包进 bundle：
+// 旧实现用 <link href="../../../node_modules/..."> 注入，dev 下能取到，
+// 打包后 import.meta.url 变成 /assets/*.js，那个相对路径直接 404 —— 生产环境
+// 代码块完全没有高亮配色。CSS 已内置到 src/assets/code-themes（rolldown 无法
+// 解析带 query 的包内子路径，故不走 node_modules），两种环境都能拿到。
+// 实时预览同样依赖这份 .hljs-* 规则，所以它是「两模式一致」的前提。
+import githubCss from '../assets/code-themes/github.css?raw'
+import monokaiCss from '../assets/code-themes/monokai.css?raw'
+import tokyoNightCss from '../assets/code-themes/tokyo-night-dark.css?raw'
+import atomOneDarkCss from '../assets/code-themes/atom-one-dark.css?raw'
+import vs2015Css from '../assets/code-themes/vs2015.css?raw'
+import gradientDarkCss from '../assets/code-themes/gradient-dark.css?raw'
 import DOMPurify from 'dompurify'
 import { parseFrontmatter, parseCallouts } from '../composables/useLinks.js'
+// 日志：主题加载失败属于「用户看到没高亮但说不清原因」的问题，必须有据可查。
+// 这里只引入 logger 内核，它及其两个依赖（constants/logging.js、utils/logSanitize.js）
+// 都是零 import、零副作用的纯模块，不会给本文件的加载带来环境要求。
+import { createLogger } from '../utils/logger.js'
+import { LOG_MODULES } from '../constants/logging.js'
+
+/** 渲染 / 代码高亮相关的日志出口 */
+const mdLog = createLogger(LOG_MODULES.editor)
 
 let currentCodeTheme = 'github'
 let currentStyleElement = null
 
+// 注：旧版本里的 dracula 在当前 highlight.js 中并不存在（一直 404），
+// 换成同色系的 Tokyo Night；dracula 保留成别名，老用户的设置不会失效
 const codeThemes = [
   { id: 'github', name: 'GitHub' },
   { id: 'monokai', name: 'Monokai' },
-  { id: 'dracula', name: 'Dracula' },
+  { id: 'tokyo-night-dark', name: 'Tokyo Night' },
   { id: 'atom-one-dark', name: 'Atom One Dark' },
   { id: 'vs2015', name: 'VS 2015' },
   { id: 'gradient-dark', name: 'Gradient Dark' }
@@ -20,10 +42,20 @@ const codeThemes = [
 const themeMap = {
   github: 'github',
   monokai: 'monokai',
-  dracula: 'dracula',
+  dracula: 'tokyo-night-dark',
+  'tokyo-night-dark': 'tokyo-night-dark',
   'atom-one-dark': 'atom-one-dark',
   vs2015: 'vs2015',
   'gradient-dark': 'gradient-dark'
+}
+
+const themeCssMap = {
+  github: githubCss,
+  monokai: monokaiCss,
+  'tokyo-night-dark': tokyoNightCss,
+  'atom-one-dark': atomOneDarkCss,
+  vs2015: vs2015Css,
+  'gradient-dark': gradientDarkCss
 }
 
 async function loadCodeTheme (themeId) {
@@ -34,17 +66,21 @@ async function loadCodeTheme (themeId) {
     currentStyleElement = null
   }
 
-  try {
-    const link = document.createElement('link')
-    link.rel = 'stylesheet'
-    link.href = new URL(`../../../node_modules/highlight.js/styles/${themeName}.css`, import.meta.url).href
-    link.setAttribute('data-highlight-theme', themeId)
-    document.head.appendChild(link)
-    currentStyleElement = link
-    currentCodeTheme = themeId
-  } catch (e) {
-    console.error('Failed to load code theme:', e)
+  const css = themeCssMap[themeName]
+  if (!css) {
+    // themeId / themeName 走 data 而不是拼进 msg：它们来自用户设置，值本身不可信
+    // （可能被写成一长串），拼进正文既挤压可读性又会在截断后被切掉；放进 data 由
+    // logger 渲染成 `k=v` 尾巴，原样保留。logger 出口已自动脱敏，这里不重复处理。
+    mdLog.error('未知代码高亮主题，未注入主题样式', { themeId, themeName })
+    return
   }
+
+  const style = document.createElement('style')
+  style.setAttribute('data-highlight-theme', themeId)
+  style.textContent = css
+  document.head.appendChild(style)
+  currentStyleElement = style
+  currentCodeTheme = themeId
 }
 
 function setCodeTheme (theme) {
@@ -119,18 +155,22 @@ export function preprocessObsidian (md, opts = {}) {
         k++
       }
       const inner = innerLines.join('\n')
-      const id = 'callout-' + Math.random().toString(36).slice(2, 9)
+      // 正文直接就地把 markdown 渲染成 HTML 塞进 callout-body。
+      // 之前这里塞的是 `<template data-callout-inner>` 占位，靠 DOM 渲染后调用
+      // hydrateCalloutsInContainer 回填——但那个函数从来没有被调用过，
+      // 结果所有 callout 在阅读视图里只剩标题、正文消失。
+      // 占位符必须先还原：inner 里的代码块在此之前已被换成 \u0000FnF\u0000，
+      // 就地还原后再交给 marked 才能拿到高亮过的 <pre><code>。
+      const innerHtml = renderMarkdownInner(restoreFences(inner))
       outLines.push(
         `<div class="obsidian-callout callout-${type}" data-callout="${type}">` +
           `<div class="callout-header">` +
             `<span class="callout-icon callout-icon-${type}"></span>` +
             `<div class="callout-title">${title || defaultCalloutTitle(type)}</div>` +
           `</div>` +
-          `<div class="callout-body" id="${id}"><!-- CALLOUT_INNER_${id} --></div>` +
+          `<div class="callout-body">${innerHtml}</div>` +
         `</div>`
       )
-      // 把 inner markdown 占位（marked 不对 HTML 标签内部做处理，但我们用独立 marked.parse(inner) 注入）
-      outLines.push(`<template data-callout-inner="${id}">${escapeHtml(inner)}</template>`)
     } else {
       outLines.push(lines[k])
       k++
@@ -189,6 +229,16 @@ export function preprocessObsidian (md, opts = {}) {
     opts.onWikiLink?.(record)
     return `<a ${attrs}>${escapeHtml(displayName)}</a>`
   })
+
+  // 4.5) ==高亮== 与 #标签
+  //     与实时预览（livePreview.js 的 .cm-md-highlight / .cm-md-tag）保持同款视觉，
+  //     避免同一段笔记在「实时预览」有高亮/标签胶囊、切到「阅读视图」却只剩纯文本。
+  //     必须排在双链之后：否则别名里的 #tag 会被塞进 [[...]] 内部而破坏双链解析。
+  processed = processed.replace(/==([^=\n]+)==/g, '<mark>$1</mark>')
+  processed = processed.replace(
+    /(^|[\s(（])#([\w\u4e00-\u9fa5][\w\u4e00-\u9fa5/-]*)/g,
+    (_, lead, tag) => `${lead}<span class="md-tag">#${tag}</span>`
+  )
 
   // 还原
   processed = restoreInlines(processed)
@@ -253,7 +303,8 @@ renderer.code = function (text, lang) {
   const language = lang || 'text'
 
   if (language === 'mermaid') {
-    const id = 'mermaid-' + Math.random().toString(36).substr(2, 9)
+    // substr 已废弃，slice(2, 11) 与其等价（仍是 9 位 base36 字符，ID 格式兼容）
+    const id = 'mermaid-' + Math.random().toString(36).slice(2, 11)
     return `<div class="mermaid-chart" data-mermaid-id="${id}" data-mermaid-code="${encodeURIComponent(text)}"></div>`
   }
 

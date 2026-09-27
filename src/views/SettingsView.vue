@@ -283,223 +283,8 @@
               </button>
             </div>
 
-            <!-- 拼写忽略词 + 自定义字典 管理 -->
-            <div class="px-5 py-4 border-t" :style="{ borderColor: 'var(--color-border-light)' }">
-              <div class="flex items-center gap-2 mb-3">
-                <div class="w-7 h-7 rounded-lg flex items-center justify-center" :style="{ background: 'var(--state-error-lightest, rgba(239,68,68,0.1))' }">
-                  <EyeOff class="w-4 h-4" :style="{ color: 'var(--state-error)' }" />
-                </div>
-                <div>
-                  <div class="text-[14px] font-semibold" :style="{ color: 'var(--color-text-primary)' }">忽略词列表</div>
-                  <div class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">对"忽略此单词"的单词进行管理</div>
-                </div>
-                <div class="ml-auto flex items-center gap-2">
-                  <div class="relative">
-                    <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2" :style="{ color: 'var(--color-text-tertiary)' }" />
-                    <input
-                      v-model="ignoredSearch"
-                      type="text"
-                      placeholder="搜索..."
-                      class="h-8 pl-8 pr-3 rounded-lg text-[13px] outline-none transition-all duration-200"
-                      :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)', width: '150px', border: '1px solid var(--color-border-light)' }"
-                    />
-                  </div>
-                  <button
-                    class="px-3 h-8 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-90 active:scale-95"
-                    :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
-                    @click="openAddIgnored"
-                  >
-                    <span class="inline-flex items-center gap-1"><Plus class="w-3.5 h-3.5"/>添加</span>
-                  </button>
-                  <button
-                    v-if="ignoredWordsArray.length > 0"
-                    class="px-3 h-8 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-80 active:scale-95"
-                    :style="{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--state-error)' }"
-                    @click="appStore.clearIgnoredWords()"
-                  >清空</button>
-                </div>
-              </div>
-              <div 
-                class="dict-grid-wrap rounded-lg"
-                :style="{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-light)', minHeight: '120px', padding: '8px' }"
-              >
-                <div v-if="filteredIgnoredWords.length === 0" class="flex flex-col items-center justify-center py-6 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
-                  <EyeOff class="w-6 h-6 opacity-40 mb-2" />
-                  <p class="text-[13px]">暂无忽略词</p>
-                </div>
-                <div v-else class="dict-grid">
-                  <div
-                    v-for="w in filteredIgnoredWords"
-                    :key="'ig-' + w"
-                    class="dict-chip"
-                  >
-                    <span class="font-mono text-[13px] flex-1 min-w-0 truncate">{{ w }}</span>
-                    <button
-                      class="dict-chip-remove"
-                      :title="`移除 ${w}`"
-                      @click="appStore.unignoreWord(w)"
-                    >
-                      <X class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div class="px-5 py-4 border-t" :style="{ borderColor: 'var(--color-border-light)' }">
-              <div class="flex items-center gap-2 mb-3">
-                <div class="w-7 h-7 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
-                  <BookPlus class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
-                </div>
-                <div>
-                  <div class="text-[14px] font-semibold" :style="{ color: 'var(--color-text-primary)' }">自定义词典</div>
-                  <div class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">添加到这里的单词会被判定为拼写正确</div>
-                </div>
-                <div class="ml-auto flex items-center gap-2">
-                  <div class="relative">
-                    <Search class="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2" :style="{ color: 'var(--color-text-tertiary)' }" />
-                    <input
-                      v-model="dictionarySearch"
-                      type="text"
-                      placeholder="搜索..."
-                      class="h-8 pl-8 pr-3 rounded-lg text-[13px] outline-none transition-all duration-200"
-                      :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)', width: '150px', border: '1px solid var(--color-border-light)' }"
-                    />
-                  </div>
-                  <button
-                    class="px-3 h-8 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-90 active:scale-95"
-                    :style="{ background: 'var(--color-primary)', color: '#fff' }"
-                    @click="openAddDictionary"
-                  >
-                    <span class="inline-flex items-center gap-1"><Plus class="w-3.5 h-3.5"/>添加</span>
-                  </button>
-                  <button
-                    v-if="dictionaryArray.length > 0"
-                    class="px-3 h-8 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-80 active:scale-95"
-                    :style="{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--state-error)' }"
-                    @click="appStore.clearCustomDictionary()"
-                  >清空</button>
-                </div>
-              </div>
-              <div
-                class="dict-grid-wrap rounded-lg"
-                :style="{ background: 'var(--color-bg-secondary)', border: '1px solid var(--color-border-light)', minHeight: '120px', padding: '8px' }"
-              >
-                <div v-if="filteredDictionaryWords.length === 0" class="flex flex-col items-center justify-center py-6 text-center" :style="{ color: 'var(--color-text-tertiary)' }">
-                  <BookPlus class="w-6 h-6 opacity-40 mb-2" />
-                  <p class="text-[13px]">自定义词典为空</p>
-                </div>
-                <div v-else class="dict-grid">
-                  <div
-                    v-for="w in filteredDictionaryWords"
-                    :key="'dict-' + w"
-                    class="dict-chip"
-                    :style="{ background: 'var(--color-primary-surface, rgba(74,144,217,0.1))', borderColor: 'color-mix(in srgb, var(--color-primary) 30%, transparent)' }"
-                  >
-                    <span
-                      class="font-mono text-[13px] flex-1 min-w-0 truncate"
-                      :style="{ color: 'var(--color-primary)' }"
-                    >{{ w }}</span>
-                    <button
-                      class="dict-chip-remove"
-                      :title="`移除 ${w}`"
-                      :style="{ color: 'var(--color-primary)' }"
-                      @click="appStore.removeFromDictionary(w)"
-                    >
-                      <X class="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <!-- 添加忽略词 模态框 -->
-            <Teleport to="body">
-              <Transition name="fade">
-                <div
-                  v-if="showAddIgnored"
-                  class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-                  @click.self="showAddIgnored = false"
-                >
-                  <div
-                    class="w-[420px] rounded-2xl overflow-hidden shadow-2xl"
-                    :style="{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }"
-                  >
-                    <div class="px-5 py-4 border-b" :style="{ borderColor: 'var(--color-border-light)' }">
-                      <h3 class="text-[15px] font-semibold" :style="{ color: 'var(--color-text-primary)' }">添加忽略词</h3>
-                      <p class="text-[12px] mt-1" :style="{ color: 'var(--color-text-tertiary)' }">支持一次性添加多个，使用空格或逗号分隔</p>
-                    </div>
-                    <div class="px-5 py-4">
-                      <input
-                        ref="ignoredInputRef"
-                        v-model="ignoredInput"
-                        type="text"
-                        placeholder="例如：choyeon obsidian"
-                        class="w-full h-10 px-3 rounded-lg text-[14px] outline-none transition-all duration-200"
-                        :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
-                        @keydown.enter="submitAddIgnored"
-                      />
-                    </div>
-                    <div class="px-5 py-4 flex items-center justify-end gap-2 border-t" :style="{ borderColor: 'var(--color-border-light)' }">
-                      <button
-                        class="px-4 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-all hover:bg-[var(--color-surface-hover)]"
-                        :style="{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-tertiary)' }"
-                        @click="showAddIgnored = false"
-                      >取消</button>
-                      <button
-                        class="px-4 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-all hover:opacity-90 active:scale-95"
-                        :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
-                        @click="submitAddIgnored"
-                      >确认添加</button>
-                    </div>
-                  </div>
-                </div>
-              </Transition>
-            </Teleport>
-
-            <!-- 添加自定义词典 模态框 -->
-            <Teleport to="body">
-              <Transition name="fade">
-                <div
-                  v-if="showAddDictionary"
-                  class="fixed inset-0 z-50 flex items-center justify-center bg-black/30 backdrop-blur-sm"
-                  @click.self="showAddDictionary = false"
-                >
-                  <div
-                    class="w-[420px] rounded-2xl overflow-hidden shadow-2xl"
-                    :style="{ background: 'var(--card-bg)', border: '1px solid var(--card-border)' }"
-                  >
-                    <div class="px-5 py-4 border-b" :style="{ borderColor: 'var(--color-border-light)' }">
-                      <h3 class="text-[15px] font-semibold" :style="{ color: 'var(--color-text-primary)' }">添加自定义词典</h3>
-                      <p class="text-[12px] mt-1" :style="{ color: 'var(--color-text-tertiary)' }">支持一次性添加多个，使用空格或逗号分隔</p>
-                    </div>
-                    <div class="px-5 py-4">
-                      <input
-                        ref="dictionaryInputRef"
-                        v-model="dictionaryInput"
-                        type="text"
-                        placeholder="例如：Choyeon Electron Vue"
-                        class="w-full h-10 px-3 rounded-lg text-[14px] outline-none transition-all duration-200"
-                        :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-primary)', border: '1px solid var(--color-border-light)' }"
-                        @keydown.enter="submitAddDictionary"
-                      />
-                    </div>
-                    <div class="px-5 py-4 flex items-center justify-end gap-2 border-t" :style="{ borderColor: 'var(--color-border-light)' }">
-                      <button
-                        class="px-4 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-all hover:bg-[var(--color-surface-hover)]"
-                        :style="{ color: 'var(--color-text-secondary)', background: 'var(--color-bg-tertiary)' }"
-                        @click="showAddDictionary = false"
-                      >取消</button>
-                      <button
-                        class="px-4 py-2 rounded-xl text-[13px] font-medium cursor-pointer transition-all hover:opacity-90 active:scale-95"
-                        :style="{ background: 'var(--color-primary)', color: '#fff' }"
-                        @click="submitAddDictionary"
-                      >确认添加</button>
-                    </div>
-                  </div>
-                </div>
-              </Transition>
-            </Teleport>
+            <!-- 拼写忽略词 + 自定义字典 管理（已抽到 views/settings/SettingsDictionary.vue） -->
+            <SettingsDictionary />
 
             <div class="settings-row">
               <div class="flex items-center gap-3">
@@ -647,104 +432,7 @@
           </div>
         </div>
 
-        <div class="mb-8">
-          <div class="flex items-center gap-3 mb-4 px-1">
-            <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'var(--color-primary-surface)' }">
-              <Keyboard class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
-            </div>
-            <h2 class="text-[15px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">快捷键</h2>
-            <button
-              v-if="hasCustomHotkeys"
-              class="ml-auto px-3 h-7 rounded-lg text-[12px] font-medium cursor-pointer transition-all duration-150 hover:opacity-80 active:scale-95"
-              :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
-              @click="resetAllShortcuts"
-            >全部重置</button>
-          </div>
-          
-          <div class="mb-3">
-            <div class="relative">
-              <Search class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" :style="{ color: 'var(--color-text-tertiary)' }" />
-              <input 
-                v-model="shortcutSearch"
-                type="text"
-                placeholder="搜索快捷键（支持按键名，如 Ctrl）..."
-                class="shortcut-search w-full h-10 pl-9 pr-4 rounded-lg text-[13px] outline-none transition-all duration-200"
-                :style="{ 
-                  background: 'var(--color-bg-secondary)', 
-                  color: 'var(--color-text-primary)'
-                }"
-              />
-            </div>
-            <p
-              v-if="recordError"
-              class="mt-2 px-3 py-2 rounded-lg text-[12px]"
-              :style="{ background: 'rgba(239, 68, 68, 0.1)', color: 'var(--state-error)' }"
-            >{{ recordError }}</p>
-          </div>
-
-          <div 
-            v-for="category in filteredShortcutCategories" 
-            :key="category.id"
-            class="settings-card mb-3"
-          >
-            <div class="px-5 py-3 border-b" :style="{ borderColor: 'var(--color-border-light)' }">
-              <div class="flex items-center gap-2">
-                <component :is="category.icon" class="w-4 h-4" :style="{ color: 'var(--color-primary)' }" />
-                <span class="text-[13px] font-semibold" :style="{ color: 'var(--color-text-primary)' }">{{ category.label }}</span>
-                <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">{{ category.items.length }}</span>
-              </div>
-            </div>
-            <div class="divide-y" :style="{ borderColor: 'var(--color-border-light)' }">
-              <div 
-                v-for="item in category.items" 
-                :key="item.id"
-                class="flex items-center justify-between px-5 py-2.5 transition-colors"
-                :class="appStore.shortcutRecordingId === item.id ? 'is-recording' : 'hover:bg-[var(--color-surface-hover)]'"
-              >
-                <div class="min-w-0 flex items-center gap-2">
-                  <span class="text-[13px] truncate" :style="{ color: 'var(--color-text-primary)' }">{{ item.label }}</span>
-                  <span
-                    v-if="isCustomized(item)"
-                    class="text-[11px] px-1.5 py-0.5 rounded shrink-0"
-                    :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
-                  >已自定义</span>
-                </div>
-
-                <div class="flex items-center gap-1.5 shrink-0">
-                  <template v-if="appStore.shortcutRecordingId === item.id">
-                    <span class="text-[12px] recording-hint" :style="{ color: 'var(--color-primary)' }">
-                      按下新的组合键… Esc 取消 · Backspace 清除
-                    </span>
-                  </template>
-                  <template v-else>
-                    <span v-if="!currentBinding(item.id)" class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">未设置</span>
-                    <span 
-                      v-for="(key, idx) in bindingPartsOf(item.id)" 
-                      :key="key + idx"
-                      class="kbd-key"
-                    >{{ key }}</span>
-                    <button class="kbd-edit" :title="`修改「${item.label}」的快捷键`" @click="startRecording(item.id)">
-                      <Pencil class="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      v-if="isCustomized(item)"
-                      class="kbd-edit"
-                      :title="`恢复默认（${formatBinding(item.default)}）`"
-                      @click="resetShortcut(item.id)"
-                    >
-                      <RotateCcw class="w-3.5 h-3.5" />
-                    </button>
-                  </template>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div v-if="filteredShortcutCategories.length === 0" class="settings-card py-10 text-center">
-            <Search class="w-8 h-8 mx-auto mb-2" :style="{ color: 'var(--color-text-tertiary)' }" />
-            <p class="text-[13px]" :style="{ color: 'var(--color-text-tertiary)' }">未找到匹配的快捷键</p>
-          </div>
-        </div>
+        <SettingsShortcuts />
 
         <div class="mb-8">
           <div class="flex items-center gap-3 mb-4 px-1">
@@ -927,48 +615,31 @@ import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { fetchBingWallpaper } from '@/utils/bingWallpaper'
-import {
-  SHORTCUTS,
-  SHORTCUT_CATEGORIES,
-  bindingParts,
-  formatBinding,
-  eventToBinding
-} from '@/constants/shortcuts'
+// 「字典」与「快捷键」两块各自成组件，模板/样式/交互与拆出去之前完全一致
+import SettingsDictionary from '@/views/settings/SettingsDictionary.vue'
+import SettingsShortcuts from '@/views/settings/SettingsShortcuts.vue'
 import { 
   ArrowLeft, SunMoon, Palette, Type, Layers, 
   FileCode, SpellCheck, Save, ListOrdered, WrapText,
   FolderOpen, RefreshCw, Paperclip, Folder, AlertTriangle, RotateCcw,
-  Keyboard, Search, FileText, Edit, Zap,
-  Image, MessageCircle, Github, EyeOff, BookPlus, Plus, X,
-  ZoomIn, ZoomOut, Maximize2, Pencil, PenLine, LayoutDashboard
+  FileText, Edit, Zap,
+  Image, MessageCircle, Github,
+  ZoomIn, ZoomOut, Maximize2
 } from 'lucide-vue-next'
-
-/** SHORTCUT_CATEGORIES 里的 icon 是字符串，这里映射成真实组件 */
-const CATEGORY_ICONS = {
-  FolderOpen,
-  PenLine,
-  Type,
-  LayoutDashboard,
-  Plus
-}
+import { createLogger } from '@/utils/logger'
+import { LOG_MODULES } from '@/constants/logging'
 
 const router = useRouter()
 const appStore = useAppStore()
 const noteStore = useNoteStore()
 const workspaceStore = useWorkspaceStore()
-const showResetConfirm = ref(false)
-const shortcutSearch = ref('')
-const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 
-// ===== 拼写字典管理 =====
-const ignoredSearch = ref('')
-const dictionarySearch = ref('')
-const showAddIgnored = ref(false)
-const showAddDictionary = ref(false)
-const ignoredInput = ref('')
-const dictionaryInput = ref('')
-const ignoredInputRef = ref(null)
-const dictionaryInputRef = ref(null)
+// LOG_MODULES 里没有专门的「设置页」模块：这里两处失败都是应用外壳级诊断
+// （取版本号、自动更新 IPC），归到 app 才能被「按模块过滤」正常捞出来。
+// 刻意不自建 'settings' 之类的名字 —— 那会让模块名单漂移回各写各的。
+const log = createLogger(LOG_MODULES.app)
+const showResetConfirm = ref(false)
+const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 
 // ===== Bing 每日壁纸 =====
 const bingRefreshing = ref(false)
@@ -1016,57 +687,13 @@ async function refreshBingWallpaper() {
   }
 }
 
-const ignoredWordsArray = computed(() => {
-  return [...(appStore.ignoredWords || [])].sort((a, b) => a.localeCompare(b))
-})
-const dictionaryArray = computed(() => {
-  return [...(appStore.customDictionary || [])].sort((a, b) => a.localeCompare(b))
-})
-const filteredIgnoredWords = computed(() => {
-  const q = ignoredSearch.value.trim().toLowerCase()
-  if (!q) return ignoredWordsArray.value
-  return ignoredWordsArray.value.filter(w => w.includes(q))
-})
-const filteredDictionaryWords = computed(() => {
-  const q = dictionarySearch.value.trim().toLowerCase()
-  if (!q) return dictionaryArray.value
-  return dictionaryArray.value.filter(w => w.includes(q))
-})
-
-function openAddIgnored() {
-  ignoredInput.value = ''
-  showAddIgnored.value = true
-  setTimeout(() => ignoredInputRef.value?.focus(), 50)
-}
-function openAddDictionary() {
-  dictionaryInput.value = ''
-  showAddDictionary.value = true
-  setTimeout(() => dictionaryInputRef.value?.focus(), 50)
-}
-function parseWords(str) {
-  return String(str || '')
-    .split(/[\s,，、;；]+/g)
-    .map(w => w.trim().toLowerCase())
-    .filter(Boolean)
-}
-function submitAddIgnored() {
-  const words = parseWords(ignoredInput.value)
-  words.forEach(w => appStore.ignoreWord(w))
-  showAddIgnored.value = false
-  ignoredInput.value = ''
-}
-function submitAddDictionary() {
-  const words = parseWords(dictionaryInput.value)
-  words.forEach(w => appStore.addToDictionary(w))
-  showAddDictionary.value = false
-  dictionaryInput.value = ''
-}
-
 const currentVersion = ref('1.0.0')
 const updateStatus = ref('idle')
 const updateInfo = ref(null)
 const downloadProgress = ref(0)
 let updaterUnsubscribe = null
+/** 进页面 2 秒后自动检查更新；句柄留着是为了离开页面时能取消 */
+let updateCheckTimer = null
 
 async function checkForUpdates() {
   if (!isElectron.value) return
@@ -1108,7 +735,9 @@ function setupUpdaterListeners() {
         break
       case 'updater:error':
         updateStatus.value = 'idle'
-        console.error('Update error:', data)
+        // data 是主进程透传的失败载荷（可能是对象也可能是字符串），作为结构化上下文
+        // 进 data 而不是拼进 msg：拼串既丢字段又会绕不过走去 excerpt 截断。
+        log.error('自动更新失败', { detail: data })
         break
       case 'updater:download-progress':
         updateStatus.value = 'downloading'
@@ -1129,12 +758,15 @@ onMounted(async () => {
       currentVersion.value = version
       appStore.setAppVersion(version)
     } catch (e) {
-      console.error('Failed to get version:', e)
+      // e 可能是 IPC 抛出的 Error：logger 会拆成 message + data.err，保留 stack
+      log.error('获取版本号失败', e)
     }
     setupUpdaterListeners()
     
     if (appStore.autoCheckUpdates) {
-      setTimeout(() => {
+      // 2 秒内已经离开设置页的话必须取消：否则会白跑一次网络请求并改写 updateStatus
+      updateCheckTimer = setTimeout(() => {
+        updateCheckTimer = null
         checkForUpdates()
       }, 2000)
     }
@@ -1145,101 +777,11 @@ onUnmounted(() => {
   if (updaterUnsubscribe) {
     updaterUnsubscribe()
   }
-  // 录制中途切走页面：摘掉监听，避免残留的全局 keydown 吞掉后续按键
-  stopRecording()
-})
-
-// ===================== 快捷键 =====================
-// 真实来源只有一份：constants/shortcuts.js 的 SHORTCUTS 注册表。
-// 这里读什么、编辑器就绑什么、App.vue 也匹配什么，不会出现「设置页显示的按了没反应」。
-function currentBinding(id) {
-  return appStore.getBinding(id) || ''
-}
-function bindingPartsOf(id) {
-  return bindingParts(currentBinding(id))
-}
-function isCustomized(item) {
-  return currentBinding(item.id) !== item.default
-}
-
-const hasCustomHotkeys = computed(() =>
-  SHORTCUTS.some(s => !s.hidden && currentBinding(s.id) !== s.default)
-)
-
-const recordError = ref('')
-
-function startRecording(id) {
-  recordError.value = ''
-  appStore.shortcutRecordingId = id
-  window.addEventListener('keydown', onRecordKeydown, true)
-}
-
-function stopRecording() {
-  appStore.shortcutRecordingId = null
-  window.removeEventListener('keydown', onRecordKeydown, true)
-}
-
-function onRecordKeydown(e) {
-  // 录制期间吞掉所有按键：既不让浏览器/编辑器响应，也不让全局快捷键抢先执行
-  e.preventDefault()
-  e.stopPropagation()
-  const id = appStore.shortcutRecordingId
-  if (!id) {
-    stopRecording()
-    return
+  if (updateCheckTimer) {
+    clearTimeout(updateCheckTimer)
+    updateCheckTimer = null
   }
-  if (e.key === 'Escape') {
-    stopRecording()
-    return
-  }
-  // Backspace / Delete 表示"清空这个快捷键"，等价于禁用该命令
-  if (e.key === 'Backspace' || e.key === 'Delete') {
-    appStore.setHotkey(id, '')
-    recordError.value = ''
-    stopRecording()
-    return
-  }
-  const binding = eventToBinding(e)
-  if (!binding) return
-  const result = appStore.setHotkey(id, binding)
-  if (!result.ok) {
-    recordError.value = result.reason === 'conflict'
-      ? `与「${result.conflict.label}」冲突，请换一个组合键`
-      : '设置失败，请重试'
-    return
-  }
-  recordError.value = ''
-  stopRecording()
-}
-
-function resetShortcut(id) {
-  appStore.resetHotkey(id)
-  recordError.value = ''
-}
-
-function resetAllShortcuts() {
-  appStore.resetAllHotkeys()
-  recordError.value = ''
-}
-
-const filteredShortcutCategories = computed(() => {
-  const list = SHORTCUT_CATEGORIES.map(cat => ({
-    id: cat.id,
-    label: cat.label,
-    icon: CATEGORY_ICONS[cat.icon] || Keyboard,
-    items: SHORTCUTS.filter(s => s.category === cat.id && !s.hidden)
-  })).filter(cat => cat.items.length > 0)
-
-  const q = shortcutSearch.value.trim().toLowerCase()
-  if (!q) return list
-
-  return list.map(cat => ({
-    ...cat,
-    items: cat.items.filter(s =>
-      s.label.toLowerCase().includes(q) ||
-      bindingPartsOf(s.id).join(' ').toLowerCase().includes(q)
-    )
-  })).filter(cat => cat.items.length > 0)
+  // 快捷键录制由 SettingsShortcuts 自己收尾（它卸载时会摘掉全局 keydown 监听）
 })
 
 async function changeNotesLocation() {
@@ -1329,66 +871,6 @@ function cancelReset() {
   cursor: pointer;
 }
 
-/* 搜索框 - 毛玻璃效果，聚焦时使用主色光环 */
-.shortcut-search {
-  border: 1px solid var(--color-border-light);
-  backdrop-filter: blur(12px) saturate(160%);
-  -webkit-backdrop-filter: blur(12px) saturate(160%);
-}
-.shortcut-search:focus {
-  background: var(--color-bg-tertiary);
-  box-shadow: 0 0 0 3px var(--color-primary-ring);
-  border-color: transparent;
-}
-
-/* 快捷键按键 - 毛玻璃表面效果，微妙层次感 */
-.kbd-key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 30px;
-  height: 26px;
-  padding: 0 8px;
-  font-size: 11px;
-  font-weight: 600;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  color: var(--color-text-secondary);
-  background: var(--color-bg-tertiary);
-  border-radius: 6px;
-  border: 1px solid var(--color-border-light);
-}
-
-/* 快捷键：修改 / 恢复默认 的小图标按钮 */
-.kbd-edit {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 24px;
-  height: 24px;
-  border: none;
-  border-radius: 6px;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-.kbd-edit:hover {
-  background: var(--color-surface-hover);
-  color: var(--color-primary);
-}
-
-/* 录制中：整行高亮 + 提示文字呼吸，避免用户不知道在等什么 */
-.is-recording {
-  background: var(--color-primary-surface);
-}
-.recording-hint {
-  animation: record-pulse 1.4s ease-in-out infinite;
-}
-@keyframes record-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.45; }
-}
-
 .fade-enter-active,
 .fade-leave-active {
   transition: opacity 0.2s ease;
@@ -1397,58 +879,5 @@ function cancelReset() {
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
-}
-
-/* ===== 拼写字典管理：词条网格 / chip ===== */
-.dict-grid-wrap {
-  overflow-y: auto;
-  max-height: 220px;
-}
-.dict-grid-wrap::-webkit-scrollbar { width: 6px; }
-.dict-grid-wrap::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 3px;
-}
-
-.dict-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
-  gap: 8px;
-}
-
-.dict-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 10px;
-  border-radius: 10px;
-  background: var(--color-surface);
-  border: 1px solid var(--color-border-light);
-  transition: all 0.15s ease;
-  min-width: 0;
-}
-.dict-chip:hover {
-  border-color: var(--color-border);
-  background: var(--color-surface-hover);
-}
-
-.dict-chip-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border-radius: 50%;
-  border: none;
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  flex-shrink: 0;
-  transition: all 0.15s ease;
-}
-.dict-chip-remove:hover {
-  background: rgba(239, 68, 68, 0.15);
-  color: var(--state-error);
-  transform: scale(1.1);
 }
 </style>

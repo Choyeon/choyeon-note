@@ -12,10 +12,27 @@
           v-if="secretCount > 0"
           class="text-[10px] px-1.5 py-0.5 rounded-full"
           :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-tertiary)' }"
-          title="本地明文存储，仅掩码显示，请勿同步到不可信位置"
-        >{{ secretCount }} 条敏感</span>
+          :title="vault.encryptionAvailable
+            ? '敏感值使用操作系统凭据库加密后落盘'
+            : '当前环境不支持系统级加密，敏感值以明文落盘，请勿同步到不可信位置'"
+        >
+          <span v-if="vault.encryptionAvailable">🔒 </span>
+          <span v-else>⚠️ </span>
+          {{ secretCount }} 条敏感{{ vault.encryptionAvailable ? '（已加密）' : '（明文）' }}
+        </span>
       </div>
       <div class="flex-1"></div>
+
+      <button
+        class="h-8 px-2.5 rounded-lg flex items-center gap-1.5 cursor-pointer transition-all active:scale-95"
+        :style="{ background: 'var(--color-bg-secondary)', color: vault.locked ? 'var(--color-primary)' : 'var(--color-text-secondary)' }"
+        :title="vault.locked ? '已锁定：敏感值强制掩码，点击解锁' : '立即锁定并清空已展开的敏感值'"
+        @click="vault.locked ? unlockVault() : lockVault()"
+      >
+        <Lock v-if="vault.locked" class="w-4 h-4" />
+        <Unlock v-else class="w-4 h-4" />
+        <span class="text-[12px] font-medium">{{ vault.locked ? '已锁定' : '锁定' }}</span>
+      </button>
 
       <div class="relative">
         <Search class="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2" :style="{ color: 'var(--color-text-tertiary)' }" />
@@ -373,13 +390,17 @@ import { computed, nextTick, onMounted, onUnmounted, reactive, ref } from 'vue'
 import {
   Archive, Search, Plus, Eye, EyeOff, Download, Upload,
   Copy, Check, Star, Pencil, Trash2, X,
-  KeyRound, Server, KeySquare, Database, Contact, StickyNote
+  KeyRound, Server, KeySquare, Database, Contact, StickyNote,
+  Lock, Unlock
 } from 'lucide-vue-next'
 import { useVaultStore, VAULT_KINDS, kindOf } from '@/stores/vault'
 import { useWorkspaceStore } from '@/stores/workspace'
+import { useAppStore } from '@/stores/app'
+import { copyWithAutoClear } from '@/utils/clipboard'
 
 const vault = useVaultStore()
 const workspaceStore = useWorkspaceStore()
+const appStore = useAppStore()
 
 const searchInputRef = ref(null)
 const fileInputRef = ref(null)
@@ -438,6 +459,8 @@ onMounted(async () => {
 onUnmounted(() => {
   // 关页前把未落盘的改动立即写盘
   vault.flush()
+  // 清掉自动锁定的闲置定时器
+  vault.dispose()
   if (copiedTimer) clearTimeout(copiedTimer)
 })
 
@@ -516,17 +539,40 @@ function removeEntry(entry) {
 
 // ---------------------------------------------------------------- 卡片操作
 async function copyValue(entry) {
-  try {
-    await navigator.clipboard.writeText(entry.value || '')
-    copiedId.value = entry.id
-    if (copiedTimer) clearTimeout(copiedTimer)
-    copiedTimer = setTimeout(() => { copiedId.value = null }, 1500)
-  } catch { /* 剪贴板不可用时静默失败 */ }
+  vault.markActivity()
+  // 走带自动清理的复制：敏感值不能长期留在系统剪贴板里
+  const ok = await copyWithAutoClear(entry.value || '')
+  if (!ok) {
+    appStore.pushToast?.({ type: 'error', message: '复制失败，剪贴板不可用' })
+    return
+  }
+  copiedId.value = entry.id
+  if (copiedTimer) clearTimeout(copiedTimer)
+  copiedTimer = setTimeout(() => { copiedId.value = null }, 1500)
+  if (entry.secret) {
+    appStore.pushToast?.({ type: 'success', message: '已复制，45 秒后自动从剪贴板清除', duration: 3000 })
+  }
 }
 
 function toggleRevealAll() {
-  if (showMasked.value) vault.revealAll()
-  else vault.hideAll()
+  if (!showMasked.value) {
+    vault.hideAll()
+    return
+  }
+  // 一键明文展开全部敏感值是高风险操作，必须二次确认
+  const total = vault.secretCount
+  if (total > 0 && !confirm(`确定要明文显示全部 ${total} 条敏感记录吗？离开页面或闲置 5 分钟后会自动重新掩码。`)) {
+    return
+  }
+  vault.revealAll()
+}
+
+function lockVault() {
+  vault.lockNow()
+}
+
+function unlockVault() {
+  vault.unlock()
 }
 
 // ---------------------------------------------------------------- 导入 / 导出

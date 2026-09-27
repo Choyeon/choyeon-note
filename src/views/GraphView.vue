@@ -118,8 +118,8 @@
           <g :transform="`translate(${offsetX}, ${offsetY}) scale(${scale})`">
             <g class="links">
               <line 
-                v-for="(link, index) in visibleLinks" 
-                :key="'link-'+index"
+                v-for="link in visibleLinks" 
+                :key="link.id"
                 :x1="link.source.x" 
                 :y1="link.source.y" 
                 :x2="link.target.x" 
@@ -282,7 +282,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
+import { ref, shallowRef, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { 
@@ -299,8 +299,26 @@ const graphContainer = ref(null)
 const searchQuery = ref(null)
 const viewMode = ref('global')
 
-const nodes = ref([])
-const links = ref([])
+// ---------------------------------------------------------------------------
+// 节点 / 连线为什么必须是 shallowRef
+// ---------------------------------------------------------------------------
+// 力导向每帧要写 N 个节点的 x/y/vx/vy。之前 nodes 是深响应 ref：4N 次属性写入
+// 各自触发依赖，而 visibleNodes 里的 `...n` 展开会读取全部属性，于是每个节点
+// 每次写入都让该 computed 失效 —— 60fps 下持续重建 N 个新对象并整棵 SVG 打补丁。
+// 改成 shallowRef 后：节点对象是裸对象，写坐标不触发任何依赖；每帧末尾统一
+// triggerRef 一次，一帧只重算一次、只 patch 一次。
+const nodes = shallowRef([])
+const links = shallowRef([])
+
+// 裸数组快照：给"不需要逐帧更新"的 computed（侧边栏排序列表、标签配色）用，
+// 避免它们被每帧的 triggerRef 拖着一起重算
+let nodesRaw = []
+let linksRaw = []
+
+/** 每帧 +1：驱动画布渲染（唯一会被高频写入的响应式值） */
+const frameTick = ref(0)
+/** 图谱结构（节点集合/连线）变化时 +1：驱动侧边栏、配色等低频 computed */
+const structureVersion = ref(0)
 
 const scale = ref(1)
 const offsetX = ref(0)
@@ -312,7 +330,15 @@ const draggedNodeId = ref(null)
 const lastMousePos = ref({ x: 0, y: 0 })
 
 let animationFrame = null
+let focusAnimationFrame = null
 let simulationRunning = false
+let simulationFrame = 0
+/** 画布尺寸缓存：之前每帧 getBoundingClientRect() 会强制同步布局（reflow） */
+let containerRect = { width: 0, height: 0 }
+let resizeObserver = null
+
+/** 仿真收敛上限：力导向在斥力/引力震荡时可能长期不收敛，RAF 会常驻烧 CPU */
+const MAX_SIMULATION_FRAMES = 400
 
 const tagColors = [
   '#6366f1', '#ec4899', '#8b5cf6', '#f59e0b', '#10b981',
@@ -320,9 +346,10 @@ const tagColors = [
 ]
 
 const tagColorMap = computed(() => {
+  structureVersion.value // 只在图谱结构变化时重算
   const map = {}
   const allTags = new Set()
-  nodes.value.forEach(n => {
+  nodesRaw.forEach(n => {
     (n.tags || []).forEach(t => allTags.add(t))
   })
   let colorIndex = 0
@@ -345,7 +372,7 @@ const neighborIds = computed(() => {
   const target = hoveredNode.value || selectedNode.value
   if (!target) return null
   const ids = new Set([target])
-  links.value.forEach(link => {
+  linksRaw.forEach(link => {
     if (link.source.id === target) ids.add(link.target.id)
     if (link.target.id === target) ids.add(link.source.id)
   })
@@ -358,16 +385,19 @@ const selectedNodeData = computed(() => {
 })
 
 const visibleNodes = computed(() => {
+  // 依赖帧计数：每帧只重算一次（而不是每个节点属性写入都重算一次）
+  frameTick.value
+  structureVersion.value
   const query = (searchQuery.value || '').trim()
-  let baseNodes = nodes.value
-  
+  let baseNodes = nodesRaw
+
   if (viewMode.value === 'local' && selectedNode.value) {
     const neighbors = neighborIds.value
     if (neighbors) {
-      baseNodes = nodes.value.filter(n => neighbors.has(n.id))
+      baseNodes = baseNodes.filter(n => neighbors.has(n.id))
     }
   }
-  
+
   if (!query) {
     return baseNodes.map(n => ({
       ...n,
@@ -376,7 +406,7 @@ const visibleNodes = computed(() => {
       dimmed: neighborIds.value ? !neighborIds.value.has(n.id) : false
     }))
   }
-  
+
   const lowerQuery = query.toLowerCase()
   return baseNodes.map(n => ({
     ...n,
@@ -387,31 +417,39 @@ const visibleNodes = computed(() => {
 })
 
 const visibleLinks = computed(() => {
+  frameTick.value
+  structureVersion.value
   const query = (searchQuery.value || '').trim()
-  let baseLinks = links.value
-  
+  let baseLinks = linksRaw
+
   if (viewMode.value === 'local' && selectedNode.value) {
     const neighbors = neighborIds.value
     if (neighbors) {
-      baseLinks = links.value.filter(l => 
+      baseLinks = baseLinks.filter(l =>
         neighbors.has(l.source.id) && neighbors.has(l.target.id)
       )
     }
   }
-  
+
   if (!query && !neighborIds.value) {
-    return baseLinks.map(l => ({ ...l, opacity: 0.5, highlighted: false }))
+    return baseLinks.map(l => ({
+      id: `${l.source.id}|${l.target.id}`,
+      ...l,
+      opacity: 0.5,
+      highlighted: false
+    }))
   }
-  
+
   const highlightedIds = neighborIds.value || new Set(
     visibleNodes.value.filter(n => n.matches).map(n => n.id)
   )
-  
+
   return baseLinks.map(l => {
     const sourceHighlighted = highlightedIds.has(l.source.id)
     const targetHighlighted = highlightedIds.has(l.target.id)
     const bothHighlighted = sourceHighlighted && targetHighlighted
     return {
+      id: `${l.source.id}|${l.target.id}`,
       ...l,
       opacity: bothHighlighted ? 0.9 : (sourceHighlighted || targetHighlighted ? 0.2 : 0.05),
       highlighted: bothHighlighted
@@ -499,37 +537,32 @@ function extractContentKeywords(content) {
   return filtered.map(item => item.word)
 }
 
+// 侧边栏列表只跟随"结构 + 选中"，不跟随每帧坐标变化
 const sortedNodes = computed(() => {
-  return [...nodes.value].sort((a, b) => {
-    if (selectedNode.value === a.id) return -1
-    if (selectedNode.value === b.id) return 1
+  structureVersion.value
+  const selected = selectedNode.value
+  return [...nodesRaw].sort((a, b) => {
+    if (selected === a.id) return -1
+    if (selected === b.id) return 1
     return b.size - a.size
   })
 })
 
 function generateGraph() {
   const notes = noteStore.notes
-  if (!graphContainer.value) return
-  
-  const rect = graphContainer.value.getBoundingClientRect()
-  const width = rect.width / scale.value
-  const height = rect.height / scale.value
+  if (!measureContainer()) return
+
+  const width = containerRect.width / scale.value
+  const height = containerRect.height / scale.value
   const centerX = width / 2
   const centerY = height / 2
 
-  const noteData = notes.map(note => ({
-    ...note,
-    extractedTags: extractTags(note.content),
-    titleKeywords: extractTitleKeywords(note.title),
-    contentKeywords: extractContentKeywords(note.content)
-  }))
-
-  nodes.value = noteData.map((note, index) => {
-    const angle = (index / noteData.length) * 2 * Math.PI + Math.random() * 0.3
+  const nodeList = notes.map((note, index) => {
+    const angle = (index / notes.length) * 2 * Math.PI + Math.random() * 0.3
     const radius = 120 + Math.random() * 80
-    const charCount = note.content.length
+    const charCount = (note.content || '').length
     const size = 6 + Math.min(charCount / 200, 16)
-    
+
     return {
       id: note.id,
       label: note.title,
@@ -538,59 +571,111 @@ function generateGraph() {
       vx: 0,
       vy: 0,
       size,
-      tags: note.extractedTags,
-      titleKeywords: note.titleKeywords,
-      contentKeywords: note.contentKeywords,
+      tags: extractTags(note.content),
+      titleKeywords: extractTitleKeywords(note.title),
+      contentKeywords: extractContentKeywords(note.content),
       charCount
     }
   })
 
-  links.value = []
-  const linkMap = new Map()
+  const linkList = buildLinks(nodeList)
 
-  for (let i = 0; i < nodes.value.length; i++) {
-    for (let j = i + 1; j < nodes.value.length; j++) {
-      const nodeA = nodes.value[i]
-      const nodeB = nodes.value[j]
-      let strength = 0
+  nodesRaw = nodeList
+  linksRaw = linkList
+  nodes.value = nodeList
+  links.value = linkList
+  structureVersion.value++
 
-      const commonTags = nodeA.tags.filter(tag => nodeB.tags.includes(tag))
-      if (commonTags.length > 0) {
-        strength += commonTags.length * 2
+  offsetX.value = containerRect.width / 2 - centerX * scale.value
+  offsetY.value = containerRect.height / 2 - centerY * scale.value
+}
+
+/**
+ * 用倒排索引算相似度，替代原来的 O(n²) 双重循环。
+ *
+ * 原实现对每一对节点都要跑 3 次 filter/some（标签、标题词、正文词），
+ * 500 篇笔记就是 12.5 万对、每对多次数组扫描，主线程阻塞数秒。
+ * 改成「先建 keyword/tag → 节点下标 的倒排表，只在桶内两两比较」后，
+ * 复杂度与真正有共同特征的节点对数成正比。
+ *
+ * 过于通用的桶（成员超过 MAX_BUCKET）对相似度没有区分度，直接跳过。
+ */
+const MAX_BUCKET = 200
+
+function buildLinks (list) {
+  const n = list.length
+  if (n < 2) return []
+
+  const pairMap = new Map()
+
+  const addPair = (i, j, weight, kind, value) => {
+    const a = i < j ? i : j
+    const b = i < j ? j : i
+    const key = a * n + b
+    let rec = pairMap.get(key)
+    if (!rec) {
+      rec = {
+        a, b, strength: 0,
+        commonTags: [], commonTitleKeywords: [], commonContentKeywords: []
       }
+      pairMap.set(key, rec)
+    }
+    rec.strength += weight
+    if (kind === 'tag') rec.commonTags.push(value)
+    else if (kind === 'title') rec.commonTitleKeywords.push(value)
+    else rec.commonContentKeywords.push(value)
+  }
 
-      const commonTitleKeywords = nodeA.titleKeywords.filter(kw => 
-        nodeB.titleKeywords.some(bkw => bkw.toLowerCase() === kw.toLowerCase())
-      )
-      if (commonTitleKeywords.length > 0) {
-        strength += commonTitleKeywords.length * 1.5
+  const buildIndex = (getValue) => {
+    const index = new Map()
+    for (let i = 0; i < n; i++) {
+      for (const raw of getValue(list[i])) {
+        const key = String(raw).toLowerCase()
+        if (!key) continue
+        const bucket = index.get(key)
+        if (bucket) bucket.push(i)
+        else index.set(key, [i])
       }
+    }
+    return index
+  }
 
-      const commonContentKeywords = nodeA.contentKeywords.filter(kw => 
-        nodeB.contentKeywords.some(bkw => bkw.toLowerCase() === kw.toLowerCase())
-      )
-      if (commonContentKeywords.length > 0) {
-        strength += commonContentKeywords.length * 0.5
-      }
-
-      if (strength > 0) {
-        const linkKey = `${nodeA.id}-${nodeB.id}`
-        linkMap.set(linkKey, {
-          source: nodeA,
-          target: nodeB,
-          strength,
-          commonTags,
-          commonTitleKeywords,
-          commonContentKeywords
-        })
+  const scanBuckets = (index, weight, kind) => {
+    for (const bucket of index.values()) {
+      if (bucket.length < 2 || bucket.length > MAX_BUCKET) continue
+      for (let x = 0; x < bucket.length; x++) {
+        for (let y = x + 1; y < bucket.length; y++) {
+          addPair(bucket[x], bucket[y], weight, kind, null)
+        }
       }
     }
   }
 
-  links.value = Array.from(linkMap.values())
+  scanBuckets(buildIndex(node => node.tags || []), 2, 'tag')
+  scanBuckets(buildIndex(node => node.titleKeywords || []), 1.5, 'title')
+  scanBuckets(buildIndex(node => node.contentKeywords || []), 0.5, 'content')
 
-  offsetX.value = rect.width / 2 - centerX * scale.value
-  offsetY.value = rect.height / 2 - centerY * scale.value
+  const result = []
+  for (const rec of pairMap.values()) {
+    if (rec.strength <= 0) continue
+    result.push({
+      source: list[rec.a],
+      target: list[rec.b],
+      strength: rec.strength,
+      commonTags: rec.commonTags.filter(Boolean),
+      commonTitleKeywords: rec.commonTitleKeywords.filter(Boolean),
+      commonContentKeywords: rec.commonContentKeywords.filter(Boolean)
+    })
+  }
+  return result
+}
+
+/** 量一次画布尺寸；返回 false 表示容器还没挂载 */
+function measureContainer () {
+  if (!graphContainer.value) return false
+  const rect = graphContainer.value.getBoundingClientRect()
+  containerRect = { width: rect.width, height: rect.height }
+  return containerRect.width > 0 && containerRect.height > 0
 }
 
 /**
@@ -675,62 +760,71 @@ function applyRepulsion(list, repulsionStrength) {
 function startSimulation() {
   if (simulationRunning) return
   simulationRunning = true
-  
+  simulationFrame = 0
+
   function tick() {
     const repulsionStrength = 2000
     const attractionStrength = 0.01
     const centerStrength = 0.02
     const damping = 0.9
-    
+
     if (!graphContainer.value) {
       simulationRunning = false
       return
     }
-    
-    const rect = graphContainer.value.getBoundingClientRect()
-    const centerX = rect.width / 2 / scale.value - offsetX.value / scale.value
-    const centerY = rect.height / 2 / scale.value - offsetY.value / scale.value
 
-    applyRepulsion(nodes.value, repulsionStrength)
+    const centerX = containerRect.width / 2 / scale.value - offsetX.value / scale.value
+    const centerY = containerRect.height / 2 / scale.value - offsetY.value / scale.value
 
-    for (const link of links.value) {
+    applyRepulsion(nodesRaw, repulsionStrength)
+
+    for (const link of linksRaw) {
       const dx = link.target.x - link.source.x
       const dy = link.target.y - link.source.y
       const dist = Math.sqrt(dx * dx + dy * dy) || 1
       const force = (dist - 150) * attractionStrength
-      
+
       const fx = (dx / dist) * force
       const fy = (dy / dist) * force
-      
+
       link.source.vx += fx
       link.source.vy += fy
       link.target.vx -= fx
       link.target.vy -= fy
     }
 
-    for (const node of nodes.value) {
+    for (const node of nodesRaw) {
       node.vx += (centerX - node.x) * centerStrength
       node.vy += (centerY - node.y) * centerStrength
-      
+
       node.vx *= damping
       node.vy *= damping
-      
+
       node.x += node.vx
       node.y += node.vy
     }
 
+    // 一帧只触发一次响应式更新，而不是 4N 次属性写入各触发一次
+    frameTick.value++
+
     let maxVelocity = 0
-    for (const node of nodes.value) {
+    for (const node of nodesRaw) {
       maxVelocity = Math.max(maxVelocity, Math.abs(node.vx), Math.abs(node.vy))
     }
 
-    if (maxVelocity > 0.1) {
+    simulationFrame++
+    const exhausted = simulationFrame >= MAX_SIMULATION_FRAMES
+
+    // 收敛判定之外再加一条硬上限：斥力/引力震荡时 maxVelocity 可能长期降不下来，
+    // RAF 会一直常驻烧 CPU 和电池
+    if (!exhausted && maxVelocity > 0.1) {
       animationFrame = requestAnimationFrame(tick)
     } else {
       simulationRunning = false
+      animationFrame = null
     }
   }
-  
+
   tick()
 }
 
@@ -740,31 +834,35 @@ function selectNode(node) {
 
 function focusNode(node) {
   selectedNode.value = node.id
-  
-  if (!graphContainer.value) return
-  const rect = graphContainer.value.getBoundingClientRect()
-  const targetX = rect.width / 2 - node.x * scale.value
-  const targetY = rect.height / 2 - node.y * scale.value
-  
+
+  if (!measureContainer()) return
+  const targetX = containerRect.width / 2 - node.x * scale.value
+  const targetY = containerRect.height / 2 - node.y * scale.value
+
   const startX = offsetX.value
   const startY = offsetY.value
   const duration = 300
   const startTime = performance.now()
-  
+
+  // 连续点多个节点时必须先取消上一段动画，否则两段动画会同时写 offset 互相打架
+  if (focusAnimationFrame) cancelAnimationFrame(focusAnimationFrame)
+
   function animate(currentTime) {
     const elapsed = currentTime - startTime
     const progress = Math.min(elapsed / duration, 1)
     const ease = 1 - Math.pow(1 - progress, 3)
-    
+
     offsetX.value = startX + (targetX - startX) * ease
     offsetY.value = startY + (targetY - startY) * ease
-    
+
     if (progress < 1) {
-      requestAnimationFrame(animate)
+      focusAnimationFrame = requestAnimationFrame(animate)
+    } else {
+      focusAnimationFrame = null
     }
   }
-  
-  requestAnimationFrame(animate)
+
+  focusAnimationFrame = requestAnimationFrame(animate)
 }
 
 function openNote(id) {
@@ -773,7 +871,11 @@ function openNote(id) {
 }
 
 function getLinkCount(nodeId) {
-  return links.value.filter(l => l.source.id === nodeId || l.target.id === nodeId).length
+  let count = 0
+  for (const l of linksRaw) {
+    if (l.source.id === nodeId || l.target.id === nodeId) count++
+  }
+  return count
 }
 
 function randomize() {
@@ -790,27 +892,28 @@ function zoomOut() {
 }
 
 function resetView() {
-  if (!graphContainer.value) return
-  const rect = graphContainer.value.getBoundingClientRect()
-  
+  if (!measureContainer() || nodesRaw.length === 0) return
+
   scale.value = 1
-  
-  const centerX = nodes.value.reduce((sum, n) => sum + n.x, 0) / nodes.value.length || rect.width / 2
-  const centerY = nodes.value.reduce((sum, n) => sum + n.y, 0) / nodes.value.length || rect.height / 2
-  
-  offsetX.value = rect.width / 2 - centerX
-  offsetY.value = rect.height / 2 - centerY
+
+  let sumX = 0
+  let sumY = 0
+  for (const n of nodesRaw) { sumX += n.x; sumY += n.y }
+  const centerX = sumX / nodesRaw.length
+  const centerY = sumY / nodesRaw.length
+
+  offsetX.value = containerRect.width / 2 - centerX
+  offsetY.value = containerRect.height / 2 - centerY
 }
 
 function onWheel(e) {
   e.preventDefault()
   const delta = e.deltaY > 0 ? 0.9 : 1.1
   const newScale = Math.max(0.3, Math.min(3, scale.value * delta))
-  
-  if (!graphContainer.value) return
-  const rect = graphContainer.value.getBoundingClientRect()
-  const mouseX = e.clientX - rect.left
-  const mouseY = e.clientY - rect.top
+
+  if (!measureContainer()) return
+  const mouseX = e.clientX - graphContainer.value.getBoundingClientRect().left
+  const mouseY = e.clientY - graphContainer.value.getBoundingClientRect().top
   
   const graphX = (mouseX - offsetX.value) / scale.value
   const graphY = (mouseY - offsetY.value) / scale.value
@@ -837,12 +940,14 @@ function onCanvasMouseMove(e) {
   if (isDraggingNode.value && draggedNodeId.value) {
     const dx = (e.clientX - lastMousePos.value.x) / scale.value
     const dy = (e.clientY - lastMousePos.value.y) / scale.value
-    const node = nodes.value.find(n => n.id === draggedNodeId.value)
+    const node = nodesRaw.find(n => n.id === draggedNodeId.value)
     if (node) {
       node.x += dx
       node.y += dy
       node.vx = 0
       node.vy = 0
+      // 手动拖动是低频操作，直接触发一次重渲染即可
+      frameTick.value++
     }
     lastMousePos.value = { x: e.clientX, y: e.clientY }
   } else if (isPanning.value) {
@@ -866,7 +971,9 @@ function getPreview(content) {
   return text.length > 100 ? text.substring(0, 100) + '...' : text
 }
 
-// 笔记增删或内容变化后自动重建图谱（防抖，避免频繁重排）
+// 笔记增删或内容变化后自动重建图谱（防抖，避免频繁重排）。
+// 指纹用 id + title + content.length：不读正文内容本身，避免把每篇笔记的
+// 全文都注册成依赖（那样每敲一个字都会重建一次图谱）。
 let graphRegenTimer = null
 watch(
   () => noteStore.notes.map(n => `${n.id}:${n.title}:${(n.content || '').length}`).join('|'),
@@ -881,10 +988,21 @@ watch(
 
 onMounted(() => {
   nextTick(() => {
+    if (!measureContainer()) return
     generateGraph()
     startSimulation()
   })
-  
+
+  // 画布尺寸变化后中心点必须跟着变，否则窗口缩放后布局会偏到一边
+  if (graphContainer.value && typeof ResizeObserver !== 'undefined') {
+    resizeObserver = new ResizeObserver(() => {
+      const hadSize = containerRect.width > 0
+      measureContainer()
+      if (hadSize && simulationRunning) startSimulation()
+    })
+    resizeObserver.observe(graphContainer.value)
+  }
+
   window.addEventListener('mouseup', onCanvasMouseUp)
 })
 
@@ -895,6 +1013,16 @@ onUnmounted(() => {
   }
   if (animationFrame) {
     cancelAnimationFrame(animationFrame)
+    animationFrame = null
+  }
+  // 聚焦动画的 RAF 句柄不在这里取消的话，切走路由后仍会继续写 offset 300ms
+  if (focusAnimationFrame) {
+    cancelAnimationFrame(focusAnimationFrame)
+    focusAnimationFrame = null
+  }
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
   }
   simulationRunning = false
   window.removeEventListener('mouseup', onCanvasMouseUp)

@@ -197,6 +197,19 @@
         />
       </div>
     </Transition>
+
+    <PromptDialog
+      v-if="dialog"
+      :mode="dialog.mode"
+      :title="dialog.title"
+      :message="dialog.message"
+      :placeholder="dialog.placeholder"
+      :default-value="dialog.defaultValue"
+      :danger="dialog.danger"
+      :confirm-text="dialog.confirmText"
+      @confirm="onDialogConfirm"
+      @cancel="onDialogCancel"
+    />
   </div>
 </template>
 
@@ -207,6 +220,7 @@ import {
 } from 'lucide-vue-next'
 import { useNoteStore } from '@/stores/note'
 import { dndCtxKey, createDndCtx } from '@/composables/folderDnd.js'
+import PromptDialog from './common/PromptDialog.vue'
 
 const props = defineProps({
   folder: { type: Object, required: true },
@@ -326,15 +340,45 @@ function cancelRename() {
 }
 
 // ====== 动作 ======
+const dialog = ref(null)
+
+/**
+ * 与 Sidebar 的 askDialog 保持相同契约：确认返回输入值，取消返回 null。
+ * 不能把取消映射为空字符串，否则调用方无法区分取消和用户确认了空内容。
+ */
+function askDialog (options = {}) {
+  return new Promise((resolve) => {
+    dialog.value = { mode: 'confirm', danger: false, ...options, resolve }
+  })
+}
+
+function onDialogConfirm (value) {
+  dialog.value?.resolve?.(value)
+  dialog.value = null
+}
+
+function onDialogCancel () {
+  dialog.value?.resolve?.(null)
+  dialog.value = null
+}
+
 function createNoteInFolder(folderPath) {
   const payload = { folder: folderPath }
   ctx.request.createNote(payload)
   emit('create-note', payload)
 }
-function createSubfolder(folderPath) {
-  const name = window.prompt('新建子文件夹名称', '新文件夹')
-  if (!name) return
-  const path = folderPath ? `${folderPath}/${name.trim()}` : name.trim()
+async function createSubfolder(folderPath) {
+  const name = await askDialog({
+    mode: 'prompt',
+    title: '新建子文件夹名称',
+    defaultValue: '新文件夹'
+  })
+  if (typeof name !== 'string') return
+
+  const normalizedName = name.trim()
+  if (!normalizedName) return
+
+  const path = folderPath ? `${folderPath}/${normalizedName}` : normalizedName
   const payload = { path }
   ctx.request.createFolder(payload)
   emit('create-folder', payload)

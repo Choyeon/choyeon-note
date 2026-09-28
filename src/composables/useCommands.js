@@ -32,6 +32,7 @@ import {
   Sun,
   Tags,
   Type,
+  Undo2,
   UploadCloud,
   ZoomIn,
   ZoomOut
@@ -103,7 +104,10 @@ const GENERATED_APP_ICON = {
   'view.liveMode': Eye,
   'view.zoomIn': ZoomIn,
   'view.zoomOut': ZoomOut,
-  'view.zoomReset': RotateCcw
+  'view.zoomReset': RotateCcw,
+  // 撤回文件结构操作（新建/移动/重命名/删除/文件夹增删）—— 用 Undo2 而不是 RotateCcw：
+  // RotateCcw 已被 view.zoomReset 占用，两个「重置 / 撤回」共用一个图标在面板里分不清
+  'app.undoFileOp': Undo2
 }
 
 /**

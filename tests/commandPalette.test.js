@@ -222,11 +222,13 @@ describe('C. 角标真源 = 注册表绑定', () => {
   it('用户自定义键位后，角标跟着变（不是写死默认值）', () => {
     const { appStore, commands } = setupCommands({ withRunner: true })
     const before = findCmd(commands, 'view.readingMode').hotkey
-    // 改成一个明显不同的组合键
-    appStore.setHotkey('view.readingMode', 'Mod-Alt-z')
+    // 改成一个明显不同的组合键。
+    // 注意：这里不能用 Mod-Alt-z —— 批次 6 的 app.undoFileOp 已把它占为默认键（同 app scope），
+    // setHotkey 会判同 scope 冲突而拒绝写入，断言就会假红。Mod-Alt-m 在 app / editor 两侧都无人占用。
+    appStore.setHotkey('view.readingMode', 'Mod-Alt-m')
     const after = findCmd(commands, 'view.readingMode').hotkey
     expect(after).not.toBe(before)
-    expect(after).toBe(formatBinding(normalizeBinding('Mod-Alt-z')))
+    expect(after).toBe(formatBinding(normalizeBinding('Mod-Alt-m')))
   })
 })
 

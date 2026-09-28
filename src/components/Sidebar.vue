@@ -289,6 +289,9 @@ import PromptDialog from './common/PromptDialog.vue'
 import { dndCtxKey, createDndCtx } from '@/composables/folderDnd.js'
 import { formatBinding } from '@/constants/shortcuts'
 import { useAppStore } from '@/stores/app'
+// ⚠️ 上报内核必须从零依赖 util 引入，**不能**从 '@/views/TrashView.vue' 引入：
+// /trash 是懒加载路由，那样会把 1000+ 行的 TrashView 整块拖进首屏主 chunk。
+import { reportTrashMethod } from '@/utils/trashState.js'
 
 defineEmits(['toggle-sidebar'])
 
@@ -459,6 +462,56 @@ function countNotesUnder (folderPath) {
  * @param {string} folderName 用于文案展示的文件夹名
  * @returns {Promise<void>}
  */
+/**
+ * 删除成功后，把「这次删除实际走了哪种回收站」上报给「最近删除」页。
+ *
+ * 判成功只能靠 store 的 lastTrashMethod：deleteNote 的契约是 Promise<void>，
+ * deleteFolder 的契约是 Promise<boolean>（且布尔是「目录删掉没」，不是「方式」）。
+ * lastTrashMethod 在每次删除**开始前**清空、只在成功且主进程回了 detail 时写入，
+ * 所以「非空」⇔「本次删除成功且方式已知」，不存在拿上一次旧值误报的可能。
+ *
+ * 未知（浏览器模式 / 老主进程 / 删除失败）时**不上报** —— 宁可指示条不动，
+ * 也不编一个值凑数。
+ *
+ * @param {string} method noteStore.lastTrashMethod 的当前值
+ * @returns {void}
+ */
+function reportTrashMethodIfKnown (method) {
+  if (!method) return
+  // notify:false —— 只记状态、不回抛事件。TrashView 自己也监听这个事件，
+  // 回抛会形成「事件 → 上报 → 派发 → 事件」的无限递归。
+  reportTrashMethod(method, { notify: false })
+}
+
+/**
+ * 删一篇笔记 + 成功后上报方式（deleteNote 返回 void，只能这样判成功）。
+ *
+ * 失败时为什么不静默：文件没能从磁盘删掉，但库里若把它摘了，用户以为删掉了 ——
+ * 下次启动它「复活」，再建同名笔记还可能把真文件覆盖掉。与 deleteFolderWithNotice
+ * 同一规格：删不掉就明说，并且**不**上报 success 态。
+ *
+ * @param {string} id 笔记 id
+ * @returns {Promise<void>}
+ */
+async function deleteNoteAndReport (id) {
+  const target = noteStore.notes.find(n => n.id === id)
+  const title = target?.title || '未命名'
+  await noteStore.deleteNote?.(id)
+
+  // 判失败靠 lastDeleteError：它在每次删除**开始前**清空，读到非空必然是本次失败。
+  const reason = String(noteStore.lastDeleteError || '').trim()
+  if (reason) {
+    await askDialog({
+      mode: 'alert',
+      title: `没能删除笔记「${title}」`,
+      message: `这篇笔记没能从磁盘删除，它已经留在了笔记列表里，磁盘上的文件也还在原处。\n\n原因：${reason}\n\n请检查后重试。`
+    })
+    // 失败路径上报 success 就是撒谎，直接返回
+    return
+  }
+  reportTrashMethodIfKnown(noteStore.lastTrashMethod)
+}
+
 async function deleteFolderWithNotice (folderPath, folderName) {
   const count = countNotesUnder(folderPath)
   // 只认显式 false：store 未实现时返回 undefined，不该弹出「删除失败」
@@ -471,7 +524,10 @@ async function deleteFolderWithNotice (folderPath, folderName) {
         ? `目录没能从磁盘删除（可能已不存在、被其它程序占用，或回收站不可用）。\n\n${count} 篇笔记已放回根目录，磁盘上的文件仍在原来的目录里。请检查后重试。`
         : '目录没能从磁盘删除（可能已不存在、被其它程序占用，或回收站不可用）。请检查后重试。'
     })
+    // 降级分支：目录根本没删掉，**不要**上报成功态
+    return
   }
+  reportTrashMethodIfKnown(noteStore.lastTrashMethod)
 }
 
 const viewItems = [
@@ -479,7 +535,8 @@ const viewItems = [
   { id: 'calendar', label: '日历', icon: CalendarDays, route: '/calendar' },
   { id: 'graph', label: '图谱', icon: GitBranch, route: '/graph' },
   { id: 'tags', label: '标签', icon: Tag, route: '/tags' },
-  { id: 'vault', label: '密码本', icon: KeyRound, route: '/vault' }
+  { id: 'vault', label: '密码本', icon: KeyRound, route: '/vault' },
+  { id: 'trash', label: '最近删除', icon: Trash2, route: '/trash' }
 ]
 
 const rootNotes = computed(() => noteStore.notes.filter(n => !n.folder))
@@ -706,7 +763,7 @@ async function deleteItemHere() {
       danger: true
     })
     if (!ok) return
-    noteStore.deleteNote(ctxMenu.target)
+    await deleteNoteAndReport(ctxMenu.target)
   } else if (ctxMenu.kind === 'folder') {
     const count = countNotesUnder(ctxMenu.target)
     const ok = await askDialog({
@@ -748,7 +805,7 @@ function receiveCreateFolder(p) {
 async function receiveDeleteItem(p) {
   if (!p) return
   if (p.kind === 'note') {
-    noteStore.deleteNote(p.id)
+    await deleteNoteAndReport(p.id)
     return
   }
   if (p.kind === 'folder') {

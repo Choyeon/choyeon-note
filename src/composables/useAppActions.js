@@ -93,6 +93,57 @@ function invoke (target, methodName, ...args) {
 }
 
 /**
+ * `invoke` 的「要返回值」变体：除了告知有没有调用到，还把被调方法的返回值原样带出来。
+ *
+ * 存在的意义：`undoLastFileOperation()` 是 **async**，返回 Promise 而不是结果对象，
+ * 调用方必须拿到 Promise 再 `.then()` 才能知道撤回到底成功没有。
+ * 用 `invoke()` 只能知道「调到了」，把它的布尔值当结果用就会把失败一律 toast 成成功 ——
+ * 比不 toast 更糟。本函数是纯探测式调用：方法不存在时 `called === false`，不抛。
+ *
+ * @param {object|null|undefined} target 宿主对象（通常是 ctx.noteStore）
+ * @param {string} methodName 方法名
+ * @param {...*} args 参数
+ * @returns {{called: boolean, value: unknown}} `called=false` 时 `value` 恒为 undefined
+ */
+function invokeResult (target, methodName, ...args) {
+  if (!target || typeof target[methodName] !== 'function') return { called: false, value: undefined }
+  return { called: true, value: target[methodName](...args) }
+}
+
+/**
+ * 读「有没有可撤回的文件操作」，兼容两种形态。
+ *
+ * `noteStore.canUndoFileOperation` 在真实运行时是 Pinia 解包后的 **boolean**
+ * （src/stores/note.js 里挂的是 `fileUndo.canUndo`，一个 computed，Pinia setup store 会自动解包）；
+ * 但测试 / 装配期可能给进来的是未解包的 ref 对象或 getter 函数，
+ * 本函数是纯模块拿不到 vue 的 `unref` / `toValue`，只能按形态手判：
+ * - function → 调一下取返回值（getter 形态）
+ * - 对象且带 `.value` → 取 `.value`（未解包的 ref 形态，防御性）
+ * - 其余 → 直接当布尔值用
+ *
+ * @param {object|null|undefined} noteStore 笔记 store
+ * @returns {boolean} 严格等于 true 才算有；undefined / null / 非布尔脏值一律按「没有」处理
+ */
+function readCanUndoFileOperation (noteStore) {
+  const raw = noteStore?.canUndoFileOperation
+  if (typeof raw === 'function') return raw() === true
+  if (raw && typeof raw === 'object' && 'value' in raw) return raw.value === true
+  return raw === true
+}
+
+/**
+ * 读「栈顶那条操作的人类可读描述」，同样兼容解包前后两种形态（同 readCanUndoFileOperation）。
+ *
+ * @param {object|null|undefined} noteStore 笔记 store
+ * @returns {string} 拿不到就返回空串，由调用方决定兜底文案
+ */
+function readUndoLabel (noteStore) {
+  const raw = noteStore?.undoFileOperationLabel
+  const value = typeof raw === 'function' ? raw() : (raw && typeof raw === 'object' && 'value' in raw ? raw.value : raw)
+  return typeof value === 'string' ? value : ''
+}
+
+/**
  * fallback 用的「进入阅读模式前的可编辑模式」记忆。
  *
  * 这是**模块级**的（而不是每次 createAppActions 建一份），因为 App.vue 与
@@ -253,6 +304,47 @@ export function createAppActions (ctx = {}) {
 
     'view.notes': () => invoke(ctx.router, 'push', '/notes'),
     'view.tags': () => invoke(ctx.router, 'push', '/tags'),
+
+    // ---------- 文件操作撤回（批次 6 内核 useFileUndo 的入口）----------
+    // 撤的是**文件结构操作**（新建 / 移动 / 重命名 / 删除 / 文件夹增删），
+    // 与 editor scope 的 edit.undo「撤销输入」完全是两条栈，故默认键取 Mod-Alt-z
+    // （Mod-Shift-z 已被 edit.redoAlt 占用，抢占它会让编辑器的重做永远收不到键）。
+    // 三个硬性行为要求：
+    // 1. 没有可撤回操作时**必须**给 toast —— 静默什么都不做会让用户以为快捷键坏了；
+    // 2. `undoLastFileOperation()` 是 async，必须等 Promise 落定再判断成功/失败，
+    //    绝不能把「调用已发起」当成「撤回已成功」；
+    // 3. 失败要如实 toast 成失败（带 code），不要把失败说成成功。
+    'app.undoFileOp': () => {
+      const noteStore = ctx.noteStore
+      if (!readCanUndoFileOperation(noteStore)) {
+        invoke(ctx.appStore, 'pushToast', { type: 'info', message: '没有可撤回的文件操作' })
+        return
+      }
+      const { called, value } = invokeResult(noteStore, 'undoLastFileOperation')
+      if (!called) {
+        log.warn('noteStore 缺少 undoLastFileOperation()，app.undoFileOp 暂不可用', { id: 'app.undoFileOp' })
+        invoke(ctx.appStore, 'pushToast', { type: 'error', message: '撤回失败：撤回接口不可用' })
+        return
+      }
+      const fallbackLabel = readUndoLabel(noteStore)
+      // 返回值可能是 Promise 也可能是同步对象，统一包一层；异常（IPC 炸 / 权限）不能冒泡到按键处理链
+      Promise.resolve(value)
+        .then(result => {
+          const label = (result && typeof result.label === 'string' && result.label) || fallbackLabel || '上一步文件操作'
+          if (result && result.ok === true) {
+            invoke(ctx.appStore, 'pushToast', { type: 'success', message: `已撤回：${label}` })
+            return
+          }
+          const code = (result && result.code) || 'unknown'
+          invoke(ctx.appStore, 'pushToast', { type: 'error', message: `撤回失败（${code}）：${label}` })
+          log.warn('文件操作撤回未成功', { id: 'app.undoFileOp', code })
+        })
+        .catch(error => {
+          const detail = (error && (error.message || error.code)) || error
+          log.error('文件操作撤回抛出异常', { id: 'app.undoFileOp', code: detail })
+          invoke(ctx.appStore, 'pushToast', { type: 'error', message: `撤回失败：${detail}` })
+        })
+    },
 
     // 缩放对象始终是**编辑器正文字号**（--editor-zoom），不是窗口缩放，
     // 与 Electron 菜单的 role: zoomIn/zoomOut/resetZoom 是两个互不干扰的通道。

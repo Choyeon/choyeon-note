@@ -53,6 +53,14 @@ const routes = [
     component: () => import('@/views/SearchView.vue')
   },
   {
+    // T28 ·「最近删除」。
+    // 放在通配 not-found 之前（数组顺序 = 匹配优先级），否则 /trash 会掉进
+    // NotFound —— 那种故障的表现是「侧边栏点了没反应 / 白屏」，很难联想到路由。
+    path: '/trash',
+    name: 'trash',
+    component: () => import('@/views/TrashView.vue')
+  },
+  {
     path: '/reading/:id',
     name: 'reading',
     component: () => import('@/views/ReadingView.vue')

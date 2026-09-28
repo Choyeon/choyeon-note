@@ -391,14 +391,27 @@
                   <div class="text-[12px] mt-0.5 font-mono" :style="{ color: 'var(--color-text-tertiary)' }">{{ currentNotesLocation || '未设置' }}</div>
                 </div>
               </div>
-              <button 
-                class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-90 active:scale-95"
-                :style="{ background: 'var(--color-primary)', color: 'white' }"
-                @click="changeNotesLocation"
-              >
-                <FolderOpen class="w-3.5 h-3.5" />
-                <span>更改</span>
-              </button>
+              <div class="flex items-center gap-2">
+                <button
+                  class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-80 active:scale-95"
+                  data-testid="workspace-manager-open"
+                  :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
+                  title="在多个笔记库之间切换 / 新增 / 重命名 / 移除"
+                  @click="workspaceManagerOpen = true"
+                >
+                  <Library class="w-3.5 h-3.5" />
+                  <span>管理笔记库…</span>
+                </button>
+                <button
+                  class="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-90 active:scale-95"
+                  :style="{ background: 'var(--color-primary)', color: 'white' }"
+                  title="让应用去管理另一个文件夹（只改登记，不搬动文件）"
+                  @click="changeNotesLocation"
+                >
+                  <FolderOpen class="w-3.5 h-3.5" />
+                  <span>更改</span>
+                </button>
+              </div>
             </div>
 
             <!-- 自动同步（R-S4）：开关关掉时必须把后果写在下面，不能只有一句功能描述 -->
@@ -540,6 +553,10 @@
           </div>
         </div>
 
+        <!-- 诊断与日志（T32）：放在「反馈与帮助」下面不是随手排的 ——
+             提 Issue 时最常被要的就是那份日志，挨在一起才不会让人翻两遍。 -->
+        <SettingsLogs />
+
         <div class="mb-8">
           <div class="flex items-center gap-3 mb-4 px-1">
             <div class="w-8 h-8 rounded-lg flex items-center justify-center" :style="{ background: 'rgba(255,112,67,0.1)' }">
@@ -621,6 +638,9 @@
       </div>
     </Transition>
   </Teleport>
+  <!-- T31 · 多库管理面板（受控挂载）。Teleport 到 body，放这儿模板里最省事：
+       它跟着设置页一起销毁，不需要额外的路由或全局单例。 -->
+  <WorkspaceManager v-model:visible="workspaceManagerOpen" @switched="onWorkspaceSwitched" />
 </template>
 
 <script setup>
@@ -630,19 +650,21 @@ import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { fetchBingWallpaper } from '@/utils/bingWallpaper'
+import WorkspaceManager from '@/components/WorkspaceManager.vue'
 // 代码高亮主题的下拉选项必须来自 markdown 的 codeThemes 注册表：手抄一份等于
 // 承认它可以漂移，而漂移的结果就是「设置里有、引擎里没有」。
 import { codeThemes } from '@/utils/markdown'
 // 「字典」与「快捷键」两块各自成组件，模板/样式/交互与拆出去之前完全一致
 import SettingsDictionary from '@/views/settings/SettingsDictionary.vue'
 import SettingsShortcuts from '@/views/settings/SettingsShortcuts.vue'
+import SettingsLogs from '@/views/settings/SettingsLogs.vue'
 import { 
   ArrowLeft, SunMoon, Palette, Type, Layers, 
   FileCode, SpellCheck, Save, ListOrdered, WrapText,
   FolderOpen, RefreshCw, Paperclip, Folder, AlertTriangle, RotateCcw,
   FileText, Edit, Zap,
   Image, MessageCircle, Github,
-  ZoomIn, ZoomOut, Maximize2
+  ZoomIn, ZoomOut, Maximize2, Library
 } from 'lucide-vue-next'
 import { createLogger } from '@/utils/logger'
 import { LOG_MODULES } from '@/constants/logging'
@@ -672,6 +694,30 @@ const currentNotesLocation = computed(() => noteStore.notesPath || appStore.note
 const log = createLogger(LOG_MODULES.app)
 const showResetConfirm = ref(false)
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
+
+/**
+ * 多库管理面板的开合（T31 的挂载点）。
+ *
+ * 组件同时支持受控（v-model:visible）与独立挂载两种用法，这里用受控：面板要从
+ * 「笔记存储位置」这一行的按钮打开，且切换成功后由本页统一负责跳转。
+ */
+const workspaceManagerOpen = ref(false)
+
+/**
+ * 面板内切换笔记库成功后的收尾。
+ *
+ * 组件内部已经做过两件事：写回 appStore.notesLocation、让 noteStore 从新目录
+ * 重载笔记。这里只剩两件必须先关面板再跳转的小事 —— 顺序反过来会让用户在
+ * 「面板挡着的新笔记列表」上多一次点击。
+ *
+ * @param {object} workspace 切换后的库对象
+ * @returns {void}
+ */
+function onWorkspaceSwitched (workspace) {
+  workspaceManagerOpen.value = false
+  log.info('已从设置页切换笔记库', { id: workspace && workspace.id, path: workspace && workspace.path })
+  router.push('/notes')
+}
 
 // ===== Bing 每日壁纸 =====
 const bingRefreshing = ref(false)

@@ -1498,7 +1498,9 @@ html.electron-app #app {
   --color-surface: rgba(255, 255, 255, 0.72);
   --color-surface-hover: rgba(232, 234, 240, 0.68);
   --sidebar-bg: rgba(248, 249, 250, 0.6);
-  --content-bg: rgba(255, 255, 255, 0.95);
+  /* T39：原来是 rgba(255,255,255,0.95)，与 :root 完全相同 —— 等于没覆盖。
+     亚克力模式下正文区应当透出一点背景，改为 0.88。 */
+  --content-bg: rgba(255, 255, 255, 0.88);
   --titlebar-bg: rgba(255, 255, 255, 0.45);
   --card-bg: rgba(255, 255, 255, 0.72);
   --color-border: rgba(0, 0, 0, 0.06);
@@ -1506,6 +1508,43 @@ html.electron-app #app {
   --sidebar-border: rgba(0, 0, 0, 0.06);
   --titlebar-border: rgba(0, 0, 0, 0.06);
   --card-border: rgba(0, 0, 0, 0.06);
+
+  /* ---- T39 · 亚克力补全：surface / glass / shadow / 文本 ----
+     亚克力（Acrylic）模式下背景是半透明的，若这些变量沿用 :root 的实色值，
+     就会在半透明面板上出现「实色板」质感断层。这里统一改成半透明口径。
+     纯色相类（primary / secondary / accent / state）保持实色，不在此列。 */
+
+  /* surface */
+  --color-surface-elevated: rgba(255, 255, 255, 0.85);
+  --reading-bg: rgba(255, 255, 255, 0.9);
+
+  /* 文本 */
+  --color-text-primary: rgba(20, 23, 28, 0.92);
+  --color-text-secondary: rgba(95, 99, 104, 0.85);
+  --color-text-tertiary: rgba(128, 134, 139, 0.78);
+  --color-text-inverse: rgba(255, 255, 255, 0.95);
+  --color-text-on-primary: rgba(255, 255, 255, 0.95);
+  --color-text-body: rgba(35, 39, 46, 0.9);
+
+  /* glass */
+  --glass-bg: rgba(255, 255, 255, 0.68);
+  --glass-border: rgba(0, 0, 0, 0.08);
+
+  /* shadow —— 半透明背景上阴影需要略加重，才能和模糊后的背景拉开层次 */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.05);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.13), 0 4px 10px rgba(0, 0, 0, 0.07);
+  --shadow-float: 0 20px 40px rgba(0, 0, 0, 0.18), 0 8px 16px rgba(0, 0, 0, 0.1);
+  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.13), 0 2px 8px rgba(0, 0, 0, 0.06);
+  --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+
+  /* 侧边栏搜索框 / 计数徽标 —— 覆在亚克力侧栏上，必须半透明 */
+  --sidebar-search-bg: rgba(255, 255, 255, 0.45);
+  --sidebar-search-bg-hover: rgba(255, 255, 255, 0.62);
+  --sidebar-search-bg-focus: rgba(255, 255, 255, 0.8);
+  --sidebar-search-border: rgba(0, 0, 0, 0.08);
+  --sidebar-count-bg: rgba(0, 0, 0, 0.06);
 }
 
 .electron-mode[data-theme='dark'] {
@@ -1515,7 +1554,9 @@ html.electron-app #app {
   --color-surface: rgba(48, 49, 52, 0.72);
   --color-surface-hover: rgba(60, 64, 67, 0.68);
   --sidebar-bg: rgba(28, 29, 32, 0.6);
-  --content-bg: rgba(32, 33, 36, 0.93);
+  /* T39：原来是 rgba(32,33,36,0.93)，与 [data-theme='dark'] 完全相同 —— 等于没覆盖。
+     深色亚克力下正文区改为 0.86，透出背后模糊层，消除「实色板」观感。 */
+  --content-bg: rgba(32, 33, 36, 0.86);
   --titlebar-bg: rgba(28, 29, 32, 0.5);
   --card-bg: rgba(41, 42, 45, 0.72);
   --color-border: rgba(255, 255, 255, 0.08);
@@ -1523,6 +1564,45 @@ html.electron-app #app {
   --sidebar-border: rgba(255, 255, 255, 0.08);
   --titlebar-border: rgba(255, 255, 255, 0.08);
   --card-border: rgba(255, 255, 255, 0.08);
+
+  /* ---- T39 · 亚克力补全：surface / glass / shadow / 文本 ----
+     与上方 .electron-mode（亮色）逐条对称。
+     深色下 [data-theme='dark'] 给的是实色（#303134 / #1c1d20 / rgba(...,0.9) 等），
+     直接叠在半透明亚克力面板上就是「实色板」断层，这里改成半透明口径。
+     纯色相类（primary / secondary / accent / state）刻意保持实色，见
+     tests/themeParity.test.js 的 ELECTRON_DARK_EXEMPT 白名单。 */
+
+  /* surface */
+  --color-surface-elevated: rgba(58, 59, 62, 0.82);
+  --reading-bg: rgba(28, 29, 32, 0.85);
+
+  /* 文本 */
+  --color-text-primary: rgba(241, 243, 244, 0.95);
+  --color-text-secondary: rgba(154, 160, 166, 0.85);
+  --color-text-tertiary: rgba(107, 114, 128, 0.78);
+  --color-text-inverse: rgba(32, 33, 36, 0.95);
+  --color-text-on-primary: rgba(32, 33, 36, 0.95);
+  --color-text-body: rgba(223, 227, 232, 0.92);
+
+  /* glass */
+  --glass-bg: rgba(32, 33, 36, 0.72);
+  --glass-border: rgba(120, 124, 130, 0.35);
+
+  /* shadow —— 深色亚克力下阴影要更重，否则面板会「糊」在背景里 */
+  --shadow-xs: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.45), 0 1px 2px rgba(0, 0, 0, 0.32);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5), 0 2px 4px rgba(0, 0, 0, 0.32);
+  --shadow-lg: 0 12px 28px rgba(0, 0, 0, 0.55), 0 4px 10px rgba(0, 0, 0, 0.38);
+  --shadow-float: 0 20px 40px rgba(0, 0, 0, 0.65), 0 8px 16px rgba(0, 0, 0, 0.42);
+  --shadow-card-hover: 0 8px 24px rgba(0, 0, 0, 0.55), 0 2px 8px rgba(0, 0, 0, 0.32);
+  --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.38), 0 1px 2px rgba(0, 0, 0, 0.28);
+
+  /* 侧边栏搜索框 / 计数徽标 */
+  --sidebar-search-bg: rgba(255, 255, 255, 0.06);
+  --sidebar-search-bg-hover: rgba(255, 255, 255, 0.12);
+  --sidebar-search-bg-focus: rgba(32, 33, 36, 0.78);
+  --sidebar-search-border: rgba(255, 255, 255, 0.1);
+  --sidebar-count-bg: rgba(255, 255, 255, 0.1);
 }
 
 /* ============================================================

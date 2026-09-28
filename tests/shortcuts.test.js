@@ -71,10 +71,12 @@ function keyEvent (props = {}) {
 // -----------------------------------------------------------------------------
 
 describe('A. 注册表 ↔ 执行器 覆盖校验（真实派生集合）', () => {
-  it('执行器 id 集合由对象派生，条数与设计一致（app 22 / editor 37）', () => {
-    expect(APP_ACTION_IDS.length).toBe(22)
+  // 条数随注册表/执行器同步增长：新增一条命令必须同时动这两处数字，
+  // 只加注册表不加执行器会被 audit 判 dead（或反之判 orphan），这里不会替你兜住。
+  it('执行器 id 集合由对象派生，条数与设计一致（app 23 / editor 37）', () => {
+    expect(APP_ACTION_IDS.length).toBe(23)
     expect(EDITOR_COMMAND_IDS.length).toBe(37)
-    expect(SHORTCUTS.length).toBe(59)
+    expect(SHORTCUTS.length).toBe(60)
   })
 
   it('用真实集合跑 auditShortcuts：四类问题全为 0', () => {
@@ -115,6 +117,36 @@ describe('A. 注册表 ↔ 执行器 覆盖校验（真实派生集合）', () =
       if (!s.default) continue
       expect(normalizeBinding(s.default), `${s.id} 的 default 不是规范书写`).toBe(s.default)
     }
+  })
+
+  /**
+   * auditShortcuts 的已知盲区兜底：它的 duplicateDefault **只比同 scope**，
+   * 于是「app 抢了 editor 的键」这类跨 scope 撞键它会判 0 问题（套件照样全绿）。
+   * 但本应用里这是真事故：App.vue 在 window 的**捕获阶段**监听 keydown，
+   * 命中 app 命令后 preventDefault + stopPropagation，editor 那条命令就永远收不到这个键
+   * —— 典型就是 Mod-Shift-z（editor 的 edit.redoAlt）被 app 抢走后编辑器重做失灵。
+   * 所以这一条不靠 audit，在这里独立兜住：任何 app 默认键都不许与 editor 默认键相同。
+   */
+  it('跨 scope 撞键兜底：app 的默认键不得与 editor 的默认键相同（audit 查不出这一条）', () => {
+    const appBindings = new Map()
+    const editorBindings = new Map()
+    for (const s of SHORTCUTS) {
+      // hidden 命令同样占键（edit.redoAlt / insert.date 历史上就撞过别人），必须一起算
+      const binding = normalizeBinding(s.default)
+      if (!binding) continue
+      const bucket = s.scope === 'app' ? appBindings : editorBindings
+      if (!bucket.has(binding)) bucket.set(binding, [])
+      bucket.get(binding).push(s.id)
+    }
+    const collisions = []
+    for (const [binding, appIds] of appBindings) {
+      const editorIds = editorBindings.get(binding)
+      if (editorIds) collisions.push(`${binding}: app=${appIds.join('/')} editor=${editorIds.join('/')}`)
+    }
+    expect(collisions, `发现跨 scope 撞键（app 会抢掉 editor 的键）：${collisions.join('；')}`).toEqual([])
+    // 显式钉住这条历史教训：Mod-Shift-z 归 editor 的 edit.redoAlt，app 侧不得再占用
+    expect(SHORTCUT_MAP['edit.redoAlt'].default).toBe('Mod-Shift-z')
+    expect(appBindings.has('Mod-Shift-z'), 'Mod-Shift-z 被 app 命令占用会让编辑器重做失灵').toBe(false)
   })
 })
 

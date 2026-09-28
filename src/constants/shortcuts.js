@@ -50,6 +50,14 @@ export const SHORTCUTS = [
   { id: 'app.commandPalette', scope: 'app', category: 'file', label: '命令面板', default: 'Mod-Shift-p' },
   { id: 'app.vault', scope: 'app', category: 'file', label: '密码本', default: 'Mod-Shift-v' },
   { id: 'app.settings', scope: 'app', category: 'file', label: '打开设置', default: 'Mod-,' },
+  // 默认键刻意选 `Mod-Alt-z` 而不是 `Mod-Shift-z`：
+  // `Mod-Shift-z` 已被 editor scope 的 edit.redoAlt 占用（第 58 行，hidden 但仍占键）。
+  // App.vue 在 window 的**捕获阶段**监听 keydown，命中 app 命令后 preventDefault + stopPropagation，
+  // 所以一旦这里占了 Mod-Shift-z，编辑器里的「重做（备选）」就永远收不到这个键 —— 实打实的回归。
+  // 而 auditShortcuts 的 duplicateDefault 只比**同 scope**，跨 scope 撞键它查不出来，测试不会兜底，
+  // 只能靠人工挑键位时避开。`Mod-Alt-z` 在 app / editor 两个 scope 里都无人占用。
+  // 标签必须带「文件操作」：否则和 editor 的 edit.undo「撤销」（撤销输入）在面板 / 速查表里难以区分。
+  { id: 'app.undoFileOp', scope: 'app', category: 'file', label: '撤回上一步文件操作', default: 'Mod-Alt-z' },
 
   // ---------------- 编辑 ----------------
   { id: 'edit.undo', scope: 'editor', category: 'edit', label: '撤销', default: 'Mod-z' },

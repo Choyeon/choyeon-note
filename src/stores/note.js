@@ -36,6 +36,20 @@ import { NOTE_EXTENSIONS as KNOWN_EXTENSIONS, EXT_PATTERN } from '@/constants/no
 import { sanitizeFileName, dedupeFileName } from '../utils/fileNaming'
 import { createLogger } from '../utils/logger.js'
 import { LOG_MODULES } from '../constants/logging.js'
+// 删除方式上报内核（零依赖，node 下可单测）。store 只用它做两件事：
+// 从 IPC 返回值里安全取 method、把 method 记进 lastTrashMethod。
+import { extractTrashMethod } from '../utils/trashState.js'
+// T29 · R-D5 可恢复性：文件操作撤回栈。
+// 栈本身是模块级单例（不挂在组件上，切页面不丢），这里只负责「怎么回滚」。
+// 它不 import 本文件 —— 回滚能力通过 bindUndoHost 注册进去，两边无 import 环。
+import {
+  useFileUndo,
+  pushUndoEntry,
+  snapshotNotes,
+  diffSnapshots,
+  bindUndoHost,
+  clearUndo
+} from '../composables/useFileUndo'
 
 /**
  * 本 store 的模块 logger。放在模块作用域而不是 store 内部：下面若干诊断点是
@@ -535,6 +549,33 @@ function persistIdMap () {
   if (idMap) scheduleSaveIdMap(idMap)
 }
 
+/**
+ * 把「删除失败」的返回值翻成人能读的一句话。
+ *
+ * 为什么需要它：`fs:delete-file` 现在有三种返回形态 —— 老形态的 `false`、detail
+ * 形态失败对象 `{ ok:false, error, errno, message }`、以及直接抛出来的异常。
+ * 三者都表示「文件还在磁盘上」，但只有最后一种走 catch 分支。统一在这里取
+ * 人类可读的原因，交给 UI 弹窗，别让用户自己去翻日志。
+ *
+ * @param {unknown} raw deleteFile 的返回值，或 catch 到的异常
+ * @returns {string} 人类可读原因；取不到时回空串（调用方再兜一层默认文案）
+ */
+function readFileOpFailureReason (raw) {
+  if (raw == null) return '磁盘没有返回结果'
+  if (raw === false) return '磁盘删除未成功（主进程返回 false）'
+  if (typeof raw === 'string') return raw.trim() || '磁盘删除未成功'
+  if (typeof raw === 'object') {
+    const message = typeof raw.message === 'string' ? raw.message.trim() : ''
+    if (message) return message
+    const error = typeof raw.error === 'string' ? raw.error.trim() : ''
+    if (error) return error
+    const errno = raw.errno != null ? String(raw.errno).trim() : ''
+    if (errno) return `文件系统错误码 ${errno}`
+    return ''
+  }
+  return String(raw)
+}
+
 export const useNoteStore = defineStore('note', () => {
   // 工厂函数而非共享常量：resetConfig 会 push 这些对象，共享引用会让多轮
   // reset 之间互相污染（编辑过的示例笔记变成"模板"）
@@ -943,6 +984,247 @@ export const useNoteStore = defineStore('note', () => {
     return lines.join('\n')
   }
 
+  // =========================================================================
+  // T29 · 文件操作撤回（R-D5 可恢复性）
+  //
+  // 分工：撤回栈在 src/composables/useFileUndo.js（模块级单例，切页面不丢）。
+  // 这里只做三件事 ——
+  //   ① 把「怎么回滚」注册成宿主（bindUndoHost）；
+  //   ② 在六个结构操作**成功之后**登记一条撤回（recordUndoable）；
+  //   ③ 实现回滚本身（applyUndoEntry）。
+  //
+  // 为什么用「前后快照 diff」而不是给六个操作各写一份回滚：
+  //   renameNote 会连带改写别处的 [[双链]]，deleteFolder 会带走整棵子树，
+  //   手写六份回滚只要漏一个字段就是永久错位。统一 diff 之后六个操作共用
+  //   这一份实现，将来新增任何改结构的 store 方法也自动被覆盖。
+  // =========================================================================
+
+  /**
+   * 快照与界面相关的三个状态（文件夹操作的撤回要把展开态/选中态一起复原）。
+   * @returns {{selectedFolder: string, expandedFolders: Array<string>, currentNoteId: string|null}} 状态
+   */
+  function snapshotUiState () {
+    return {
+      selectedFolder: selectedFolder.value,
+      expandedFolders: [...expandedFolders.value],
+      currentNoteId: currentNoteId.value
+    }
+  }
+
+  /**
+   * 复原界面状态。只对文件夹类操作调用 —— 移动/重命名单篇笔记时整体覆盖
+   * 展开态会把用户在这之后手动展开/折叠的目录一并抹掉。
+   * @param {object} ui snapshotUiState() 的产物
+   * @returns {void}
+   */
+  function restoreUiState (ui) {
+    if (!ui) return
+    selectedFolder.value = ui.selectedFolder
+    expandedFolders.value = [...(ui.expandedFolders || [])]
+    const wanted = ui.currentNoteId
+    // 指针只在「那篇笔记确实还在库里」时复原：否则会把用户正在编辑的笔记拽走
+    if (wanted && notes.value.some(n => n.id === wanted)) currentNoteId.value = wanted
+  }
+
+  /**
+   * 把一条撤回记录涉及的**磁盘动作**先算成计划，再统一执行。
+   *
+   * 顺序沿用本文件既有纪律：**先磁盘、全成功才动内存**。中途任何一步失败
+   * 就整条返回失败，内存一个字段都不动 —— 否则会出现「内存说撤回了、
+   * 磁盘还在新位置」的永久错位。
+   *
+   * @param {object} entry 撤回记录
+   * @returns {{moves: Array<object>, writes: Array<object>, removes: Array<object>}} 磁盘计划
+   */
+  function planUndoDisk (entry) {
+    const moves = []
+    const writes = []
+    const removes = []
+    for (const rec of entry.records) {
+      const from = rec.after && rec.after.filePath
+      const to = rec.before && rec.before.filePath
+      if (!rec.existedBefore && rec.existedAfter) {
+        // 操作「新增」了一篇 → 撤回就是删掉它
+        if (from) removes.push({ id: rec.id, path: from })
+        continue
+      }
+      if (rec.existedBefore && !rec.existedAfter) {
+        // 操作「删除」了一篇 → 撤回就是把文件写回原处
+        if (to) writes.push({ id: rec.id, path: to, content: rec.before.content })
+        continue
+      }
+      if (from && to && from !== to) {
+        moves.push({ id: rec.id, from, to, rec })
+      }
+      // 内容被改过（含 rename 改写的双链）→ 搬回去之后还要把旧正文写回去
+      if (to && rec.fields.includes('content')) {
+        writes.push({ id: rec.id, path: to, content: rec.before.content })
+      }
+    }
+    return { moves, writes, removes }
+  }
+
+  /**
+   * 执行撤回：把笔记（与磁盘上的文件）还原到操作之前。
+   *
+   * 幂等性由调用方（useFileUndo.validateUndoEntry）保证：进来之前已经确认
+   * 「目标没被再次改动」。这里只负责搬动 —— 不做第二次失效判定，避免两处
+   * 判据各写一份、日后漂移。
+   *
+   * @param {object} entry 撤回记录
+   * @returns {Promise<{ok:boolean, code:string, message:string, failed:Array<object>}>} OpResult
+   *   code ∈ 'ok' | 'not-found' | 'target-exists' | 'permission' | 'write-failed' | 'conflict'
+   */
+  async function applyUndoEntry (entry) {
+    if (!entry || !Array.isArray(entry.records) || entry.records.length === 0) {
+      return opFail('not-found', '没有可撤回的操作')
+    }
+    const canTouchDisk = Boolean(window.electronAPI && notesPath.value)
+    const { moves, writes, removes } = planUndoDisk(entry)
+
+    // ---------- ① 磁盘：全部成功才继续 ----------
+    if (canTouchDisk) {
+      for (const m of moves) {
+        const moved = await safeMoveFile(m.from, m.to)
+        if (!moved.ok) {
+          noteLog.warn('撤回失败：文件搬不回原处', { from: m.from, to: m.to, code: moved.code })
+          return opFail(moved.code)
+        }
+      }
+      for (const w of writes) {
+        // 撤销「删除文件夹」时目录可能已经随 removeDir 一起没了，先补建。
+        // 建失败不中止：writeFile 自己会给出更明确的错误。
+        const dir = dirNameOf(w.path)
+        if (dir && typeof window.electronAPI.createDirectory === 'function') {
+          try {
+            await window.electronAPI.createDirectory(dir)
+          } catch (error) {
+            noteLog.warn('撤回：重建目录失败', { path: dir, reason: error?.message || error })
+          }
+        }
+        if (!(await safeWriteFile(w.path, w.content))) {
+          return opFail('write-failed', '撤回失败：文件写不回原处（磁盘内容未被改动）')
+        }
+      }
+      for (const r of removes) {
+        try {
+          await window.electronAPI.deleteFile(r.path)
+        } catch (error) {
+          // 删不掉不影响内存回滚：留个孤儿文件也好过内存与磁盘对不上
+          noteLog.warn('撤回：删除文件失败', { path: r.path, reason: error?.message || error })
+        }
+      }
+    }
+
+    // ---------- ② 磁盘阶段全部通过：提交到内存 ----------
+    for (const r of removes) {
+      const i = notes.value.findIndex(n => n.id === r.id)
+      if (i > -1) {
+        notes.value.splice(i, 1)
+        unindexNote(r.id)
+      }
+      if (r.path) forgetPath(r.path)
+    }
+
+    // 被删除的笔记按**原下标升序**插回：多条一起插时相对顺序才与删除前一致
+    const restored = entry.records
+      .filter(rec => rec.existedBefore && !rec.existedAfter)
+      .sort((a, b) => a.index - b.index)
+    for (const rec of restored) {
+      if (notes.value.some(n => n.id === rec.id)) continue
+      const src = rec.before
+      const note = {
+        id: src.id,
+        title: src.title,
+        content: src.content,
+        folder: src.folder,
+        filePath: src.filePath,
+        tags: Array.isArray(src.tags) ? src.tags.slice() : [],
+        createdAt: src.createdAt,
+        updatedAt: src.updatedAt,
+        wordCount: src.wordCount,
+        charCount: src.charCount,
+        lineCount: src.lineCount
+      }
+      notes.value.splice(Math.min(rec.index, notes.value.length), 0, note)
+      reindexNote(note)
+      // 路径绑定必须补回去：删除时 forgetPath 解过绑，不补这篇笔记的 id
+      // 会退化成路径哈希（下次移动就换 id）。
+      if (note.filePath) rememberPath(note.id, note.filePath)
+    }
+
+    // 存在性未变、只是字段被改了的那些笔记
+    for (const rec of entry.records) {
+      if (!rec.existedBefore || !rec.existedAfter) continue
+      const note = notes.value.find(n => n.id === rec.id)
+      if (!note) continue
+      const oldPath = rec.after.filePath
+      const newPath = rec.before.filePath
+      for (const f of rec.fields) {
+        // index 由插入顺序自然处理；__existence__ 不参与字段还原
+        if (f === 'index' || f === '__existence__') continue
+        note[f] = rec.before[f]
+      }
+      // updatedAt 总是回滚到操作前的值。它刻意不参与**失效判定**（见
+      // useFileUndo 的注释），但撤回就该回到操作前的时间戳。
+      note.updatedAt = rec.before.updatedAt
+      // ⚠️ 关键：路径搬回去的同时必须把 id ↔ path 绑定**反向**搬回去。
+      // 只改 note.filePath 而漏掉 movePathBinding，这篇笔记下次载入会拿到
+      // 新路径的哈希 id —— 稳定 id 的承诺就在这里断掉。
+      if (oldPath && newPath && oldPath !== newPath) movePathBinding(oldPath, newPath)
+      // folder / filePath / title / content 都参与索引键
+      reindexNote(note)
+    }
+
+    // 文件夹类操作：展开态 / 选中态一起复原
+    if (entry.kind === 'delete-folder' || entry.kind === 'move-folder' || entry.kind === 'rename-folder') {
+      restoreUiState(entry.ui)
+    }
+
+    return opOk('ok', { changed: entry.records.length })
+  }
+
+  // 把回滚能力注册给撤回栈。每个 pinia 实例创建 store 时都会重新注册一次，
+  // 因此宿主永远指向「当前这个库」的 store。
+  bindUndoHost({
+    findNote: (id) => notes.value.find(n => n.id === id) || null,
+    pathTaken: (path) => notes.value.some(n => n.filePath === path),
+    apply: applyUndoEntry
+  })
+
+  /**
+   * 撤回 API（供 UI 侧直接消费：toast 的「撤销」按钮 / 命令面板条目）。
+   * 栈是模块级单例，这里的 computed 只是把它接进响应式系统。
+   */
+  const fileUndo = useFileUndo()
+
+  /**
+   * 执行一次「可撤回」的结构操作。
+   *
+   * 只在操作**真的成功**之后才登记撤回：失败分支内存根本没动（本文件既有
+   * 纪律），登记一条撤回等于给用户一个「撤回到一个没发生过的操作」的按钮。
+   *
+   * 空 diff 也不登记 —— 移动到当前目录这类 noop 会产出零条记录，若照样入栈，
+   * 用户连点几次撤回什么都没发生，只会以为功能坏了。
+   *
+   * @param {string} kind 操作类型（'move' | 'rename' | 'delete' | 'delete-folder' | ...）
+   * @param {string} label 人类可读描述，直接进 UI
+   * @param {Function} run 真正的操作体
+   * @returns {Promise<*>} run() 的返回值原样透出
+   */
+  async function recordUndoable (kind, label, run) {
+    const before = snapshotNotes(notes.value)
+    const uiBefore = snapshotUiState()
+    const out = await run()
+    // void（deleteNote）/ true（deleteFolder 等）/ OpResult.ok === true（moveNote 等）
+    const succeeded = out === undefined || out === true || Boolean(out && out.ok === true)
+    if (!succeeded) return out
+    const records = diffSnapshots(before, notes.value)
+    if (records.length === 0) return out
+    pushUndoEntry({ kind, label, records, ui: uiBefore })
+    return out
+  }
+
   /**
    * 移动笔记到目标文件夹（原子化）。
    *
@@ -956,7 +1238,7 @@ export const useNoteStore = defineStore('note', () => {
    * @returns {Promise<{ok:boolean, code:string, message:string, failed:Array<object>}>} OpResult
    *   code ∈ 'ok' | 'noop' | 'not-found' | 'target-exists' | 'permission' | 'write-failed' | 'conflict'
    */
-  async function moveNote (noteId, targetFolder) {
+  async function moveNoteOp (noteId, targetFolder) {
     const note = notes.value.find(n => n.id === noteId)
     if (!note) return opFail('not-found', '笔记不存在')
     const target = String(targetFolder || '')
@@ -1010,6 +1292,21 @@ export const useNoteStore = defineStore('note', () => {
     // folder / filePath 都是索引键，必须同批同步
     reindexNote(note)
     return opOk('ok', { changed: 1, succeeded: 1 })
+  }
+
+  /**
+   * 移动笔记（对外入口）= 真正的移动 + 成功后登记一条撤回。
+   * @param {string} noteId 笔记 id
+   * @param {string} targetFolder 目标文件夹；'' 表示根目录
+   * @returns {Promise<object>} OpResult
+   */
+  async function moveNote (noteId, targetFolder) {
+    const note = notes.value.find(n => n.id === noteId)
+    const where = String(targetFolder || '') || '根目录'
+    const label = note
+      ? `已移动「${note.title}」到${where === '根目录' ? '根目录' : `「${where}」`}`
+      : '移动笔记'
+    return recordUndoable('move', label, () => moveNoteOp(noteId, targetFolder))
   }
 
   /**
@@ -1098,7 +1395,7 @@ export const useNoteStore = defineStore('note', () => {
    *   code ∈ 'ok' | 'noop' | 'not-found' | 'invalid-title' | 'target-exists' |
    *          'permission' | 'write-failed' | 'conflict' | 'rename-partial'
    */
-  async function renameNote (noteId, newTitle) {
+  async function renameNoteOp (noteId, newTitle) {
     const note = notes.value.find(n => n.id === noteId)
     if (!note) return opFail('not-found', '笔记不存在')
     const cleanTitle = String(newTitle || '').trim()
@@ -1192,6 +1489,25 @@ export const useNoteStore = defineStore('note', () => {
     return opOk('ok', { total, succeeded, failed: [] })
   }
 
+  /**
+   * 重命名笔记（对外入口）= 真正的改名 + 成功后登记一条撤回。
+   *
+   * 记录里会连带包含被 rewriteBacklinks 改写的那些笔记 —— 它们由 diff 自动
+   * 捕获，不需要这里枚举。撤回时它们的正文一起复原，双链不会停在半改状态。
+   *
+   * @param {string} noteId 笔记 id
+   * @param {string} newTitle 新标题
+   * @returns {Promise<object>} OpResult
+   */
+  async function renameNote (noteId, newTitle) {
+    const note = notes.value.find(n => n.id === noteId)
+    const clean = String(newTitle || '').trim()
+    const label = note && clean
+      ? `已把「${note.title}」重命名为「${clean}」`
+      : '重命名笔记'
+    return recordUndoable('rename', label, () => renameNoteOp(noteId, newTitle))
+  }
+
   async function createFolder (folderPath) {
     if (!folderPath) return false
     if (expandedFolders.value.indexOf(folderPath) === -1) expandedFolders.value.push(folderPath)
@@ -1211,8 +1527,36 @@ export const useNoteStore = defineStore('note', () => {
    * 删除文件夹：把目录真的从磁盘删掉（走回收站），而不只是把笔记甩到根目录。
    * 之前只改内存，重启后目录"复活"，UI 与磁盘长期不一致。
    */
-  async function deleteFolder (folderPath) {
+  /**
+   * 最近一次删除**实际走的**方式（'system-trash' / 'library-trash'），未知则是 ''。
+   *
+   * 为什么要有它：deleteNote() 的契约是 Promise<void>、deleteFolder() 是
+   * Promise<boolean>（tests/fileUndo.test.js 有 `expect(ok).toBe(true)`，一个字都
+   * 不能改），删除方式没地方往外带。于是单独开一个只读快照：调用方删完读一次即可。
+   *
+   * 清空时机很关键：每次删除动作**开始前**先清空。这样「读到非空」必然等价于
+   * 「本次删除成功且主进程回了 detail」，绝不会拿上一次的旧值误报 —— 调用方
+   * 判成功只能靠它（deleteNote 返回 void），必须无残留。
+   */
+  const lastTrashMethod = ref('')
+
+  /**
+   * 最近一次**删除笔记**失败的原因（人类可读一句话），成功则是 ''。
+   *
+   * 为什么需要它：deleteNote() 的契约是 Promise<void>（上面 JSDoc 写死的，
+   * 一个字都不能改），删除失败没有返回值可带出去。于是和删除方式一样，
+   * 单独开一个只读快照：调用方删完读一次即可。
+   *
+   * 清空时机同样是「每次删除动作**开始前**」—— 这样「读到非空」必然等价于
+   * 「本次删除失败」，绝不会拿上一次的旧失败去误报这次成功（FI-3 盯的正是这点）。
+   * 注意它与 lastTrashMethod 互斥：失败时 lastTrashMethod 恒为 ''，
+   * 成功时它恒为 ''，Sidebar 据此二选一，不会两句话同时说。
+   */
+  const lastDeleteError = ref('')
+
+  async function deleteFolderOp (folderPath) {
     if (!folderPath) return false
+    lastTrashMethod.value = ''
     const affected = notes.value.filter(
       n => n.folder === folderPath || n.folder.startsWith(folderPath + '/')
     )
@@ -1245,7 +1589,15 @@ export const useNoteStore = defineStore('note', () => {
     let ok = false
     if (window.electronAPI.removeDir) {
       try {
-        ok = await window.electronAPI.removeDir(dirPath)
+        // detail:true → 主进程回 { ok, method, path }（不传只回 true/false）。
+        // 老主进程 / 测试 mock 回的是布尔，extractTrashMethod 会把它判成未知，
+        // 不会解出 undefined 还照记。
+        const raw = await window.electronAPI.removeDir(dirPath, { detail: true })
+        // ⚠️ ok 仍必须是布尔：下面 `if (!ok)` 的降级分支（把笔记放回根目录）与
+        // deleteFolder 的 Promise<boolean> 契约都依赖它。detail 形态下的对象即使
+        // ok:false 也是真值，直接赋值会让降级分支永远不触发。
+        ok = raw === true || Boolean(raw && raw.ok === true)
+        if (ok) lastTrashMethod.value = extractTrashMethod(raw)
       } catch (error) {
         ok = false
       }
@@ -1262,6 +1614,22 @@ export const useNoteStore = defineStore('note', () => {
       selectedFolder.value = ''
     }
     return ok
+  }
+
+  /**
+   * 删除文件夹（对外入口）= 真正的删除 + 成功后登记一条撤回。
+   *
+   * ⚠️ R-D5 的硬验收在这里：撤一步要**把整棵子树的笔记原样放回**，
+   * 笔记数一个都不能少。整棵子树由 diff 捕获（每篇一条记录），
+   * 撤回时按下标升序插回 —— 顺序与删除前一致。
+   *
+   * @param {string} folderPath 文件夹路径
+   * @returns {Promise<boolean>} 是否成功
+   */
+  async function deleteFolder (folderPath) {
+    const count = collectFolderNotes(folderPath).length
+    const label = `已删除文件夹「${folderPath}」（${count} 篇笔记）`
+    return recordUndoable('delete-folder', label, () => deleteFolderOp(folderPath))
   }
 
   /**
@@ -1347,7 +1715,7 @@ export const useNoteStore = defineStore('note', () => {
    * @param {string} newName 新的文件夹名（不含分隔符）
    * @returns {Promise<boolean>} 是否成功
    */
-  async function renameFolder (oldPath, newName) {
+  async function renameFolderOp (oldPath, newName) {
     if (!oldPath || !newName) return false
     const cleanName = String(newName).trim().replace(/[\\/:*?"<>|]/g, '_')
     if (!cleanName) return false
@@ -1376,6 +1744,18 @@ export const useNoteStore = defineStore('note', () => {
   }
 
   /**
+   * 重命名文件夹（对外入口）= 真正的改名 + 成功后登记一条撤回。
+   * @param {string} oldPath 原文件夹路径
+   * @param {string} newName 新文件夹名
+   * @returns {Promise<boolean>} 是否成功
+   */
+  async function renameFolder (oldPath, newName) {
+    const clean = String(newName || '').trim().replace(/[\\/:*?"<>|]/g, '_')
+    const label = `已把文件夹「${oldPath}」重命名为「${clean}」`
+    return recordUndoable('rename-folder', label, () => renameFolderOp(oldPath, newName))
+  }
+
+  /**
    * 把文件夹（含整棵子树）真正移动到目标父文件夹下 —— 侧边栏拖放用。
    * 与 renameFolder 只改路径最后一段不同：moveFolder 允许跨层跨父，
    * 而且是真的把磁盘上的目录搬走（不是只改内存里的 folder 字符串）。
@@ -1383,7 +1763,7 @@ export const useNoteStore = defineStore('note', () => {
    * @param {string} newParentPath 目标父文件夹路径；'' / '/' 表示移到根目录
    * @returns {Promise<boolean>} 是否成功
    */
-  async function moveFolder (oldPath, newParentPath) {
+  async function moveFolderOp (oldPath, newParentPath) {
     if (!oldPath) return false
     const sanitized = String(oldPath).replace(/^\/+|\/+$/g, '')
     if (!sanitized) return false
@@ -1420,6 +1800,18 @@ export const useNoteStore = defineStore('note', () => {
       selectedFolder.value = remapFolderPath(selectedFolder.value, sanitized, newPath)
     }
     return true
+  }
+
+  /**
+   * 移动文件夹（对外入口）= 真正的搬移 + 成功后登记一条撤回。
+   * @param {string} oldPath 原文件夹路径
+   * @param {string} newParentPath 目标父文件夹；'' / '/' 表示根目录
+   * @returns {Promise<boolean>} 是否成功
+   */
+  async function moveFolder (oldPath, newParentPath) {
+    const parent = String(newParentPath || '').replace(/^\/+|\/+$/g, '')
+    const label = `已把文件夹「${oldPath}」移动到${parent ? `「${parent}」` : '根目录'}`
+    return recordUndoable('move-folder', label, () => moveFolderOp(oldPath, newParentPath))
   }
 
   /**
@@ -1580,34 +1972,87 @@ export const useNoteStore = defineStore('note', () => {
     dirtyNotes.clear()
   }
 
-  async function deleteNote(id) {
+  async function deleteNoteOp (id) {
+    // 本次删除开始前先清空，见上方 lastTrashMethod / lastDeleteError 的声明注释
+    lastTrashMethod.value = ''
+    lastDeleteError.value = ''
     const pos = notes.value.findIndex(n => n.id === id)
     if (pos > -1) {
       const note = notes.value[pos]
       const removedPath = typeof note.filePath === 'string' ? note.filePath : ''
+      // 有挂起写入的话先记下来：删不掉时要把它补回磁盘（见下面的失败分支）
+      const hadPendingWrite = saveTimers.has(id) || dirtyNotes.has(id)
       // 先取消该笔记待执行的 debounce 写入，避免删除后定时器把文件写回
       if (saveTimers.has(id)) {
         clearTimeout(saveTimers.get(id))
         saveTimers.delete(id)
       }
       dirtyNotes.delete(id)
+
+      // 收集所有可能的磁盘路径，避免 filePath 滞后时删错文件留下孤儿
+      const candidates = new Set()
       if (window.electronAPI) {
-        // 收集所有可能的磁盘路径，避免 filePath 滞后时删错文件留下孤儿
-        const candidates = new Set()
         if (note.filePath) candidates.add(note.filePath)
         if (notesPath.value && note.title) {
           candidates.add(buildFilePath(note.folder, safeFileName(note.title, extensionOf(note))))
         }
-        for (const p of candidates) {
-          try {
-            await window.electronAPI.deleteFile(p)
-          } catch (error) {
-            // 删除失败要留下痕迹：文件还在磁盘上、库里却已经没有它了，
-            // 用户下次看到的是「同名笔记冲突」，而根因在这里。
-            noteLog.error('删除文件失败', { path: p, err: error })
+      }
+
+      // 每个候选都单独判定成败：**至少一条成功**才算这次删除成功。
+      // 失败原因只留首个 —— 多条路径同时失败时，第一条通常就是根因。
+      let anyOk = false
+      let failureReason = ''
+      let bestMethod = ''
+      for (const p of candidates) {
+        try {
+          // detail:true → 回 { ok, method, path }；不传只回 true/false。
+          // 三种形态归一：只有 `raw === true`（老形态成功）或 detail 形态的
+          // `ok === true` 才算成功。`false` / `undefined` / `{ok:false}` 一律算失败
+          // —— detail 形态失败时回的是**真值对象**，不判 ok 就会被当成成功。
+          const raw = await window.electronAPI.deleteFile(p, { detail: true })
+          if (raw === true || Boolean(raw && raw.ok === true)) {
+            anyOk = true
+            const method = extractTrashMethod(raw)
+            // W4-C：多候选各自成功时按「更强的保证」取 —— system-trash 意味着
+            // 文件真进了系统回收站，优先级高于 library-trash。不能让后面那条
+            // 路径的成功把前面的 system-trash 覆盖成 library-trash。
+            if (method === 'system-trash') bestMethod = method
+            else if (method && bestMethod !== 'system-trash') bestMethod = method
+          } else if (!failureReason) {
+            // detail 形态的 {ok:false} 不抛异常，走的是这里
+            failureReason = readFileOpFailureReason(raw)
+            noteLog.error('删除文件失败', { path: p, raw })
           }
+        } catch (error) {
+          // 删除失败要留下痕迹：文件还在磁盘上、库里却已经没有它了，
+          // 用户下次看到的是「同名笔记冲突」，而根因在这里。
+          if (!failureReason) failureReason = readFileOpFailureReason(error)
+          noteLog.error('删除文件失败', { path: p, err: error })
         }
       }
+      if (anyOk) lastTrashMethod.value = bestMethod
+
+      // 没有磁盘可删时不该拦住出库：浏览器模式（无 electronAPI）或拼不出任何
+      // 候选路径（既没有 filePath 也算不出路径）时，删除就是纯内存操作，
+      // 这时候拒绝 splice 会让笔记永远删不掉。
+      const hasDisk = Boolean(window.electronAPI) && candidates.size > 0
+      if (hasDisk && !anyOk) {
+        // 磁盘上的文件还在 → 笔记必须留在库里，否则用户以为删掉了、
+        // 下次启动它「复活」，甚至重名新建时把真文件覆盖掉。
+        // 三件事一个都不做：不 splice、不解绑路径映射、不动 currentNoteId。
+        lastDeleteError.value = failureReason || '磁盘删除未成功（未知原因）'
+        // 上面把待写盘的定时器取消了：文件既然还在，那些编辑要补回磁盘，
+        // 否则用户刚敲的字只存在于内存里，重启就丢。
+        if (hadPendingWrite) {
+          try {
+            await flushSave(id)
+          } catch (error) {
+            noteLog.error('删除失败后回写草稿失败', { id, err: error })
+          }
+        }
+        return
+      }
+
       notes.value.splice(pos, 1)
       unindexNote(id)
       // 解绑这条路径：映射表里若还留着它，将来「同名文件被重新建出来」会接回
@@ -1618,6 +2063,22 @@ export const useNoteStore = defineStore('note', () => {
         currentNoteId.value = notes.value[0]?.id || null
       }
     }
+  }
+
+  /**
+   * 删除笔记（对外入口）= 真正的删除 + 成功后登记一条撤回。
+   *
+   * 撤回时把文件**写回原路径**并把笔记插回原来的下标 —— 与 T28 的
+   * 「最近删除」是两条独立路径：那边从磁盘 .trash 恢复内容（重启后也行），
+   * 这边撤销「刚才那一步」。两者互不调用。
+   *
+   * @param {string} id 笔记 id
+   * @returns {Promise<void>}
+   */
+  async function deleteNote (id) {
+    const note = notes.value.find(n => n.id === id)
+    const label = note ? `已删除「${note.title}」` : '删除笔记'
+    return recordUndoable('delete', label, () => deleteNoteOp(id))
   }
 
   function toggleFolder(folderName) {
@@ -1848,6 +2309,9 @@ export const useNoteStore = defineStore('note', () => {
     // 切换库前必须取消旧笔记的挂起写入，否则 500ms 后会把已卸载笔记
     // 的内容写回磁盘，可能覆盖新库里的同名文件
     clearPendingSaves()
+    // 撤回栈里的记录指向的是**上一个库**的笔记。跨库撤回没有意义，
+    // 留着只会让用户撤回到一个已经不存在的状态。
+    clearUndo()
     notesPath.value = path
 
     // id 映射表必须在**算 id 之前**读出来：id 是「映射表优先 + 哈希兜底」。
@@ -1962,6 +2426,8 @@ export const useNoteStore = defineStore('note', () => {
     // 清掉当前笔记指针，否则重置回欢迎页后重新选目录时会恢复到一个已不存在的 id
     localStorage.removeItem('choyeon-current-note-id')
     clearPendingSaves()
+    // 回到示例库：旧库的操作不再可撤（同上）
+    clearUndo()
     notes.value.length = 0
     notes.value.push(...createSampleNotes())
     currentNoteId.value = notes.value[0]?.id || null
@@ -2106,6 +2572,39 @@ export const useNoteStore = defineStore('note', () => {
      */
     isNoteDirty: (id) => dirtyNotes.has(id),
     /** 单篇笔记进 / 更新索引（反链 / 标签 / 日历的增量登记，不再等下次全量载入） */
-    reindexNote
+    reindexNote,
+    // ===== T29 · 文件操作撤回（R-D5 可恢复性）=====
+    /**
+     * 有没有可撤回的文件操作（响应式，可直接绑 UI 的禁用态）。
+     */
+    canUndoFileOperation: fileUndo.canUndo,
+    /** 栈顶那条操作的人类可读描述（响应式） */
+    undoFileOperationLabel: fileUndo.undoLabel,
+    /**
+     * 撤回栈顶一步。
+     * @returns {Promise<{ok:boolean, code:string, label:string, entry:object|null}>}
+     *   code ∈ 'ok' | 'empty' | 'stale' | 'target-exists' | 'write-failed' | ...
+     */
+    undoLastFileOperation: fileUndo.undoLast,
+    /** 清空撤回栈（切库 / 重置已自动调用，这里留给 UI 手动清） */
+    clearFileUndo: fileUndo.clearUndo,
+    // ===== W3 · 删除方式上报 =====
+    /**
+     * 最近一次删除**实际走的**方式：'system-trash' | 'library-trash' | ''（未知）。
+     *
+     * 只读快照。每次删除动作开始前会先清空，所以「读到非空」必然等价于
+     * 「本次删除成功、且主进程回了 detail」—— 调用方（Sidebar）据此判断要不要
+     * 上报，不会拿上一次的旧值误报。
+     * 删除失败 / 浏览器模式 / 主进程不支持 detail 时恒为 ''。
+     */
+    lastTrashMethod,
+    /**
+     * 最近一次删除**笔记**失败的原因（人类可读一句话），成功则是 ''。
+     *
+     * 与 lastTrashMethod 同为只读快照、同样在每次删除开始前清空，两者互斥：
+     * 成功时 lastTrashMethod 非空而它是空，失败时相反。
+     * Sidebar 读到非空就弹窗告知「文件还在磁盘上」，并且**不**上报删除方式。
+     */
+    lastDeleteError
   }
 })

@@ -1,6 +1,6 @@
 {
   "name": "choyeon-note",
-  "version": "1.1.0",
+  "version": "1.0.0",
   "description": "Choyeon Note - A beautiful acrylic design note-taking application",
   "main": "electron/main.cjs",
   "type": "module",
@@ -11,8 +11,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently \"vite\" \"wait-on http://localhost:5176 && electron .\"",
-    "electron:build": "vite build && electron-builder",
-    "electron:build:win": "vite build && electron-builder --win",
+    "electron:build": "vite build && node scripts/check-dist-fresh.mjs && electron-builder --publish never",
+    "electron:build:win": "vite build && node scripts/check-dist-fresh.mjs && electron-builder --win --publish never",
     "generate:icons": "node scripts/generate-icons.js",
     "build:c": "node scripts/build-c.js",
     "test": "vitest run"

@@ -112,6 +112,7 @@
               <button 
                 class="toggle-switch"
                 role="switch"
+                aria-label="毛玻璃效果"
                 :aria-checked="appStore.glassEffect"
                 @click="appStore.toggleGlassEffect()"
               >
@@ -145,6 +146,7 @@
                 <button 
                   class="toggle-switch"
                   role="switch"
+                  aria-label="Bing 每日壁纸"
                   :aria-checked="appStore.bingWallpaper"
                   @click="appStore.toggleBingWallpaper()"
                 >
@@ -276,6 +278,7 @@
               <button 
                 class="toggle-switch"
                 role="switch"
+                aria-label="拼写检查"
                 :aria-checked="appStore.spellCheck"
                 @click="appStore.toggleSpellCheck()"
               >
@@ -297,6 +300,7 @@
               <button 
                 class="toggle-switch"
                 role="switch"
+                aria-label="自动保存"
                 :aria-checked="appStore.autoSave"
                 @click="appStore.toggleAutoSave()"
               >
@@ -315,6 +319,7 @@
               <button 
                 class="toggle-switch"
                 role="switch"
+                aria-label="行号显示"
                 :aria-checked="appStore.showLineNumbers"
                 @click="appStore.toggleLineNumbers()"
               >
@@ -333,6 +338,7 @@
               <button 
                 class="toggle-switch"
                 role="switch"
+                aria-label="自动换行"
                 :aria-checked="appStore.wordWrap"
                 @click="appStore.toggleWordWrap()"
               >
@@ -358,12 +364,10 @@
                 :value="appStore.codeTheme"
                 @change="appStore.setCodeTheme($event.target.value)"
               >
-                <option value="github">GitHub</option>
-                <option value="monokai">Monokai</option>
-                <option value="dracula">Dracula</option>
-                <option value="atom-one-dark">Atom One Dark</option>
-                <option value="vs2015">VS 2015</option>
-                <option value="gradient-dark">Gradient Dark</option>
+                <!-- 选项来自 utils/markdown 的 codeThemes 注册表（唯一的真相源）：
+                     以前这里手写了一份，于是 UI 里有一个注册表根本没有的
+                     "Dracula"，而注册表里真实存在的 Tokyo Night 又从不出现。 -->
+                <option v-for="theme in codeThemeOptions" :key="theme.id" :value="theme.id">{{ theme.name }}</option>
               </select>
             </div>
           </div>
@@ -382,7 +386,9 @@
                 <Folder class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
                 <div>
                   <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">笔记存储位置</div>
-                  <div class="text-[12px] mt-0.5 font-mono" :style="{ color: 'var(--color-text-tertiary)' }">{{ appStore.notesLocation || '未设置' }}</div>
+                  <!-- 显示「当前真正生效的库路径」而不是 appStore 那份镜像：
+                       两者在载入失败等场景下会不同步，显示了镜像等于骗人。 -->
+                  <div class="text-[12px] mt-0.5 font-mono" :style="{ color: 'var(--color-text-tertiary)' }">{{ currentNotesLocation || '未设置' }}</div>
                 </div>
               </div>
               <button 
@@ -395,19 +401,27 @@
               </button>
             </div>
 
+            <!-- 自动同步（R-S4）：开关关掉时必须把后果写在下面，不能只有一句功能描述 -->
             <div class="settings-row">
               <div class="flex items-center gap-3">
                 <RefreshCw class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
                 <div>
                   <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">自动同步</div>
                   <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">
-                    监听笔记目录，外部改动时自动刷新{{ autoSyncHint }}
+                    监听笔记目录，外部改动时自动刷新
                   </div>
+                  <p
+                    class="settings-hint"
+                    data-testid="auto-sync-hint"
+                    :data-state="appStore.autoSync ? 'on' : 'off'"
+                    :style="{ color: appStore.autoSync ? 'var(--color-text-tertiary)' : 'var(--state-warning)' }"
+                  >{{ autoSyncHint }}</p>
                 </div>
               </div>
               <button 
                 class="toggle-switch"
                 role="switch"
+                aria-label="自动同步"
                 :aria-checked="appStore.autoSync"
                 @click="appStore.toggleAutoSync()"
               >
@@ -453,6 +467,7 @@
               <button 
                 class="toggle-switch"
                 role="switch"
+                aria-label="自动检查更新"
                 :aria-checked="appStore.autoCheckUpdates"
                 @click="appStore.toggleAutoCheckUpdates()"
               >
@@ -615,6 +630,9 @@ import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { fetchBingWallpaper } from '@/utils/bingWallpaper'
+// 代码高亮主题的下拉选项必须来自 markdown 的 codeThemes 注册表：手抄一份等于
+// 承认它可以漂移，而漂移的结果就是「设置里有、引擎里没有」。
+import { codeThemes } from '@/utils/markdown'
 // 「字典」与「快捷键」两块各自成组件，模板/样式/交互与拆出去之前完全一致
 import SettingsDictionary from '@/views/settings/SettingsDictionary.vue'
 import SettingsShortcuts from '@/views/settings/SettingsShortcuts.vue'
@@ -633,6 +651,20 @@ const router = useRouter()
 const appStore = useAppStore()
 const noteStore = useNoteStore()
 const workspaceStore = useWorkspaceStore()
+
+/** 代码高亮主题：唯一来源是 @/utils/markdown 的 codeThemes 注册表 */
+const codeThemeOptions = codeThemes
+
+/**
+ * 当前真正生效的笔记库路径。
+ *
+ * 取 `noteStore.notesPath`（内存里的真相）优先于 `appStore.notesLocation`
+ * （localStorage 的镜像）：切目录失败、重置配置等场景下两者会短暂不一致，
+ * 显示镜像会让用户以为「已经切过去了」。
+ *
+ * @returns {string} 当前库路径；未设置时返回空串
+ */
+const currentNotesLocation = computed(() => noteStore.notesPath || appStore.notesLocation || '')
 
 // LOG_MODULES 里没有专门的「设置页」模块：这里两处失败都是应用外壳级诊断
 // （取版本号、自动更新 IPC），归到 app 才能被「按模块过滤」正常捞出来。
@@ -669,10 +701,21 @@ const bingStatus = computed(() => {
 // 手动刷新时逐个源的失败原因，挂在 status 的 tooltip 上方便排障
 const bingTriedText = computed(() => (bingTried.value || []).join('\n'))
 
-/** 自动同步的即时反馈：开着的开关却没目录监听，用户会以为功能坏了 */
+/** 自动同步自我解释的固定文案：关闭分支必须用这一句把后果说出口（R-S4） */
+const AUTO_SYNC_OFF_HINT = '关闭时，笔记在应用外被修改不会自动同步进来'
+
+/**
+ * 自动同步开关下方的自解释文案。
+ *
+ * 开着的开关却没能监听（没设笔记目录）是一件必须让用户知道的事 —— 否则用户会以为
+ * 功能坏了；关掉之后「外部改动不会进来」更必须说出口，这是 R-S4 的硬要求：
+ * 用户得知道自己刚刚关掉了什么。
+ */
 const autoSyncHint = computed(() => {
-  if (!appStore.autoSync) return ''
-  return noteStore.notesPath ? '（正在监听）' : '（需先设置笔记存储位置）'
+  if (!appStore.autoSync) return AUTO_SYNC_OFF_HINT
+  return noteStore.notesPath
+    ? '正在监听：笔记在应用外被修改时会自动同步进来'
+    : '需先设置笔记存储位置才会开始监听'
 })
 
 async function refreshBingWallpaper() {
@@ -784,18 +827,52 @@ onUnmounted(() => {
   // 快捷键录制由 SettingsShortcuts 自己收尾（它卸载时会摘掉全局 keydown 监听）
 })
 
+/**
+ * 更改笔记存储位置。
+ *
+ * 顺序不能改回「先落盘再载入」：`loadNotesFromPath` 失败会把笔记库清空 +
+ * 把 notesPath 指向那个读不出来的目录，此时若索引位置已经写进 localStorage，
+ * 下一次启动会被路由守卫直接送进一个空库 —— 用户看到的是「我的笔记没了」。
+ * 所以只有 `ok === true` 才持久化并跳转；失败则原地不动 + toast 说清原因。
+ *
+ * @returns {Promise<void>}
+ */
 async function changeNotesLocation() {
-  if (!window.electronAPI) {
-    alert('请在 Electron 环境中使用此功能')
+  if (!window.electronAPI?.selectNotesPath) {
+    // 这一整节本来就有 v-if="isElectron" 兜着，走到这里说明 API 缺了一半 ——
+    // 用 toast 而不是 alert：alert 会冻住整个渲染进程，且拿不到统一出口的日志。
+    appStore.pushToast({
+      type: 'error',
+      message: '当前环境不支持选择笔记目录'
+    })
     return
   }
-  
+
+  const previousPath = noteStore.notesPath || ''
   const path = await window.electronAPI.selectNotesPath()
-  if (path) {
-    appStore.saveNotesLocation(path)
-    await noteStore.loadNotesFromPath(path)
-    router.push('/notes')
+  if (!path) return
+
+  const result = await noteStore.loadNotesFromPath(path)
+  if (!result?.ok) {
+    if (result?.stale) return
+    appStore.pushToast({
+      type: 'error',
+      message: `切换笔记目录失败：${result?.error || '无法读取该目录'}，已保留原目录`
+    })
+    // loadNotesFromPath 已经在开头把 notesPath 指向了失败的那个目录，
+    // 这里必须拨回去，否则「笔记存储位置」会显示一个读不出来的路径
+    if (previousPath && previousPath !== path) {
+      try {
+        await noteStore.loadNotesFromPath(previousPath)
+      } catch {
+        /* 回滚也失败时保持现状：用户至少还能看到 toast 与错误原因 */
+      }
+    }
+    return
   }
+
+  appStore.saveNotesLocation(path)
+  router.push('/notes')
 }
 
 function resetApp() {
@@ -825,6 +902,14 @@ function cancelReset() {
 /* 设置行 - 添加悬停过渡 */
 .settings-row {
   transition: background-color var(--transition-micro);
+}
+
+/* 开关下方的自解释行（R-S4）：比描述再小半号，靠 data-state 区分普通/警示。
+   关掉的开关必须把后果写出来，只改字号不换行 —— 换行会把卡片撑得参差不齐。 */
+.settings-hint {
+  margin-top: 2px;
+  font-size: 12px;
+  line-height: 1.5;
 }
 
 .spin {

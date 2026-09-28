@@ -1,4 +1,9 @@
 import { createRouter, createWebHashHistory } from 'vue-router'
+// localStorage key 的唯一来源。守卫判定的「有没有选过笔记库」与 App.vue 启动加载、
+// WelcomeView 首次选库写的是同一个键，三处必须同出一源 —— 抄三份字面量迟早漂移，
+// 而这里漂移的后果是「守卫读不到 → 永远跳回欢迎页 / 或放行到空白笔记列表」。
+// 注意：LS_KEYS.notesLocation 的字符串值本身是线上历史 key，禁止修改。
+import { LS_KEYS } from '@/constants/storage'
 
 const routes = [
   {
@@ -65,7 +70,7 @@ const router = createRouter({
 })
 
 router.beforeEach((to, from, next) => {
-  const notesLocation = localStorage.getItem('choyeon-notes-location')
+  const notesLocation = localStorage.getItem(LS_KEYS.notesLocation)
 
   if (to.name === 'welcome') {
     notesLocation ? next({ name: 'notes' }) : next()

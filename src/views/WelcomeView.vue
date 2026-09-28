@@ -138,6 +138,9 @@ import { useAppStore } from '@/stores/app'
 import { PenLine, FolderOpen, FolderPlus, FileText, CheckCircle, Loader2 } from 'lucide-vue-next'
 import { createLogger } from '@/utils/logger'
 import { LOG_MODULES } from '@/constants/logging'
+// 笔记库位置的 key 出自 LS_KEYS：路由守卫与 App.vue 启动加载读的是同一个键，
+// 这里写字面量就等于「三处字符串靠人肉保持一致」，错一个字符 = 应用进不去。
+import { LS_KEYS } from '@/constants/storage'
 
 const router = useRouter()
 const noteStore = useNoteStore()
@@ -189,8 +192,8 @@ async function createNewNotesFolder() {
 }
 
 function useSampleNotes() {
-  localStorage.setItem('choyeon-mode', 'sample')
-  localStorage.setItem('choyeon-notes-location', 'sample')
+  localStorage.setItem(LS_KEYS.mode, 'sample')
+  localStorage.setItem(LS_KEYS.notesLocation, 'sample')
   appStore.notesLocation = 'sample'
   router.push('/notes')
 }

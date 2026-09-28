@@ -2095,6 +2095,17 @@ export const useNoteStore = defineStore('note', () => {
     /** id 映射表体检（含「id 解析成功率」coverage）—— T20 验证脚本读它 */
     getIdMapStats,
     /** 日期归属分布（四级来源直方图 + 日历格子数）—— T20 验证脚本读它 */
-    getDateSourceStats
+    getDateSourceStats,
+    // ===== T24 · 定向 reconcile（批次 4）接线所需的两个加性导出 =====
+    /**
+     * 这篇笔记有没有未保存修改。
+     *
+     * 批次 4 之前 useExternalSync 只能判断「是不是当前笔记」，于是「切走了但还没
+     * 落盘」的那批笔记遇到外部改写会被直接覆盖 —— 用户只是切了个标签页，稿子就
+     * 没了。导出它之后，dirty 保护对**非当前笔记**同样生效。
+     */
+    isNoteDirty: (id) => dirtyNotes.has(id),
+    /** 单篇笔记进 / 更新索引（反链 / 标签 / 日历的增量登记，不再等下次全量载入） */
+    reindexNote
   }
 })

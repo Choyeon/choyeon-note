@@ -30,18 +30,223 @@ const ICON_PATH = (() => {
 // ===== 笔记目录文件监听（设置页「自动同步」）=====
 // 目录树变化很吵（一次保存可能触发 rename + change 多次），所以做两级降噪：
 // 1) 本进程写入过的路径在 SELF_WRITE_TTL_MS 内忽略（自己写的不用重载）
-// 2) 其余事件合并到 WATCH_DEBOUNCE_MS 窗口里只发一次
+// 2) 其余事件合并到 WATCH_DEBOUNCE_MS 窗口里，按路径去重后**整批**发出一次
+//
+// T21（批次 4 · R-F4 / R-F7）两处契约级改动：
+//   · **取消扩展名白名单**。以前 fs:watch-notes 只放行 .md/.markdown/.txt，用户在
+//     Obsidian 里改了 .canvas 或其它文件，本应用毫无反应（R-F7）。现在主进程把目录
+//     里发生的一切都报上来（含 .canvas / 子目录 / 无扩展名文件），「哪些算笔记」下沉
+//     给渲染侧 reconcile 内核的 isNoteExtension 判断 —— 主进程不再替业务做取舍。
+//   · **payload 从「无参」升级为变更清单**：
+//       Array<{ path: string, kind: 'add' | 'change' | 'unlink' }>   // path 一律绝对路径
+//     渲染侧据此做增量 reconcile，不再无条件整库 loadNotesFromPath() —— 后者会在用户
+//     打字时把编辑器内容冲掉（R-F5）。这是与 T22 的固定契约，改一个字母都会错位。
 const watchers = []
 let watchDebounceTimer = null
 const WATCH_DEBOUNCE_MS = 600
 // 首帧就绪后仍未显示窗口时的强制显示等待时间（见 createWindow 内的兜底逻辑）
 const SHOW_FALLBACK_MS = 3000
 
+// 单次去抖窗口内累积的变更表：绝对路径 -> kind
+const pendingWatchChanges = new Map()
+// 一次窗口最多攒多少条就强制 flush。持续的大批量变更（首次同步 dropbox 全库）如果
+// 不设上限，清单会无限膨胀，渲染侧一次收到几万条也处理不动。
+const WATCH_MAX_BATCH = 2000
+// kind 的信息量权重：add 说明「渲染侧索引里没有它」，比 change 更值钱，不能被后面的
+// change 覆盖掉（否则新增文件会被降级成内容刷新，丢掉「要分配新 id」这件事）。
+const WATCH_KIND_PRIORITY = Object.freeze({ unlink: 1, change: 2, add: 3 })
+// 启监听那一刻的全量基线快照，只用来区分 add 与 change：见过的路径算 change，
+// 没见过的算 add。**快照本身不产出任何变更事件**，纯粹是判定基线（详见 fs:watch-notes）。
+const knownWatchPaths = new Set()
+const WATCH_MAX_KNOWN = 50000
+// 当前监听根 + 是否已挂过去重表（重复 fs:watch-notes 不能叠加监听器）
+const watchedDirPaths = new Set()
+let watchRootPath = ''
+// Linux 上 fs.watch({recursive:true}) 不可用（要么抛错要么静默退化成单层），必须给
+// 每个子目录各挂一个 watcher；其余平台用原生递归。此标记让非递归模式下的「新子目录
+// 动态补挂」只在需要时生效。
+let watchIsSubscribedPerDir = false
+// 隐藏目录（.git / .trash / .obsidian 之类）既不监听也不上报。这不是扩展名过滤，而是
+// 沿袭既有实现里 collectSubdirectories 的约定（`entry.name.startsWith('.')` 直接跳过）：
+// 那些目录的 churn 量级和笔记根本不在一个数量级，且它们永远不可能是用户的笔记。
+// 注意只作用于路径中间的段落与末段同为隐藏的情况，普通的 `.hidden.md` 见下方实现。
+const WATCH_HIDDEN_SEGMENT_RE = /(^|[\\/])\.[^\\/]*/
+
+/**
+ * watcher 模块专用 logger。
+ * 必须**惰性**构造：LOG_MODULES 是本文件里靠后的 const（TDZ），在模块顶层直接
+ * createMainLogger(LOG_MODULES.watcher) 会抛 ReferenceError —— 而这里的常量块在文件
+ * 最前面。第一次真正写日志时（IPC 调用之后）LOG_MODULES 早已初始化完毕。
+ * @returns {{debug: Function, info: Function, warn: Function, error: Function}}
+ */
+let watcherLogRef = null
+function watcherLog () {
+  if (!watcherLogRef) watcherLogRef = createMainLogger(LOG_MODULES.watcher)
+  return watcherLogRef
+}
+
+/** 路径是否落在当前监听根之内（越界事件一律丢弃，兜住安全边界） */
+function isUnderWatchRoot (targetPath) {
+  if (!watchRootPath) return true
+  const rel = path.relative(watchRootPath, String(targetPath))
+  if (rel === '') return true
+  return !rel.startsWith('..') && !path.isAbsolute(rel)
+}
+
+/** 隐藏段过滤：root 之下的任一段以 `.` 开头就忽略（含隐藏目录里的所有文件） */
+function isHiddenWatchPath (targetPath) {
+  if (!watchRootPath) return false
+  const rel = path.relative(watchRootPath, String(targetPath))
+  return WATCH_HIDDEN_SEGMENT_RE.test(rel)
+}
+
+/**
+ * 判定单个路径的变更种类。
+ * 以磁盘现状 + 基线快照为准：盘上没有 = unlink；第一次见到 = add；其余 = change。
+ * 判定的同时维护 knownWatchPaths，保证同一窗口内的第二条事件拿到的是最新认知
+ * （例如 add 之后紧跟着的 change 会被认成 change，而不是再报一次 add）。
+ * @param {string} targetPath
+ * @returns {'add'|'change'|'unlink'}
+ */
+function classifyWatchPath (targetPath) {
+  let exists = false
+  try {
+    exists = fsSync.existsSync(targetPath)
+  } catch (err) {
+    // stat 失败（权限抖动 / 路径过长）按「不在了」处理，宁可让渲染侧摘掉一条索引，
+    // 也好过把一条幽灵笔记留在列表里。
+    exists = false
+  }
+  if (!exists) {
+    knownWatchPaths.delete(targetPath)
+    return 'unlink'
+  }
+  if (knownWatchPaths.has(targetPath)) return 'change'
+  knownWatchPaths.add(targetPath)
+  return 'add'
+}
+
+/**
+ * 把一条变更合并进当前窗口。同一路径多条事件按下列裁决：
+ *   add + unlink  → 删条目（建了就删，盘上不留痕迹，渲染侧索引里本来也没有它）
+ *   unlink + 复现 → change（删了又回来，当作内容刷新，渲染侧 upsert 即可）
+ *   其余          → 取信息量更高的那个（见 WATCH_KIND_PRIORITY）
+ * @param {string} targetPath
+ * @param {'add'|'change'|'unlink'} kind
+ * @returns {void}
+ */
+function mergeWatchChange (targetPath, kind) {
+  const prev = pendingWatchChanges.get(targetPath)
+  if (prev === undefined) {
+    pendingWatchChanges.set(targetPath, kind)
+    return
+  }
+  if (prev === kind) return
+  if (prev === 'add' && kind === 'unlink') {
+    pendingWatchChanges.delete(targetPath)
+    return
+  }
+  if (prev === 'unlink' && (kind === 'add' || kind === 'change')) {
+    pendingWatchChanges.set(targetPath, 'change')
+    return
+  }
+  if (WATCH_KIND_PRIORITY[kind] > WATCH_KIND_PRIORITY[prev]) {
+    pendingWatchChanges.set(targetPath, kind)
+  }
+}
+
+/** 非递归模式下给新出现的子目录补挂 watcher，否则它里面的新文件永远没人监听 */
+function ensureSubdirectoryWatched (targetPath) {
+  if (!watchIsSubscribedPerDir) return
+  try {
+    const stat = fsSync.statSync(targetPath)
+    if (!stat.isDirectory()) return
+  } catch (err) {
+    return
+  }
+  startWatcherOn(targetPath)
+}
+
+/**
+ * 单个 fs.watch 事件入口。这里绝不能抛 —— fs.FSWatcher 回调里的异常会直接炸到
+ * libuv，整个主进程跟着崩，所以每个分支都收了口。
+ * @param {string} dir 触发事件的目录（绝对路径）
+ * @param {string} filename 文件名；Linux 非递归模式下无目录前缀，递归模式下带相对路径
+ * @returns {void}
+ */
+function onWatchEvent (dir, filename) {
+  // 没有监听根 = 已经 unwatch（或还没 watch）。此时到达的事件一律丢弃：监听器已被
+  // close，正常情况下不会再有回调，但慢一拍的回调、或某次 delete 之后仍被强引用着的
+  // watcher 都可能把事件递到这儿 —— 继续处理会让「已经停止监听」变成一句空话。
+  if (!watchRootPath) return
+  if (!filename) return
+  const targetPath = path.resolve(dir, String(filename))
+  if (!isUnderWatchRoot(targetPath)) return
+  if (isHiddenWatchPath(targetPath)) return
+  // 自己刚写过的路径不回灌：否则每次自动保存都会触发一轮"外部变更"
+  if (isSelfWrite(targetPath)) return
+
+  const kind = classifyWatchPath(targetPath)
+  if (kind !== 'unlink') ensureSubdirectoryWatched(targetPath)
+  mergeWatchChange(targetPath, kind)
+
+  if (pendingWatchChanges.size >= WATCH_MAX_BATCH) {
+    flushWatchChanges()
+    return
+  }
+  // 去抖：窗口从「窗口内第一个事件」起算，之后到达的事件**只入队不续期**。
+  // 旧实现是每条事件都 clearTimeout 重新计时，一旦遇到持续变更流（同步盘在灌、
+  // 用户批量粘贴图片）会被无限续期、永远发不出去。改成首个事件起算后，最迟 600ms
+  // 必定 flush 一次，后续事件进入下一个窗口。
+  if (watchDebounceTimer) return
+  watchDebounceTimer = setTimeout(() => flushWatchChanges(), WATCH_DEBOUNCE_MS)
+}
+
+/** 汇总当前窗口的变更清单，一次发出。path 为绝对路径，kind ∈ add/change/unlink */
+function flushWatchChanges () {
+  if (watchDebounceTimer) {
+    clearTimeout(watchDebounceTimer)
+    watchDebounceTimer = null
+  }
+  if (pendingWatchChanges.size === 0) return
+
+  const changes = []
+  const kinds = { add: 0, change: 0, unlink: 0 }
+  for (const [changePath, kind] of pendingWatchChanges) {
+    changes.push({ path: changePath, kind })
+    kinds[kind] += 1
+  }
+  pendingWatchChanges.clear()
+
+  // 日志只放计数与 basename：绝对路径属于用户隐私，`root`/`sample` 这类键不在
+  // SENSITIVE_KEY_PATTERN 里，会被原样落盘，所以干脆一个完整路径都不写出去。
+  watcherLog().info('外部变更批次已发出', {
+    root: path.basename(watchRootPath) || '(未设置)',
+    count: changes.length,
+    add: kinds.add,
+    change: kinds.change,
+    unlink: kinds.unlink
+  })
+
+  const winRef = mainWindow
+  if (winRef && winRef.webContents && typeof winRef.webContents.send === 'function') {
+    if (typeof winRef.isDestroyed === 'function' && winRef.isDestroyed()) return
+    winRef.webContents.send('notes:external-change', changes)
+  } else {
+    watcherLog().warn('尚无可用窗口，本批变更丢弃', { count: changes.length })
+  }
+}
+
 function stopNotesWatcher() {
   if (watchDebounceTimer) {
     clearTimeout(watchDebounceTimer)
     watchDebounceTimer = null
   }
+  pendingWatchChanges.clear()
+  knownWatchPaths.clear()
+  watchedDirPaths.clear()
+  watchRootPath = ''
+  watchIsSubscribedPerDir = false
   while (watchers.length) {
     const w = watchers.pop()
     try { w.close() } catch (e) { /* 已关闭 */ }
@@ -1687,26 +1892,49 @@ ipcMain.handle('fs:read-directory-recursive', async (_, dirPath) => {
 // （曾经重复声明导致 main.cjs 直接 SyntaxError，Electron 起不来；
 //   vite build 不编译 electron/，所以只有真启动才暴露）。
 
+/**
+ * 给单个目录挂 watcher。幂等：同一个目录重复调用不会叠加监听器
+ * （fs:watch-notes 可能被渲染侧多次调用，叠加会让每条变更被上报 N 次）。
+ * @param {string} dir 绝对路径
+ * @returns {boolean} 是否真的新挂了一个监听
+ */
 function startWatcherOn (dir) {
-  const w = fsSync.watch(
-    dir,
-    process.platform === 'linux' ? {} : { recursive: true },
-    (_eventType, filename) => {
-      if (!filename) return
-      if (!NOTE_FILE_EXTENSIONS.has(path.extname(String(filename)).toLowerCase())) return
-      const changedPath = path.join(dir, String(filename))
-      if (isSelfWrite(changedPath)) return
-      if (watchDebounceTimer) clearTimeout(watchDebounceTimer)
-      watchDebounceTimer = setTimeout(() => {
-        watchDebounceTimer = null
-        mainWindow?.webContents.send('notes:external-change', {
-          root: dir,
-          file: String(filename)
+  if (watchedDirPaths.has(dir)) return false
+  watchedDirPaths.add(dir)
+  try {
+    const w = fsSync.watch(
+      dir,
+      watchIsSubscribedPerDir ? {} : { recursive: true },
+      (_eventType, filename) => {
+        try {
+          onWatchEvent(dir, filename)
+        } catch (err) {
+          // 回调里抛异常会一路炸到 libuv，这里必须收住，
+          // 但也要留下痕迹：静默吞掉会让「监听突然失灵」变成无头案。
+          watcherLog().error('处理监听事件失败', {
+            error: String((err && err.message) || err)
+          })
+        }
+      }
+    )
+    // fs.FSWatcher 会在底层出问题时 emit 'error'，没有监听者会变成未捕获异常
+    if (w && typeof w.on === 'function') {
+      w.on('error', (err) => {
+        watcherLog().error('监听器内部出错，已忽略', {
+          error: String((err && err.message) || err)
         })
-      }, WATCH_DEBOUNCE_MS)
+      })
     }
-  )
-  watchers.push(w)
+    watchers.push(w)
+    return true
+  } catch (err) {
+    watchedDirPaths.delete(dir)
+    watcherLog().error('挂载监听器失败', {
+      error: String((err && err.message) || err),
+      errno: inferErrno(err)
+    })
+    return false
+  }
 }
 
 async function collectSubdirectories (root) {
@@ -1731,22 +1959,94 @@ async function collectSubdirectories (root) {
   return dirs
 }
 
+/**
+ * 采集启监听那一刻的全量快照，作为 add / change 的判定基线。
+ *
+ * 这份基线**不发出任何事件** —— 它的唯一作用是让「存量文件的第一次改动」被认成
+ * change 而不是 add（否则用户改一个旧笔记，渲染侧会以为来了个新笔记）。
+ * 数量有上限：超大型仓库只记前 WATCH_MAX_KNOWN 条，多余的会在首次改动时被认成 add，
+ * 由渲染侧 upsert 兜住，不会误判成删除。
+ * @param {string} root 监听根（绝对路径）
+ * @returns {Promise<number>} 记入基线的条目数
+ */
+async function seedKnownWatchPaths (root) {
+  knownWatchPaths.clear()
+  const stack = [root]
+  let counted = 0
+  while (stack.length && counted < WATCH_MAX_KNOWN) {
+    const current = stack.pop()
+    let entries = []
+    try {
+      entries = await fsp.readdir(current, { withFileTypes: true })
+    } catch (err) {
+      continue
+    }
+    for (const entry of entries) {
+      const full = path.join(current, entry.name)
+      knownWatchPaths.add(full)
+      counted += 1
+      if (counted >= WATCH_MAX_KNOWN) break
+      if (entry.isDirectory() && !entry.isSymbolicLink() && !entry.name.startsWith('.')) {
+        stack.push(full)
+      }
+    }
+  }
+  return counted
+}
+
 ipcMain.handle('fs:watch-notes', async (_, dirPath) => {
   try {
     const safePath = await validatePathAsync(notesPath, dirPath || notesPath)
+    // 先停干净再重挂：这是约定好的启停语义 —— 重复调用是**替换**而非叠加
     stopNotesWatcher()
 
-    if (process.platform === 'linux') {
+    watchRootPath = safePath
+    watchIsSubscribedPerDir = process.platform === 'linux'
+
+    if (watchIsSubscribedPerDir) {
       const dirs = await collectSubdirectories(safePath)
+      await seedKnownWatchPaths(safePath)
+      let mounted = 0
       for (const dir of dirs) {
-        try { startWatcherOn(dir) } catch (err) { /* 单个目录失败不影响整体 */ }
+        if (startWatcherOn(dir)) mounted += 1
       }
+      if (mounted === 0) {
+        // 一个都没挂上却回 true，渲染侧会以为"自动同步"是开着的 —— 这是假信号
+        watcherLog().error('笔记目录监听未启动：没有任何子目录挂载成功', {
+          error: 'no-watcher-mounted',
+          errno: 'EACCES'
+        })
+        return false
+      }
+      watcherLog().info('已启动笔记目录监听（Linux 逐子目录模式）', {
+        root: path.basename(safePath),
+        dirs: mounted,
+        baseline: knownWatchPaths.size
+      })
     } else {
-      startWatcherOn(safePath)
+      await seedKnownWatchPaths(safePath)
+      const ok = startWatcherOn(safePath)
+      if (!ok) {
+        watcherLog().error('笔记目录监听未启动：挂载失败', {
+          error: 'watch-failed',
+          errno: 'EIO'
+        })
+        return false
+      }
+      watcherLog().info('已启动笔记目录监听（原生递归模式）', {
+        root: path.basename(safePath),
+        ok,
+        baseline: knownWatchPaths.size
+      })
     }
     return true
   } catch (error) {
-    console.error('Error watching notes directory:', error.message)
+    // 监听失败（目录不在了 / 没权限 / 路径越界）一律降级：记 error + 返回 false，
+    // 绝不重抛 —— 渲染侧拿假的布尔值也比主进程崩掉强。
+    watcherLog().error('启动笔记目录监听失败', {
+      error: String((error && error.message) || error),
+      errno: inferErrno(error)
+    })
     return false
   }
 })
@@ -1844,47 +2144,339 @@ ipcMain.handle('fs:create-directory', async (_, dirPath) => {
   }
 })
 
-// ===== fs:delete-file：走系统回收站，而不是物理删除 =====
+// ===== 回收站：优先系统回收站，不可用时退化为库内 .trash（R-D5 / T27）=====
 // 笔记应用里误删 = 数据永久丢失。Obsidian 的默认行为也是进 .trash / 系统回收站。
 // shell.trashItem 在部分 Linux 环境不可用，失败时退化为「移动到库内 .trash 目录」，
 // 绝不静默 unlink。
+//
+// T27 的职责升级：退化为库内 .trash 时必须**留下原始路径**，否则那批文件虽然活着，
+// 却永远回不到原来的文件夹 —— 那是比看不见更难受的一种丢。元数据写在 sidecar
+// （`<条目名>.trashmeta.json`）里，**一个字节都不碰用户的 .md**。
+//
+// ⚠️ 这里的实现与 src/utils/trashIndex.js 是**两份等价代码**。不是偷懒：electron-builder
+// 只打包 dist/** 与 electron/**，主进程 require('src/...') 在生产包里必然
+// MODULE_NOT_FOUND（理由详见 tests/mainLogParity.test.js 头部）。副本会漂移，所以
+// tests/trashIndex.test.js 的最后一组用例做源码级比对（常量、字段名、关键行为标记），
+// 改一侧忘了另一侧会立刻变红。
 const TRASH_DIR_NAME = '.trash'
+const TRASH_META_SUFFIX = '.trashmeta.json'
+const TRASH_META_VERSION = 1
+const TRASH_NAME_SEP = '__'
+const TRASH_RETENTION_DAYS = 30
+const TRASH_DAY_MS = 24 * 60 * 60 * 1000
 
-async function moveToLibraryTrash (safePath) {
-  const trashRoot = await validatePathAsync(notesPath, path.join(notesPath, TRASH_DIR_NAME))
-  await fsp.mkdir(trashRoot, { recursive: true })
-  const base = path.basename(safePath)
-  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
-  const target = path.join(trashRoot, `${stamp}__${base}`)
-  markSelfWrite(target)
-  await fsp.rename(safePath, target)
+/** 时间戳 → 文件名安全的戳（冒号与点换 '-'） */
+function trashStampOf (ms) {
+  return new Date(Number(ms) || 0).toISOString().replace(/[:.]/g, '-')
 }
 
-ipcMain.handle('fs:delete-file', async (_, filePath) => {
+/** `<戳>__<原始文件名>` —— 与 src/utils/trashIndex.js 的 makeTrashName 同构 */
+function trashNameOf (base, ms) {
+  return `${trashStampOf(ms)}${TRASH_NAME_SEP}${base}`
+}
+
+/** 条目路径 → sidecar 元数据路径 */
+function metaPathOf (trashPath) {
+  return `${trashPath}${TRASH_META_SUFFIX}`
+}
+
+/** .trash 里该忽略的名字：元数据 sidecar、点文件 */
+function isTrashNoise (name) {
+  return !name || name.startsWith('.') || name.endsWith(TRASH_META_SUFFIX)
+}
+
+/** 从 `<戳>__<base>` 里反解删除时间；解不出来返回 0 */
+function trashStampParse (name) {
+  const sep = typeof name === 'string' ? name.indexOf(TRASH_NAME_SEP) : -1
+  if (sep <= 0) return 0
+  const m = /^(\d{4})-(\d{2})-(\d{2})T(\d{2})-(\d{2})-(\d{2})-(\d{3})Z$/.exec(name.slice(0, sep))
+  if (!m) return 0
+  const ts = Date.UTC(
+    Number(m[1]), Number(m[2]) - 1, Number(m[3]),
+    Number(m[4]), Number(m[5]), Number(m[6]), Number(m[7])
+  )
+  return Number.isFinite(ts) ? ts : 0
+}
+
+/** 失败原因要过一遍脱敏再交给 UI —— 这类 message 最爱夹绝对路径 */
+function trashFailureReason (error) {
+  const raw = (error && error.message) ? String(error.message) : String(error || '')
+  return logSanitizeString(raw, { home: homeDir(), maxString: LOG_CONTENT_MAX })
+}
+
+/**
+ * 读 sidecar。不存在 / 坏 JSON / 字段缺失一律降级为 null：元数据损坏应该让列表
+ * 少一条信息，而不是让整个面板打不开。
+ * @param {string} metaPath
+ * @returns {Promise<Object|null>}
+ */
+async function readTrashMeta (metaPath) {
+  try {
+    const parsed = JSON.parse(await fsp.readFile(metaPath, 'utf-8'))
+    if (!parsed || typeof parsed !== 'object') return null
+    if (typeof parsed.originPath !== 'string' || parsed.originPath === '') return null
+    return parsed
+  } catch (error) {
+    return null
+  }
+}
+
+/**
+ * 写 sidecar。
+ * @param {string} trashPath .trash 里的条目路径
+ * @param {Object} meta 元数据体
+ * @returns {Promise<void>}
+ */
+async function writeTrashMeta (trashPath, meta) {
+  await fsp.writeFile(metaPathOf(trashPath), JSON.stringify(meta, null, 2), 'utf-8')
+}
+
+/**
+ * 递归统计体积（目录才递归，文件一次 stat 完事）。失败按 0 处理 —— 体积只是展示
+ * 信息，不该因为它让整个列表失败。
+ * @param {string} p
+ * @param {number} depth
+ * @returns {Promise<number>}
+ */
+async function trashSizeOf (p, depth = 0) {
+  try {
+    const st = await fsp.stat(p)
+    if (!st.isDirectory()) return st.size
+    if (depth >= 12) return st.size
+    const children = await fsp.readdir(p, { withFileTypes: true })
+    let total = 0
+    for (const child of children) {
+      if (isTrashNoise(child.name)) continue
+      total += await trashSizeOf(path.join(p, child.name), depth + 1)
+    }
+    return total
+  } catch (error) {
+    return 0
+  }
+}
+
+/**
+ * .trash 目录的绝对路径（顺带做一次边界校验：它必须落在笔记库里）。
+ * @returns {Promise<string>}
+ */
+async function trashRootPath () {
+  return await validatePathAsync(notesPath, path.join(notesPath, TRASH_DIR_NAME))
+}
+
+/**
+ * 构造列表里的一条记录。
+ *
+ * @param {string} trashRoot
+ * @param {string} name .trash 里的条目名
+ * @param {number} nowMs
+ * @param {number} retentionDays
+ * @returns {Promise<Object|null>} 条目；stat 不到（竞态已被清理）返回 null
+ */
+async function buildTrashEntry (trashRoot, name, nowMs, retentionDays) {
+  const trashPath = path.join(trashRoot, name)
+  let st = null
+  try {
+    st = await fsp.stat(trashPath)
+  } catch (error) {
+    return null
+  }
+  const kind = st.isDirectory() ? 'dir' : 'file'
+  const meta = await readTrashMeta(metaPathOf(trashPath))
+  const nameStamp = trashStampParse(name)
+
+  // trashedAt 三级取值：sidecar → 文件名戳 → mtime
+  let trashedAt = 0
+  let degraded = false
+  let degradedReason = null
+  if (meta && Number.isFinite(Number(meta.trashedAt)) && Number(meta.trashedAt) > 0) {
+    trashedAt = Math.floor(Number(meta.trashedAt))
+  } else if (nameStamp > 0) {
+    trashedAt = nameStamp
+    degraded = true
+    degradedReason = 'meta-missing'
+  } else {
+    trashedAt = Math.floor(st.mtimeMs) || nowMs
+    degraded = true
+    degradedReason = 'no-timestamp'
+  }
+
+  // originPath 降级链：sidecar → <戳>__ 之后的 base → 整个名字，都放在**库根**下
+  const parsedBase = nameStamp > 0 ? name.slice(name.indexOf(TRASH_NAME_SEP) + TRASH_NAME_SEP.length) : name
+  const displayName = (meta && typeof meta.name === 'string' && meta.name) || parsedBase || name
+  const originPath = (meta && meta.originPath) ? meta.originPath : path.join(notesPath, displayName)
+  if (!meta) {
+    degraded = true
+    if (!degradedReason) degradedReason = 'meta-missing'
+  }
+
+  const size = await trashSizeOf(trashPath, 0)
+  return {
+    id: name,
+    name: displayName,
+    trashName: name,
+    trashPath,
+    metaPath: metaPathOf(trashPath),
+    originPath,
+    trashedAt,
+    trashedAtISO: new Date(trashedAt).toISOString(),
+    purgeAt: trashedAt + retentionDays * TRASH_DAY_MS,
+    size,
+    kind,
+    degraded,
+    degradedReason,
+    hasMeta: !!meta,
+    outsideRoot: !isSafeNotesPath(originPath),
+    expired: trashedAt > 0 && trashedAt <= nowMs - retentionDays * TRASH_DAY_MS
+  }
+}
+
+/**
+ * originPath 是否还在笔记库边界内。sidecar 是纯文本，可以被人为改写 —— 还原前
+ * 必须重新校验一次，绝不能凭一条元数据就把文件写出去。
+ * @param {string} candidate
+ * @returns {boolean}
+ */
+function isSafeNotesPath (candidate) {
+  if (typeof candidate !== 'string' || candidate === '' || !notesPath) return false
+  // validatePath 是整套 fs 白名单的信任根：越界会抛错
+  try {
+    validatePath(notesPath, candidate)
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+/**
+ * 删除动作的下半场：搬进 <notesPath>/.trash，并留下来源元数据。
+ *
+ * @param {string} safePath 已经过边界校验的绝对路径
+ * @returns {Promise<{ok: boolean, trashPath?: string, metaOk?: boolean, error?: string, errno?: string, message?: string}>}
+ */
+async function moveToLibraryTrash (safePath) {
+  const trashRoot = await trashRootPath()
+  await fsp.mkdir(trashRoot, { recursive: true })
+
+  const base = path.basename(safePath)
+  const ms = Date.now()
+  const size = await trashSizeOf(safePath, 0)
+  let st = null
+  try {
+    st = await fsp.stat(safePath)
+  } catch (error) {
+    st = null
+  }
+  const kind = st && st.isDirectory() ? 'dir' : 'file'
+
+  // 同名裁决：同一毫秒删两个同名文件（不同目录）时不能互相覆盖
+  let trashPath = path.join(trashRoot, trashNameOf(base, ms))
+  try {
+    let dup = 1
+    const dot = base.lastIndexOf('.')
+    const stem = dot > 0 ? base.slice(0, dot) : base
+    const ext = dot > 0 ? base.slice(dot) : ''
+    while (true) {
+      try {
+        await fsp.access(trashPath, fsSync.constants.F_OK)
+      } catch (error) {
+        break // 不存在 → 这个坑位可用
+      }
+      trashPath = path.join(trashRoot, trashNameOf(`${stem}-${dup}${ext}`, ms))
+      dup += 1
+      if (dup > 1000) break
+    }
+  } catch (error) {
+    /* 探测失败不影响后续：rename 会自己报出来 */
+  }
+
+  markSelfWrite(safePath)
+  markSelfWrite(trashPath)
+  try {
+    await fsp.rename(safePath, trashPath)
+  } catch (renameErr) {
+    // 跨设备 / 被占用：退化为「复制 + 删除」，宁可慢也不要失败
+    await fsp.cp(safePath, trashPath, { recursive: true, force: true })
+    await fsp.rm(safePath, { recursive: true, force: true })
+  }
+
+  // 元数据在**移动成功之后**写：先写后移会在移动失败时留下指向不存在文件的幽灵记录
+  let metaOk = true
+  let metaErr = null
+  try {
+    await writeTrashMeta(trashPath, {
+      v: TRASH_META_VERSION,
+      originPath: safePath,
+      name: base,
+      trashedAt: ms,
+      kind,
+      size
+    })
+  } catch (error) {
+    metaOk = false
+    metaErr = error
+    ipcLog.warn('写入回收站来源元数据失败（内容已在回收站里，位置信息缺失）', {
+      op: 'fs:delete-file',
+      trashPath,
+      errno: (error && error.code) || ''
+    })
+  }
+  if (!metaOk) {
+    return {
+      ok: true,
+      metaOk: false,
+      trashPath,
+      error: 'meta-write-failed',
+      errno: (metaErr && metaErr.code) || '',
+      message: trashFailureReason(metaErr)
+    }
+  }
+  return { ok: true, metaOk: true, trashPath }
+}
+
+ipcMain.handle('fs:delete-file', async (_, filePath, options) => {
+  const detail = !!(options && options.detail === true)
   try {
     const safePath = await validatePathAsync(notesPath, filePath)
     markSelfWrite(safePath)
     try {
       await shell.trashItem(safePath)
-      return true
+      // 默认维持老的 `true`：既有调用方（note.js / Sidebar.vue）只看真假
+      return detail ? { ok: true, method: 'system-trash', path: safePath } : true
     } catch (trashErr) {
-      // 回收站不可用（无 GUI / 部分 Linux）→ 退化为库内 .trash 目录
+      // 回收站不可用（无 GUI / 部分 Linux / 网络盘）→ 退化为库内 .trash
       try {
-        await moveToLibraryTrash(safePath)
-        return true
+        const moved = await moveToLibraryTrash(safePath)
+        return detail
+          ? {
+            ok: true,
+            method: 'library-trash',
+            path: safePath,
+            trashPath: moved.trashPath,
+            metaOk: moved.metaOk !== false,
+            // UI 要原样展示这句：用户有权知道「东西没进系统回收站，而是留在了库里」
+            fallbackReason: trashFailureReason(trashErr),
+            note: '系统回收站不可用，文件已移入库内 .trash，可在「最近删除」中还原'
+          }
+          : true
       } catch (fallbackErr) {
-        console.error('Error deleting file:', fallbackErr.message)
-        return false
+        ipcLog.error('删除失败：系统回收站与库内 .trash 均不可用', Object.assign(
+          { op: 'fs:delete-file', path: filePath, why: trashFailureReason(trashErr) },
+          ioInfo(fallbackErr)
+        ))
+        return detail
+          ? Object.assign(ioFailure(fallbackErr, 'delete-failed'), { fallbackReason: trashFailureReason(trashErr) })
+          : false
       }
     }
   } catch (error) {
-    console.error('Error deleting file:', error.message)
-    return false
+    ipcLog.error('删除失败：路径校验未通过', Object.assign({ op: 'fs:delete-file', path: filePath }, ioInfo(error)))
+    return detail ? ioFailure(error, 'invalid-path') : false
   }
 })
 
 // 递归删除目录（删除文件夹用）。同样优先系统回收站。
-ipcMain.handle('fs:remove-dir', async (_, dirPath) => {
+ipcMain.handle('fs:remove-dir', async (_, dirPath, options) => {
+  const detail = !!(options && options.detail === true)
   try {
     const safePath = await validatePathAsync(notesPath, dirPath)
     // 不允许删除笔记库自身
@@ -1892,19 +2484,336 @@ ipcMain.handle('fs:remove-dir', async (_, dirPath) => {
     markSelfWrite(safePath)
     try {
       await shell.trashItem(safePath)
-      return true
+      return detail ? { ok: true, method: 'system-trash', path: safePath } : true
     } catch (trashErr) {
       try {
-        await moveToLibraryTrash(safePath)
-        return true
+        const moved = await moveToLibraryTrash(safePath)
+        return detail
+          ? {
+            ok: true,
+            method: 'library-trash',
+            path: safePath,
+            trashPath: moved.trashPath,
+            metaOk: moved.metaOk !== false,
+            fallbackReason: trashFailureReason(trashErr),
+            note: '系统回收站不可用，目录已移入库内 .trash，可在「最近删除」中还原'
+          }
+          : true
       } catch (fallbackErr) {
-        console.error('Error removing directory:', fallbackErr.message)
-        return false
+        ipcLog.error('删除目录失败：系统回收站与库内 .trash 均不可用', Object.assign(
+          { op: 'fs:remove-dir', path: dirPath, why: trashFailureReason(trashErr) },
+          ioInfo(fallbackErr)
+        ))
+        return detail
+          ? Object.assign(ioFailure(fallbackErr, 'delete-failed'), { fallbackReason: trashFailureReason(trashErr) })
+          : false
       }
     }
   } catch (error) {
-    console.error('Error removing directory:', error.message)
-    return false
+    ipcLog.error('删除目录失败：路径校验未通过', Object.assign({ op: 'fs:remove-dir', path: dirPath }, ioInfo(error)))
+    return detail ? ioFailure(error, 'invalid-path') : false
+  }
+})
+
+// ============= trash:list —— 库内回收站清单（T28「最近删除」面板的数据源）=============
+//
+// 入参（可选）：{ trashDir?, retentionDays?, nowMs? }
+// 返回：{ ok, entries[], trashDir, retentionDays, nowMs, exists }
+//        entries 按删除时间倒序（最新的在最前），每条的形状见 buildTrashEntry；
+//        entries 里**不含** sidecar 与点文件。
+//
+// 注意：这里只列**库内 .trash**。系统回收站里的内容拿不到任何原路径信息，不在本
+// 接口的职责范围内 —— 这也是为什么 fs:delete-file 在回收站可用时仍建议 UI 提示
+// 「已从系统回收站恢复」由用户自行处理。
+ipcMain.handle('trash:list', async (_, payload) => {
+  const opts = payload && typeof payload === 'object' ? payload : {}
+  if (!notesPath) return { ok: false, error: 'no-notes-path', entries: [], message: '尚未设置笔记目录' }
+  try {
+    const trashRoot = await trashRootPath()
+    const retentionDays = Number.isFinite(opts.retentionDays) && opts.retentionDays >= 0
+      ? opts.retentionDays
+      : TRASH_RETENTION_DAYS
+    // 一批数据共用同一个「现在」，否则 expired 会自相矛盾
+    const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now()
+
+    let children = []
+    try {
+      children = await fsp.readdir(trashRoot, { withFileTypes: true })
+    } catch (error) {
+      if (error && error.code === 'ENOENT') {
+        return { ok: true, entries: [], trashDir: trashRoot, exists: false, retentionDays, nowMs }
+      }
+      throw error
+    }
+
+    const entries = []
+    for (const child of children) {
+      if (isTrashNoise(child.name)) continue
+      const entry = await buildTrashEntry(trashRoot, child.name, nowMs, retentionDays)
+      if (entry) entries.push(entry)
+    }
+    entries.sort((a, b) => (b.trashedAt - a.trashedAt) || (a.trashName < b.trashName ? -1 : 1))
+    return { ok: true, entries, trashDir: trashRoot, exists: true, retentionDays, nowMs }
+  } catch (error) {
+    ipcLog.error('读取回收站清单失败', Object.assign({ op: 'trash:list' }, ioInfo(error)))
+    return Object.assign(ioFailure(error, 'read-failed'), { entries: [] })
+  }
+})
+
+// ============= trash:restore —— 还原回原文件夹 =============
+//
+// 入参：{ id, strategy? }，strategy ∈ 'fail' | 'rename' | 'overwrite'（默认 fail）
+// 返回：{ ok, path, requestedPath, renamed, metaCleaned } 或
+//       { ok:false, error, errno, message, requestedPath?, suggestedPath? }
+//
+// error 取值：invalid-id / not-found / outside-root / target-exists /
+//            restore-failed / no-notes-path
+ipcMain.handle('trash:restore', async (_, payload) => {
+  const opts = payload && typeof payload === 'object' ? payload : {}
+  if (!notesPath) return { ok: false, error: 'no-notes-path', message: '尚未设置笔记目录' }
+  const id = typeof opts.id === 'string' ? opts.id : ''
+  // id 必须是「一个纯文件名」：带任何路径语义（../ /（''） / a/b.md）都直接拒，
+  // 这是防路径穿越的第一道闸。
+  if (!id || id === '.' || id === '..' || id.includes('/') || id.includes('\\') || id.startsWith('.')) {
+    return { ok: false, error: 'invalid-id', message: '非法的回收站条目 id' }
+  }
+  const strategy = opts.strategy === 'rename' || opts.strategy === 'overwrite' ? opts.strategy : 'fail'
+  try {
+    const trashRoot = await trashRootPath()
+    const nowMs = Date.now()
+    const entry = await buildTrashEntry(trashRoot, id, nowMs, TRASH_RETENTION_DAYS)
+    if (!entry) return { ok: false, error: 'not-found', message: '回收站里没有这个条目' }
+
+    // 二次校验：sidecar 可以被人为改写成库外路径，不能凭它就把文件搬出去
+    let targetPath = null
+    try {
+      targetPath = validatePath(notesPath, entry.originPath)
+    } catch (error) {
+      ipcLog.warn('拒绝还原到笔记库之外', { op: 'trash:restore', id, originPath: entry.originPath })
+      return {
+        ok: false,
+        error: 'outside-root',
+        message: '该条目记录的原始路径不在笔记库内',
+        requestedPath: entry.originPath
+      }
+    }
+    const requestedPath = targetPath
+    let renamed = false
+
+    let occupied = false
+    try {
+      await fsp.access(targetPath, fsSync.constants.F_OK)
+      occupied = true
+    } catch (error) {
+      occupied = false
+    }
+    if (occupied) {
+      if (strategy === 'fail') {
+        // 给出可直接采用的候选名，UI 做二次确认后改 strategy:'rename' 再调一次
+        const dot = requestedPath.lastIndexOf('.')
+        const stem = dot > -1 ? requestedPath.slice(0, dot) : requestedPath
+        const ext = dot > -1 ? requestedPath.slice(dot) : ''
+        let suggestedPath = `${stem}-1${ext}`
+        for (let n = 2; n <= 1000; n += 1) {
+          let taken = false
+          try {
+            await fsp.access(suggestedPath, fsSync.constants.F_OK)
+            taken = true
+          } catch (error) {
+            taken = false
+          }
+          if (!taken) break
+          suggestedPath = `${stem}-${n}${ext}`
+        }
+        return {
+          ok: false,
+          error: 'target-exists',
+          message: '原位置已经存在同名文件',
+          requestedPath,
+          suggestedPath
+        }
+      }
+      if (strategy === 'rename') {
+        const dot = requestedPath.lastIndexOf('.')
+        const stem = dot > -1 ? requestedPath.slice(0, dot) : requestedPath
+        const ext = dot > -1 ? requestedPath.slice(dot) : ''
+        for (let n = 1; n <= 1000; n += 1) {
+          const candidate = `${stem}-${n}${ext}`
+          let taken = false
+          try {
+            await fsp.access(candidate, fsSync.constants.F_OK)
+            taken = true
+          } catch (error) {
+            taken = false
+          }
+          if (!taken) {
+            targetPath = candidate
+            renamed = true
+            break
+          }
+        }
+      }
+      // strategy === 'overwrite'：沿用原路径，由 UI 承担确认责任
+    }
+
+    // 原文件夹可能连目录一起被删过：没有这行，「还原回到一个不存在的文件夹」
+    // 会在最该成功的时候失败
+    await fsp.mkdir(path.dirname(targetPath), { recursive: true })
+
+    markSelfWrite(entry.trashPath)
+    markSelfWrite(targetPath)
+    try {
+      await fsp.rename(entry.trashPath, targetPath)
+    } catch (renameErr) {
+      try {
+        await fsp.cp(entry.trashPath, targetPath, { recursive: true, force: true })
+        await fsp.rm(entry.trashPath, { recursive: true, force: true })
+      } catch (copyErr) {
+        ipcLog.error('还原失败', Object.assign(
+          { op: 'trash:restore', id, to: requestedPath },
+          ioInfo(copyErr)
+        ))
+        return Object.assign(ioFailure(copyErr, 'restore-failed'), { requestedPath })
+      }
+    }
+
+    // 清掉 sidecar：不清的话条目会「死而复生」—— 文件已回原位，列表里却还挂着一条
+    let metaCleaned = true
+    try {
+      await fsp.rm(entry.metaPath, { force: true })
+    } catch (error) {
+      metaCleaned = false
+      ipcLog.warn('清理回收站元数据失败', Object.assign(
+        { op: 'trash:restore', id },
+        ioInfo(error)
+      ))
+    }
+
+    return { ok: true, path: targetPath, requestedPath, renamed, metaCleaned, kind: entry.kind, size: entry.size }
+  } catch (error) {
+    ipcLog.error('还原失败：回收站目录不可读', Object.assign({ op: 'trash:restore', id }, ioInfo(error)))
+    return ioFailure(error, 'restore-failed')
+  }
+})
+
+// ============= trash:purge —— 彻底删除 =============
+//
+// 入参（可选）：{ ids?, expiredOnly?, all?, retentionDays?, dryRun? }
+//   · ids: string[]          只删这几条（用户勾选后点「彻底删除」）
+//   · all: true              清空整个回收站（**必须显式**传，防止误调把库清空）
+//   · retentionDays          过期周期调参（默认 30 天）
+//   · dryRun: true           只算不删，返回 expired 清单（给 UI 做「即将清理」预告）
+//   · 三都不传时 → 按 expiredOnly 语义只清过期条目（默认最保守）
+// 返回：{ ok, purged[], failed[], kept[], expired[], retentionDays, retentionMs, cutoffMs, dryRun }
+ipcMain.handle('trash:purge', async (_, payload) => {
+  const opts = payload && typeof payload === 'object' ? payload : {}
+  if (!notesPath) return { ok: false, error: 'no-notes-path', purged: [], failed: [], message: '尚未设置笔记目录' }
+  const dryRun = opts.dryRun === true
+  const retentionDays = Number.isFinite(opts.retentionDays) && opts.retentionDays >= 0
+    ? opts.retentionDays
+    : TRASH_RETENTION_DAYS
+  const nowMs = Number.isFinite(opts.nowMs) ? opts.nowMs : Date.now()
+  const cutoffMs = nowMs - retentionDays * TRASH_DAY_MS
+
+  try {
+    const trashRoot = await trashRootPath()
+    let children = []
+    try {
+      children = await fsp.readdir(trashRoot, { withFileTypes: true })
+    } catch (error) {
+      if (error && error.code === 'ENOENT') {
+        return { ok: true, purged: [], failed: [], kept: [], expired: [], retentionDays, retentionMs: retentionDays * TRASH_DAY_MS, cutoffMs, dryRun }
+      }
+      throw error
+    }
+
+    const listed = []
+    for (const child of children) {
+      if (isTrashNoise(child.name)) continue
+      const entry = await buildTrashEntry(trashRoot, child.name, nowMs, retentionDays)
+      if (entry) listed.push(entry)
+    }
+
+    const hasIds = Array.isArray(opts.ids)
+    const purgeAll = opts.all === true
+    const targets = hasIds
+      ? opts.ids
+      : listed.filter((e) => (purgeAll ? true : e.trashedAt > 0 && e.trashedAt <= cutoffMs)).map((e) => e.id)
+    const expired = listed.filter((e) => e.trashedAt > 0 && e.trashedAt <= cutoffMs)
+      .map((e) => ({ id: e.id, trashedAt: e.trashedAt, originPath: e.originPath }))
+    const kept = listed.filter((e) => !targets.includes(e.id)).map((e) => e.id)
+
+    if (dryRun) {
+      return {
+        ok: true,
+        purged: [],
+        failed: [],
+        kept,
+        expired,
+        targets,
+        retentionDays,
+        retentionMs: retentionDays * TRASH_DAY_MS,
+        cutoffMs,
+        dryRun: true
+      }
+    }
+
+    const purged = []
+    const failed = []
+    for (const rawId of targets) {
+      const id = typeof rawId === 'string' ? rawId : ''
+      if (!id || id === '.' || id === '..' || id.includes('/') || id.includes('\\') || id.startsWith('.')) {
+        failed.push({ id: String(rawId), error: 'invalid-id', message: '非法的回收站条目 id' })
+        continue
+      }
+      const trashPath = path.join(trashRoot, id)
+      const metaFile = metaPathOf(trashPath)
+      try {
+        try {
+          await fsp.access(trashPath, fsSync.constants.F_OK)
+        } catch (error) {
+          failed.push({ id, error: 'not-found', message: '条目已不存在' })
+          continue
+        }
+        let st = null
+        try {
+          st = await fsp.stat(trashPath)
+        } catch (error) {
+          st = null
+        }
+        markSelfWrite(trashPath)
+        markSelfWrite(metaFile)
+        await fsp.rm(trashPath, { recursive: true, force: true })
+        // 本体删成功才轮到 sidecar；本体失败时保留元数据，起码列表里还能看见它
+        try {
+          await fsp.rm(metaFile, { force: true })
+        } catch (metaErr) {
+          failed.push(Object.assign({ id, error: 'meta-cleanup-failed', message: '本体已删除，元数据残留' }, ioInfo(metaErr)))
+          continue
+        }
+        purged.push({ id, trashPath, kind: st && st.isDirectory() ? 'dir' : 'file' })
+      } catch (error) {
+        failed.push(Object.assign({ id, error: 'purge-failed', message: '彻底删除失败' }, ioInfo(error)))
+      }
+    }
+
+    if (purged.length > 0 || failed.length > 0) {
+      ipcLog.info('回收站清理完成', { op: 'trash:purge', purged: purged.length, failed: failed.length, dryRun })
+    }
+    return {
+      ok: failed.length === 0,
+      purged,
+      failed,
+      kept,
+      expired,
+      retentionDays,
+      retentionMs: retentionDays * TRASH_DAY_MS,
+      cutoffMs,
+      dryRun: false
+    }
+  } catch (error) {
+    ipcLog.error('回收站清理失败', Object.assign({ op: 'trash:purge' }, ioInfo(error)))
+    return Object.assign(ioFailure(error, 'purge-failed'), { purged: [], failed: [] })
   }
 })
 

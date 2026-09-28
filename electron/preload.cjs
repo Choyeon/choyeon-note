@@ -23,18 +23,83 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // undefined，写盘失败原因永远停留在「猜 errno 关键词」的时代。
   writeFile: (filePath, content, options) => ipcRenderer.invoke('fs:write-file', filePath, content, options),
   createDirectory: (dirPath) => ipcRenderer.invoke('fs:create-directory', dirPath),
-  deleteFile: (filePath) => ipcRenderer.invoke('fs:delete-file', filePath),
+  deleteFile: (filePath, options) => ipcRenderer.invoke('fs:delete-file', filePath, options),
   // 删除目录（走系统回收站，不可用时退化为库内 .trash）
-  removeDir: (dirPath) => ipcRenderer.invoke('fs:remove-dir', dirPath),
+  removeDir: (dirPath, options) => ipcRenderer.invoke('fs:remove-dir', dirPath, options),
+  // ===== 回收站「最近删除」（T27 主进程 / T28 面板）=====
+  // 这三个通道管的是**库内 .trash**：系统回收站里的东西拿不到原路径，不在其列。
+  //
+  // trashList(options?)
+  //   options: { trashDir?, retentionDays?, nowMs? }（都可省）
+  //   → { ok, entries[], trashDir, exists, retentionDays, nowMs }
+  //     entries 按 trashedAt 倒序，每条：
+  //       { id, name, trashName, trashPath, metaPath, originPath, trashedAt,
+  //         trashedAtISO, purgeAt, size, kind:'file'|'dir', degraded,
+  //         degradedReason, hasMeta, outsideRoot, expired }
+  //     · id         —— 还原 / 彻底删除时回传它（就是 .trash 里的文件名）
+  //     · originPath —— 原始绝对路径，展示时用「相对笔记库的路径」更好读
+  //     · degraded   —— true 表示元数据丢了，originPath 是**推测**的（UI 该标注）
+  //     · expired    —— 超过 retentionDays，下次清空会被删掉（UI 该提醒）
+  //     · outsideRoot—— true 时禁止还原（元数据被改坏），UI 该置灰按钮
+  //
+  // trashRestore({ id, strategy? })
+  //   strategy: 'fail'(默认) | 'rename' | 'overwrite'
+  //   → { ok:true, path, requestedPath, renamed, metaCleaned, kind, size }
+  //   | { ok:false, error, errno, message, requestedPath?, suggestedPath? }
+  //     error: 'invalid-id' | 'not-found' | 'outside-root' | 'target-exists'
+  //            | 'restore-failed' | 'no-notes-path'
+  //     同名冲突时先拿 suggestedPath 让用户确认，再改用 strategy:'rename'
+  //
+  // trashPurge(payload?)
+  //   payload: { ids?: string[], all?: true, expiredOnly?: true,
+  //              retentionDays?: number, dryRun?: true, nowMs?: number }
+  //   → { ok, purged[], failed[], kept[], expired[], retentionDays, retentionMs,
+  //       cutoffMs, dryRun, targets? }
+  //   规则（安全性）：什么都不传 = 只清过期条目；要清空整个回收站必须显式 all:true；
+  //   dryRun:true 只返回清单不动手，适合做「还有 N 条即将过期」的预告。
+  trashList: (options) => ipcRenderer.invoke('trash:list', options),
+  trashRestore: (payload) => ipcRenderer.invoke('trash:restore', payload),
+  trashPurge: (payload) => ipcRenderer.invoke('trash:purge', payload),
   // options: { overwrite } —— 默认拒绝覆盖已存在目标，返回 { error: 'target-exists' }
   moveFile: (oldPath, newPath, options) => ipcRenderer.invoke('fs:move-file', oldPath, newPath, options),
   fileExists: (filePath) => ipcRenderer.invoke('fs:file-exists', filePath),
 
   // ===== 笔记目录监听（设置页「自动同步」）=====
+  // watchNotes(dirPath)   → true | false（false = 目录不可访问 / 越界，主进程已记 error）
+  //                         可重复调用：语义是**替换**而非叠加，重复调用不会多挂监听器
+  // unwatchNotes()        → true
   watchNotes: (dirPath) => ipcRenderer.invoke('fs:watch-notes', dirPath),
   unwatchNotes: () => ipcRenderer.invoke('fs:unwatch-notes'),
+  //
+  // onNotesExternalChange(callback) —— 外部（Obsidian / VS Code / 同步盘 / 手动改文件）
+  // 改了笔记目录时触发。**注意 payload 形状在 T21 变了**：
+  //
+  //   callback(changes)     其中
+  //   changes: Array<{ path: string, kind: 'add' | 'change' | 'unlink' }>
+  //
+  //   · path —— **绝对路径**，直接可喂给 fs:read-file，无需再拼根目录
+  //   · kind —— 只有三个取值：
+  //       'add'    新增（基线快照里没有它）
+  //       'change' 内容变了
+  //       'unlink' 删掉了（也可能被移走，盘上不在了）
+  //
+  // 以前这个回调是**无参**的，收到就整库 loadNotesFromPath() 全量重载 —— 那会在用户
+  // 打字的瞬间把编辑器内容冲掉（R-F5）。现在一次回调带一批变更，渲染侧据此做增量
+  // reconcile 即可。
+  //
+  // 主进程侧的时序与过滤，渲染侧可以依赖这些前提：
+  //   1. 600ms 去抖，窗口内多条变更**合并成一批**发出（不是一条一个事件）
+  //   2. 本进程自己写过的路径在 1.5s 内被 isSelfWrite 吃掉，不会回灌
+  //   3. 同一路径在一批里最多出现一次（已按 kind 优先级裁决过）
+  //   4. 隐藏段（.git / .trash / .obsidian…）不上报
+  //   5. **不做扩展名过滤**：.canvas / .png / 子目录 / 无扩展名文件全都会出现在
+  //      changes 里 —— 认不认由渲染侧的 isNoteExtension 决定（R-F7）
+  //   6. 窗口还没建好时不发（本批丢弃并记 warn），所以**不会**有「首帧全量快照」
+  //      冲进来：主进程只在启监听时静默采一份基线，用来区分 add / change，基线本身
+  //      不产生任何回调
   onNotesExternalChange: (callback) => {
-    const listener = (_, data) => callback(data)
+    // 这里原样透传：主进程发的就是 changes 数组本身（不是 {root, changes} 包装）
+    const listener = (_, changes) => callback(changes)
     ipcRenderer.on('notes:external-change', listener)
     return () => ipcRenderer.removeListener('notes:external-change', listener)
   },

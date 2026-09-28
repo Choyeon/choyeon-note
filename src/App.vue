@@ -114,6 +114,10 @@
     </div>
     <CommandPalette />
     <QuickSwitcher />
+    <!-- 外部磁盘改写的冲突二选一（批次 4 · R-F6）。
+         队列由 useExternalSync 维护，这里只把整队传进去：弹窗自己显示队首，
+         解决一条后队列短一条、自动进下一条，App.vue 不持有索引。 -->
+    <ConflictDialog :conflicts="conflicts" @resolve="onResolveConflict" />
     <!-- 快捷键速查表（T08）：只读 appStore.shortcutCheatsheetOpen，开关由
          app.shortcutCheatsheet（useAppActions 提供执行器，默认 Mod-/）驱动 -->
     <ShortcutCheatsheet />
@@ -150,7 +154,18 @@ import { PanelRight, AlertTriangle, CheckCircle2, Info, X } from 'lucide-vue-nex
 import Sidebar from './components/Sidebar.vue'
 import CommandPalette from './components/CommandPalette.vue'
 import QuickSwitcher from './components/QuickSwitcher.vue'
+import ConflictDialog from './components/ConflictDialog.vue'
 import ShortcutCheatsheet from './components/ShortcutCheatsheet.vue'
+// 外部磁盘变更的定向 reconcile（批次 4 · R-F5 / R-F6）。
+// 替代了原先「任何文件一变就整库 loadNotesFromPath」的写法 —— 那条写法会把
+// 用户正在编辑的那一屏冲掉。内核不 import 任何 store，这里负责把真实 store
+// 拼成门面喂进去。
+import { createNoteStoreFacade, useExternalSync } from './composables/useExternalSync'
+import { EXT_PATTERN } from './constants/noteFile'
+// LS_KEYS：localStorage key 的单一来源。笔记存储位置这个 key 之前在 App.vue /
+// router/index.js / WelcomeView.vue 各抄了一遍字面量，三处必须永远相等却没有任何
+// 东西保证 —— 改一处漏两处就是「路由守卫读不到库位置 → 进不去应用」。
+import { LS_KEYS } from './constants/storage'
 import { setCodeTheme as setHljsTheme } from './utils/markdown'
 import { fetchBingWallpaper, todayStamp } from './utils/bingWallpaper'
 // normalizeBinding：绑定串比较的唯一口径。注册表 default 与用户存的 hotkeys 可能
@@ -163,7 +178,10 @@ import {
   APP_ACTION_IDS,
   isAppActionNeedUnfocused
 } from './composables/useAppActions'
-import { IS_ELECTRON as isElectron } from './utils/env'
+// isElectron 是**模块加载时**求值一次的常量（electronAPI 由 preload 注入，加载后
+// 不再变），给模板的 v-if 与样式分支用正合适；hasElectronAPI() 每次调用重新求值，
+// 给「运行时再看一眼」的场景用 —— 启动检查就属于后者。
+import { IS_ELECTRON as isElectron, hasElectronAPI } from './utils/env'
 // 日志出口：模块名走 LOG_MODULES（唯一来源），按模块过滤才能写成 `mod === 'app'`
 // 而不是 startsWith 兜补丁。渲染侧出去的 message / data 由 logger 统一脱敏 + 截 120，
 // 这里不再自己加工一遍。
@@ -189,7 +207,16 @@ let beforeUnloadHandler = null
 const showSidebar = computed(() => route.meta?.showSidebar !== false)
 const glassEffect = computed(() => appStore.glassEffect)
 
-const currentTheme = computed(() => appStore.theme)
+/**
+ * 根容器的 data-theme。
+ *
+ * 必须读 **effectiveTheme** 而不是 theme：theme 的值域是 light / dark / system，
+ * 而 CSS 里只有 `[data-theme='dark']` 与 `.electron-mode[data-theme='dark']`
+ * 两套暗色变量，没有 `[data-theme='system']`。写 'system' 的结果就是主题模式选
+ * 「系统」时，Electron 专属的暗色变量（标题栏 / ::selection 等）一个都不命中。
+ * store 的 applyTheme 用的也是 effectiveTheme，这里必须同口径。
+ */
+const currentTheme = computed(() => appStore.effectiveTheme)
 
 // 编辑器缩放：百分比 → 倍数，写到根变量上，编辑器三种模式与阅读视图都读它
 const editorZoomScale = computed(() => (Number(appStore.editorZoom) || 100) / 100)
@@ -221,9 +248,65 @@ async function refreshBingWallpaper({ force = false } = {}) {
   appStore.setBingWallpaper(result)
 }
 
+// ---------------------------------------------------------------------------
+// 外部磁盘变更：定向 reconcile（R-F5 / R-F6）
+// ---------------------------------------------------------------------------
+
+/** 外部同步的诊断出口（与 App.vue 自身的 app 模块分开，便于按模块过滤） */
+const syncLog = createLogger(LOG_MODULES.sync)
+
 /**
- * 自动同步：监听笔记目录，外部改动（另一台设备 / 外部编辑器）时重新载入。
- * 本进程自己的写入由主进程的静默窗口过滤掉，不会造成回环重载。
+ * 真实 store → reconcile 内核的门面。
+ *
+ * 两项注入都是 note.js 的模块内私有物，必须由这里显式喂进去：
+ *   · isDirty —— 判定「有未保存修改」的笔记。缺了它，只有当前笔记受保护，
+ *     切走但没落盘的那批会被覆盖；
+ *   · readFile —— 内核只读盘，自己不碰 IPC。
+ * reindex 不注入：store 已导出 reindexNote，门面会自己去调。
+ */
+const noteFacade = createNoteStoreFacade(noteStore, {
+  readFile: (p) => window.electronAPI?.readFile?.(p),
+  isDirty: (id) => noteStore.isNoteDirty(id)
+})
+
+/**
+ * 接线对象。必须**解构**而不是整对象用：useExternalSync 返回的是普通对象，
+ * `sync.conflicts` 在模板里是一个 Ref（Vue 不会替你脱这层），而解构出来的
+ * `conflicts` 是顶层绑定，模板编译器会走 unref。
+ *
+ * apply / resolve 内部已经串行化，回调里 fire-and-forget 即可。
+ */
+const { conflicts, apply: applyExternalChanges, resolve: resolveConflict } = useExternalSync({
+  noteStore: noteFacade,
+  readFile: (p) => window.electronAPI?.readFile?.(p),
+  log: syncLog,
+  isNoteExtension: (p) => EXT_PATTERN.test(String(p || '')),
+  onNotify: ({ type, message }) => appStore.pushToast({ type, message })
+})
+
+/**
+ * 冲突弹窗的回执。
+ *
+ * @param {object} payload 弹窗 emit 的载荷
+ * @param {string} payload.id 冲突 id（= 笔记 id）
+ * @param {'disk'|'memory'} payload.choice 用户的选择
+ * @returns {void}
+ */
+function onResolveConflict ({ id, choice } = {}) {
+  if (!id) return
+  // choice 不是 'disk' / 'memory' 时内核会保持冲突不变（不替用户做决定），
+  // 这里只是把异步结果的异常收进日志，避免渲染进程冒出 Unhandled Rejection。
+  resolveConflict(id, choice).catch((error) => {
+    syncLog.error('冲突解决失败', error)
+  })
+}
+
+/**
+ * 自动同步：监听笔记目录。
+ *
+ * 收到的是**变更清单**（`changes`），不是「某处变了」的空信号 —— 只有列出的那几个
+ * 路径会被处理，正在编辑的笔记一个字节都不动（R-F5）。
+ * 本进程自己的写入由主进程的静默窗口过滤掉，不会造成回环。
  */
 function stopNotesWatch() {
   if (notesWatchUnsubscribe) {
@@ -241,8 +324,13 @@ async function syncNotesWatch() {
     const ok = await window.electronAPI.watchNotes(path)
     if (!ok) return
     if (!notesWatchUnsubscribe) {
-      notesWatchUnsubscribe = window.electronAPI.onNotesExternalChange(() => {
-        noteStore.loadNotesFromPath(path)
+      notesWatchUnsubscribe = window.electronAPI.onNotesExternalChange((changes) => {
+        // 定向同步：只动 changes 里列出的路径。内部串行化，这里不必 await。
+        // catch 是为了让内核漏出的异常进日志，而不是变成渲染进程的
+        // Unhandled Rejection（冒烟脚本会把它计成运行时错误）。
+        applyExternalChanges(changes).catch((error) => {
+          syncLog.error('外部变更同步失败', error)
+        })
       })
     }
   } else {
@@ -472,6 +560,84 @@ watch([() => appStore.autoSync, () => noteStore.notesPath], () => {
   syncNotesWatch()
 })
 
+// ---------------------------------------------------------------------------
+// 启动期自动检查更新（设置项「启动时自动检测新版本」）
+// ---------------------------------------------------------------------------
+
+/**
+ * 启动检查的延迟。
+ * 与设置页 onMounted 里那个 2s 定时器同刻：设置页在启动窗口内挂载过的话，
+ * 它那次检查不晚于本定时器，App 侧即可安全让位（见 settingsVisited）。
+ */
+const STARTUP_UPDATE_CHECK_DELAY = 2000
+
+/** 本次会话是否已经发起过自动检查（启动检查只允许一次，防重复请求） */
+let startupUpdateChecked = false
+let startupUpdateTimer = null
+let updaterUnsubscribe = null
+
+/**
+ * 启动窗口内是否进过设置页。
+ * 设置页挂载后会自己发一次 checkForUpdates，那一次已经覆盖了「启动检查」的语义，
+ * App 侧再发一次就是同一次启动打两遍网络请求 —— 因此进过就让位。
+ */
+let settingsVisited = route.name === 'settings'
+watch(() => route.name, (name) => {
+  if (name === 'settings') settingsVisited = true
+})
+
+/**
+ * 更新事件 → 用户可见。
+ *
+ * 为什么 App.vue 自己要听一遍：启动检查发生在设置页之外，那时没有组件在听
+ * updater 事件，检查结果会静默丢弃 —— 「自动检测」就等于没检测。
+ * 与设置页的监听互不冲突（preload 侧支持多订阅），两边各取所需：
+ * 这里只推一条 toast，设置页照旧更新自己的进度 UI。
+ */
+function setupStartupUpdaterListener () {
+  if (updaterUnsubscribe || !window.electronAPI?.onUpdaterEvent) return
+  updaterUnsubscribe = window.electronAPI.onUpdaterEvent((event, data) => {
+    switch (event) {
+      case 'updater:update-available': {
+        const version = data && data.version ? ` v${data.version}` : ''
+        appStore.pushToast({ type: 'info', message: `发现新版本${version}，可在设置页更新` })
+        break
+      }
+      case 'updater:update-downloaded': {
+        appStore.pushToast({ type: 'success', message: '新版本已下载，可在设置页重启安装' })
+        break
+      }
+      case 'updater:error': {
+        // data 由主进程透传（可能是对象也可能是字符串），走 data 而不是拼进 msg
+        log.error('启动检查更新失败', { detail: data })
+        break
+      }
+      default:
+        break
+    }
+  })
+}
+
+/**
+ * 启动时自动检测新版本（设置项文案如此，触发点因此必须在 App.vue 的 onMounted）。
+ *
+ * 照搬设置页的那段判断：`isElectron` + `appStore.autoCheckUpdates` 两道门。
+ * 去重：本次会话只发一次；启动窗口内进过设置页则让位给设置页那一次。
+ */
+function scheduleStartupUpdateCheck () {
+  if (!hasElectronAPI()) return
+  if (!window.electronAPI?.checkForUpdates) return
+  if (!appStore.autoCheckUpdates) return
+  if (startupUpdateChecked || startupUpdateTimer) return
+
+  startupUpdateTimer = setTimeout(() => {
+    startupUpdateTimer = null
+    if (startupUpdateChecked || settingsVisited) return
+    startupUpdateChecked = true
+    window.electronAPI.checkForUpdates()
+  }, STARTUP_UPDATE_CHECK_DELAY)
+}
+
 onMounted(() => {
   appStore.initTheme()
   detectPlatform()
@@ -482,10 +648,15 @@ onMounted(() => {
   
   refreshBingWallpaper()
   
-  const savedLocation = localStorage.getItem('choyeon-notes-location')
+  // key 来自 LS_KEYS（与 router 守卫、WelcomeView 同一个来源）：这里不写字面量，
+  // 否则「改了 key 名但漏改这一处」= 启动时不加载用户的库。
+  const savedLocation = localStorage.getItem(LS_KEYS.notesLocation)
   if (savedLocation && savedLocation !== 'sample' && window.electronAPI) {
     noteStore.loadNotesFromPath(savedLocation)
   }
+
+  setupStartupUpdaterListener()
+  scheduleStartupUpdateCheck()
 
   if (window.electronAPI?.onMenuAction) {
     menuUnsubscribe = window.electronAPI.onMenuAction(handleMenuAction)
@@ -503,6 +674,14 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  if (startupUpdateTimer) {
+    clearTimeout(startupUpdateTimer)
+    startupUpdateTimer = null
+  }
+  if (updaterUnsubscribe) {
+    updaterUnsubscribe()
+    updaterUnsubscribe = null
+  }
   if (menuUnsubscribe) {
     menuUnsubscribe()
     menuUnsubscribe = null

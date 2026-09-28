@@ -99,12 +99,30 @@
         <Maximize2 class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
       </button>
 
+      <!--
+        T36 · R-G3：「重新布局」必须真的重排，而不是把存档坐标原样读回来。
+        坐标持久化落地之后，单纯再跑一次 generateGraph() 会命中存档分支 ——
+        按钮点了跟没点一样。所以这里先清存档 + 换种子（layoutNonce++），
+        再跑力导向，收敛后把新结果写回存档。
+      -->
       <button 
         class="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-[var(--color-surface-hover)] active:scale-95"
         title="重新布局"
-        @click="randomize"
+        @click="relayout"
       >
         <RefreshCw class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
+      </button>
+
+      <!--
+        T36：手动定稿。坐标默认是「收敛后 1s 去抖写入」，用户拖完节点如果想
+        立刻锁死，点这个按钮直接 flush，不用等去抖窗口。
+      -->
+      <button 
+        class="w-8 h-8 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200 hover:bg-[var(--color-surface-hover)] active:scale-95"
+        title="保存当前布局"
+        @click="saveLayoutNow"
+      >
+        <Save class="w-[18px] h-[18px]" :style="{ color: 'var(--color-text-secondary)' }" />
       </button>
     </div>
 
@@ -325,13 +343,193 @@
   </div>
 </template>
 
+<script>
+/**
+ * T36 · R-G3 / R-G4：图谱布局的「确定性」与「持久化」纯逻辑层。
+ * ============================================================================
+ * 为什么单独开一个普通 `<script>` 块（而不是全塞进 `<script setup>`）：
+ * `<script setup>` 里声明的东西默认不外泄，测试只能靠挂载后的 DOM 反推；
+ * 而指纹、种子、存档读写这几件事必须能被**直接单测**——靠挂组件去测
+ * 「把笔记换个文件夹指纹变不变」，一是慢（每次 600ms 防抖），二是断言
+ * 落在 DOM 上会退化成"看起来没崩"这种自欺式绿灯。
+ *
+ * 这里只放纯函数与 localStorage 读写，不碰 Vue 响应式，也不依赖组件实例，
+ * 因此可以被 `import { ... } from '@/views/GraphView.vue'` 直接取用。
+ * 模块级声明对下面的 `<script setup>` 同样可见（编译后同处一个模块作用域）。
+ */
+
+import { LS_KEYS } from '@/constants/storage'
+
+/** 存档结构版本。将来改结构就 +1，旧存档自然失效，而不是读坏数据。 */
+export const GRAPH_POSITIONS_VERSION = 1
+
+/** 短笔记（≤ 256 码点）直接全量哈希，指纹零误差 */
+const CONTENT_HASH_FULL_MAX = 256
+/** 长正文的等距采样点数：只采这么多个字符，避免把整篇正文滚一遍 */
+const CONTENT_SAMPLE_POINTS = 96
+
+/**
+ * FNV-1a 32 位字符串哈希 —— 布局种子的唯一来源。
+ *
+ * 之前 GraphView 用 `Math.random()` 给节点撒初值，后果是「每次打开图谱
+ * 节点位置都不一样」：力导向是混沌系统，初值差一点，收敛结果就完全不同，
+ * 用户摆好的图下次打开全乱。改成按 id 派生后，同一个库必然得到同一套初值。
+ *
+ * 选 FNV-1a 的理由：无依赖、无查表、单次遍历 O(n)，且低位散布够均匀
+ * （种子只取 16 位也要保证不同 id 落到不同角度）。
+ *
+ * @param {unknown} str 任意可字符串化的输入
+ * @returns {number} uint32 哈希
+ */
+export function hashSeed (str) {
+  const text = String(str === null || str === undefined ? '' : str)
+  let h = 0x811c9dc5
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i)
+    h = Math.imul(h, 0x01000193)
+  }
+  return h >>> 0
+}
+
+/**
+ * 正文指纹：`长度:采样哈希`。
+ *
+ * 为什么不能只用 `content.length`（R-G4 的第二条）：
+ *   把正文里一段字替换成等长的另一段 → 长度不变 → 指纹不变 → 图谱不重建。
+ *
+ * 为什么又不全量哈希（性能敏感点）：
+ *   这个指纹是在 watch 的 getter 里算的，**每敲一个字都会跑一遍全库**。
+ *   全量哈希 500 篇 × 10KB = 5M 次 charCodeAt，一次按键 10ms 级卡顿。
+ *   所以：短笔记（≤256）全量哈希保证精确；长笔记按头部/中部/尾部等距采
+ *   96 个码点，O(1) 开销，能抓住绝大多数「等长改写」（改写通常分布在正文各处）。
+ *
+ * 已知取舍：恰好只改长文中部、且没落在采样点上的编辑不会被察觉。图谱是
+ * 低频重建的视图，这个漏检率换来的按键响应速度是值得的。
+ *
+ * @param {unknown} content 笔记正文
+ * @returns {string} 指纹片段
+ */
+export function contentFingerprint (content) {
+  const text = typeof content === 'string' ? content : ''
+  const len = text.length
+  if (len <= CONTENT_HASH_FULL_MAX) return `${len}:${hashSeed(text)}`
+
+  let sample = ''
+  for (let i = 0; i < CONTENT_SAMPLE_POINTS; i++) {
+    const idx = Math.floor((i * (len - 1)) / (CONTENT_SAMPLE_POINTS - 1))
+    sample += text.charAt(idx)
+  }
+  return `${len}:${hashSeed(sample)}`
+}
+
+/**
+ * 单篇笔记的指纹：`id:title:folder:正文指纹`。
+ *
+ * folder 进指纹的理由（R-G4 第一条）：把笔记从一个文件夹移到另一个，正文
+ * 一个字没变，旧的 `id:title:content.length` 指纹完全不变 → 图谱不重建。
+ * 而 folder 在图谱里不是摆设：双链解析的标题索引里有 `folder/title` 这个
+ * key，换目录会改变 `[[同名笔记]]` 的解析目标，边集合可能跟着变。
+ *
+ * @param {Object} note 笔记对象
+ * @returns {string} 指纹
+ */
+export function noteFingerprint (note) {
+  const id = note && note.id !== undefined && note.id !== null ? note.id : ''
+  const title = note && note.title !== undefined && note.title !== null ? note.title : ''
+  const folder = note && note.folder !== undefined && note.folder !== null ? note.folder : ''
+  return `${id}:${title}:${folder}:${contentFingerprint(note ? note.content : '')}`
+}
+
+/**
+ * 全库指纹：驱动「笔记变了就重建图谱」那个 watch。
+ * @param {Array<Object>} notes 笔记列表
+ * @returns {string} 指纹
+ */
+export function graphFingerprint (notes) {
+  const list = Array.isArray(notes) ? notes : []
+  return list.map(noteFingerprint).join('|')
+}
+
+/**
+ * 图谱结构签名：节点集合 + 边集合的哈希。
+ *
+ * 用途：判断「存档里那套坐标能不能原样用」。只有节点集合与边集合都没变时，
+ * 恢复出来的布局才是已经收敛的状态，可以跳过力导向；否则要拿存档坐标当
+ * 热启动初值再跑一遍（比从种子重排收敛快得多）。
+ *
+ * 边集合排序后哈希：边的遍历顺序取决于内核，不排序会让「同一张图」得到
+ * 两个不同签名 —— 那样每次打开都会误判成"图变了"而白跑一次力导向。
+ *
+ * @param {Array<Object>} nodeList 节点（需 .id）
+ * @param {Array<Object>} linkList 边（需 .kind / .source.id / .target.id）
+ * @returns {string} 签名
+ */
+export function graphSignature (nodeList, linkList) {
+  const ids = (nodeList || []).map(n => String(n.id)).sort().join('|')
+  const edges = (linkList || [])
+    .map(l => `${l.kind}>${l.source.id}>${l.target.id}`)
+    .sort()
+    .join('|')
+  return `${hashSeed(ids)}:${hashSeed(edges)}`
+}
+
+/**
+ * 读取坐标存档。任何异常（无存档 / JSON 损坏 / 版本不符 / 结构不对）一律
+ * 返回 null —— 存档坏了最多是回到确定性种子布局，绝不能让图谱打不开。
+ *
+ * @returns {Object|null} `{ v, sig, savedAt, positions }` 或 null
+ */
+export function readGraphPositions () {
+  try {
+    const raw = localStorage.getItem(LS_KEYS.graphPositions)
+    if (!raw) return null
+    const parsed = JSON.parse(raw)
+    if (!parsed || typeof parsed !== 'object') return null
+    if (parsed.v !== GRAPH_POSITIONS_VERSION) return null
+    if (!parsed.positions || typeof parsed.positions !== 'object') return null
+    return parsed
+  } catch (error) {
+    return null
+  }
+}
+
+/**
+ * 写入坐标存档。
+ * @param {Object<string, {x: number, y: number}>} positions id → 坐标
+ * @param {string} signature 写入时的图谱结构签名（见 graphSignature）
+ * @returns {boolean} 是否写成功（配额满 / 隐私模式会返回 false）
+ */
+export function writeGraphPositions (positions, signature) {
+  try {
+    localStorage.setItem(LS_KEYS.graphPositions, JSON.stringify({
+      v: GRAPH_POSITIONS_VERSION,
+      sig: signature || '',
+      savedAt: Date.now(),
+      positions
+    }))
+    return true
+  } catch (error) {
+    return false
+  }
+}
+
+/** 清掉坐标存档（「重新布局」与 resetConfig 都走这条路） */
+export function clearGraphPositions () {
+  try {
+    localStorage.removeItem(LS_KEYS.graphPositions)
+  } catch (error) {
+    // 清不掉最多是下次还用旧坐标，不该影响主流程
+  }
+}
+</script>
+
 <script setup>
 import { ref, shallowRef, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
 import { 
   RefreshCw, ZoomIn, ZoomOut, Maximize2, Search, 
-  Network, FileText, Link2, Globe, Focus, GitBranch, Tag
+  Network, FileText, Link2, Globe, Focus, GitBranch, Tag, Save
 } from 'lucide-vue-next'
 // T35：关系图的「边」全部交给 T34 的纯函数内核算。
 //  · buildLinkEdges 一次产出 wiki / tag / similar 三类边（source/target 是 id 字符串）
@@ -382,6 +580,47 @@ const isPanning = ref(false)
 const isDraggingNode = ref(false)
 const draggedNodeId = ref(null)
 const lastMousePos = ref({ x: 0, y: 0 })
+
+// ---------------------------------------------------------------------------
+// T36 · R-G3 布局持久化状态
+// ---------------------------------------------------------------------------
+/**
+ * 磁盘上的坐标存档（readGraphPositions 的结果），null = 没有存档。
+ * 只在挂载时读一次 + 写入后同步更新，避免每次 generateGraph 都 parse 一遍 JSON。
+ */
+let savedPositions = readGraphPositions()
+/**
+ * 重排次数：参与种子派生（`id#index#nonce`）。
+ * 冷启动恒为 0 → 冷启动布局必然一致；点「重新布局」时 +1 → 换一套新排布。
+ * 不能直接用 Date.now()/Math.random() 当 nonce，否则冷启动就不确定了。
+ */
+let layoutNonce = 0
+/** 当前图谱的结构签名（节点集合 + 边集合） */
+let currentSignature = ''
+/**
+ * 本次 generateGraph 是否是「存档原样恢复」。
+ * true 时跳过力导向：存档坐标本来就来自收敛态，再跑一遍只会把它抖散，
+ * 那就又变回「每次打开都不一样」了。
+ */
+let restoredFromDisk = false
+
+/**
+ * 坐标落盘的去抖窗口（ms）。
+ * 写入时机见 scheduleSavePositions 的说明 —— 绝不能每帧写。
+ */
+const SAVE_DEBOUNCE_MS = 1000
+/** 去抖的最长等待：连着触发时至少每 5s 落一次，防止长仿真一直不收敛导致一次都不写 */
+const SAVE_MAX_WAIT_MS = 5000
+let saveTimer = null
+/**
+ * 上次真正落盘的时间戳。初始化成"刚启动"而不是 0：
+ * 置 0 会让「距上次落盘已超过最长等待」立刻成立、第一次收敛就变成同步写，
+ * 去抖形同虚设；初始化成启动时刻，第一次收敛也老老实实走 1s 去抖窗口。
+ * （真等不及的场景由卸载时的 flush 兜底，见 onUnmounted。）
+ */
+let lastSaveAt = Date.now()
+/** 坐标自上次落盘后是否又动过（每帧置一次，成本是一次赋值） */
+let positionsDirty = false
 
 let animationFrame = null
 let focusAnimationFrame = null
@@ -644,24 +883,53 @@ function generateGraph() {
   const centerX = width / 2
   const centerY = height / 2
 
+  // 存档坐标表（null = 没存档，全走种子）
+  const savedMap = savedPositions && savedPositions.positions ? savedPositions.positions : null
+
   const nodeList = notes.map((note, index) => {
-    const angle = (index / notes.length) * 2 * Math.PI + Math.random() * 0.3
-    const radius = 120 + Math.random() * 80
+    // -------------------------------------------------------------------
+    // R-G3 · 布局种子确定性化
+    // -------------------------------------------------------------------
+    // 初值一律由 `id#索引#重排次数` 哈希派生，不再用 Math.random()。
+    // 力导向是混沌系统：初值差 1px，400 帧后收敛结果可能完全不同 ——
+    // 这就是「每次打开图谱节点位置都不一样」的根因。
+    // 抖动幅度沿用原先 Math.random()*0.3 / *80 的量级，保证布局观感不变，
+    // 只是把随机源换成确定性哈希。
+    // -------------------------------------------------------------------
+    const seed = hashSeed(`${note.id}#${index}#${layoutNonce}`)
+    // 「重新布局」时把节点在初始圆环上的排位整体挪一格，并换一个起始相位。
+    // 只抖 ±0.3 rad 是不够的：CDP 探针实测，9 节点的示例库在这种小扰动下
+    // 会被力导向重新拉回同一个平衡点（收敛后差值 < 0.2px），用户点了按钮
+    // 却看不出变化。挪排位 + 换相位才能让重排真的落到另一处。
+    // nonce 冷启动恒为 0 → slot = index、phase 为定值 → 冷启动布局仍然确定。
+    const slot = notes.length > 0 ? (index + layoutNonce) % notes.length : 0
+    const phase = (hashSeed(`phase#${layoutNonce}`) / 0xffffffff) * 2 * Math.PI
+    const angle = (slot / notes.length) * 2 * Math.PI + phase + ((seed & 0xffff) / 0xffff) * 0.3
+    const radius = 120 + (((seed >>> 16) & 0xffff) / 0xffff) * 80
     const charCount = (note.content || '').length
     const size = 6 + Math.min(charCount / 200, 16)
+
+    // R-G3 · 坐标持久化：有存档就用存档，没有才回落到种子。
+    // 必须校验有限数：存档被手改成 'abc' / null 时不能让节点飞到 NaN，
+    // NaN 坐标会让整条 SVG transform 变成 "translate(NaN,NaN)" —— 图直接消失。
+    const savedPos = savedMap ? savedMap[note.id] : null
+    const restored = !!savedPos &&
+      Number.isFinite(Number(savedPos.x)) &&
+      Number.isFinite(Number(savedPos.y))
 
     return {
       id: note.id,
       label: note.title,
-      x: centerX + Math.cos(angle) * radius,
-      y: centerY + Math.sin(angle) * radius,
+      x: restored ? Number(savedPos.x) : centerX + Math.cos(angle) * radius,
+      y: restored ? Number(savedPos.y) : centerY + Math.sin(angle) * radius,
       vx: 0,
       vy: 0,
       size,
       tags: extractTagsForGraph(note.content, note),
       titleKeywords: extractTitleKeywords(note.title),
       contentKeywords: extractContentKeywords(note.content),
-      charCount
+      charCount,
+      restored
     }
   })
 
@@ -696,8 +964,91 @@ function generateGraph() {
   links.value = linkList
   structureVersion.value++
 
+  // 结构签名：判断存档坐标能不能原样复用（见 graphSignature 的说明）
+  currentSignature = graphSignature(nodeList, linkList)
+  restoredFromDisk =
+    nodeList.length > 0 &&
+    nodeList.every(n => n.restored) &&
+    !!savedPositions &&
+    savedPositions.sig === currentSignature
+
   offsetX.value = containerRect.width / 2 - centerX * scale.value
   offsetY.value = containerRect.height / 2 - centerY * scale.value
+}
+
+// ---------------------------------------------------------------------------
+// T36 · 坐标持久化：写入时机
+// ---------------------------------------------------------------------------
+// 硬约束：绝不能每个 tick 都写 localStorage。力导向 60fps，一次写入要
+// JSON.stringify N 个坐标 —— 3000 节点那是每帧 100KB+ 的同步 IO，
+// 主线程直接被拖垮（localStorage 是同步 API，没有后台线程可卸）。
+//
+// 所以只在「坐标不会再变了」的时刻排一次写入：
+//   1. 仿真收敛 / 打满 MAX_SIMULATION_FRAMES（tick 的结束分支）—— 主路径；
+//   2. 用户拖完某个节点（mouseup）—— 手动摆位要能存下来；
+//   3. 组件卸载（切路由 / 关窗口）—— 去抖窗口还没到也要补一次。
+// 再加两层保护：
+//   · 去抖 1000ms：一次交互里连续触发只写最后一次；
+//   · 最长等待 5000ms：力导向长期震荡时也能周期性落盘，不会一条都不写。
+// ---------------------------------------------------------------------------
+
+/** 把当前坐标打成存档结构（3 位小数：JSON 体积减半，视觉上无差别） */
+function snapshotPositions () {
+  const out = {}
+  for (const n of nodesRaw) {
+    out[n.id] = {
+      x: Math.round(n.x * 1000) / 1000,
+      y: Math.round(n.y * 1000) / 1000
+    }
+  }
+  return out
+}
+
+/** 立即落盘（去抖窗口到点 / 用户手动保存 / 卸载时调用） */
+function flushSavePositions () {
+  if (saveTimer) {
+    clearTimeout(saveTimer)
+    saveTimer = null
+  }
+  if (!positionsDirty || nodesRaw.length === 0) return
+  const ok = writeGraphPositions(snapshotPositions(), currentSignature)
+  if (ok) {
+    positionsDirty = false
+    lastSaveAt = Date.now()
+    // 写完之后内存里也同步一份：下次 generateGraph 直接命中恢复分支，
+    // 不用再 parse 一遍 localStorage
+    savedPositions = readGraphPositions()
+  }
+}
+
+/** 排一次落盘（去抖 + 最长等待） */
+function scheduleSavePositions () {
+  positionsDirty = true
+  if (saveTimer) clearTimeout(saveTimer)
+  // 距上次落盘已超过最长等待 → 立刻写，不等去抖窗口
+  if (Date.now() - lastSaveAt >= SAVE_MAX_WAIT_MS) {
+    flushSavePositions()
+    return
+  }
+  saveTimer = setTimeout(flushSavePositions, SAVE_DEBOUNCE_MS)
+}
+
+/** 用户手动定稿：跳过去抖窗口，立刻把当前坐标写进去 */
+function saveLayoutNow () {
+  scheduleSavePositions()
+  flushSavePositions()
+}
+
+/**
+ * 重建图谱（唯一入口）。
+ *
+ * 刻意区分「纯恢复」与「需要跑力导向」：存档坐标来自上一次的收敛态，
+ * 节点与边都没变时直接渲染即可 —— 再跑一遍仿真只会把已经稳定的图再抖一次，
+ * 那正是用户抱怨的「每次打开都不一样」。
+ */
+function rebuildGraph () {
+  generateGraph()
+  if (!restoredFromDisk) startSimulation()
 }
 
 // ---------------------------------------------------------------------------
@@ -853,6 +1204,8 @@ function startSimulation() {
 
     // 一帧只触发一次响应式更新，而不是 4N 次属性写入各触发一次
     frameTick.value++
+    // 坐标动过了 → 标记脏（一次赋值，不做任何 IO；真正的写在收敛后才发生）
+    positionsDirty = true
 
     let maxVelocity = 0
     for (const node of nodesRaw) {
@@ -869,6 +1222,8 @@ function startSimulation() {
     } else {
       simulationRunning = false
       animationFrame = null
+      // 坐标稳定了 —— 这才是唯一该排落盘的时刻（去抖 1s）
+      scheduleSavePositions()
     }
   }
 
@@ -949,7 +1304,23 @@ const linkStats = computed(() => {
   return stats
 })
 
-function randomize() {
+/**
+ * 「重新布局」：一键重排。
+ *
+ * 坐标持久化之后，单纯再跑一次 generateGraph() 会命中恢复分支、把旧坐标
+ * 原样读回来 —— 按钮点了跟没点一样。所以必须：
+ *   1. 清掉存档（磁盘 + 内存缓存），让所有节点回落到种子分支；
+ *   2. layoutNonce++ 换一套种子，保证排出来的图跟上一版真的不一样；
+ *   3. 跑力导向；收敛后由 scheduleSavePositions 把新坐标存回去。
+ *
+ * nonce 是自增整数而不是时间戳/随机数：它只在用户点按钮时变，冷启动恒为 0，
+ * 这样 R-G3 的「冷启动两次排布一致」才立得住。
+ */
+function relayout() {
+  layoutNonce++
+  clearGraphPositions()
+  savedPositions = null
+  positionsDirty = true
   generateGraph()
   startSimulation()
 }
@@ -1031,9 +1402,12 @@ function onCanvasMouseMove(e) {
 }
 
 function onCanvasMouseUp() {
+  const wasDraggingNode = isDraggingNode.value
   isPanning.value = false
   isDraggingNode.value = false
   draggedNodeId.value = null
+  // 手动摆位要能存下来：拖完排一次落盘（去抖 1s，连拖只写最后一次）
+  if (wasDraggingNode) scheduleSavePositions()
 }
 
 function getPreview(content) {
@@ -1043,32 +1417,37 @@ function getPreview(content) {
 }
 
 // 笔记增删或内容变化后自动重建图谱（防抖，避免频繁重排）。
-// 指纹用 id + title + content.length：不读正文内容本身，避免把每篇笔记的
-// 全文都注册成依赖（那样每敲一个字都会重建一次图谱）。
+//
+// 指纹 = `id:title:folder:正文指纹`（见 <script> 块的 noteFingerprint）。
+// 旧版是 `id:title:content.length`，漏掉两类改动（R-G4）：
+//   ① 笔记换文件夹（正文一字未改）→ 指纹不变 → 不重建，而 folder 会影响
+//      双链解析的 `folder/title` 键，边集合可能已经变了；
+//   ② 正文等长改写 → 长度不变 → 不重建。
+// 正文指纹走采样哈希而不是全量哈希：这个 getter 每敲一个字都会跑一遍全库，
+// 全量哈希 500 篇 × 10KB 会把每次按键拖到 10ms 级。
 let graphRegenTimer = null
 watch(
-  () => noteStore.notes.map(n => `${n.id}:${n.title}:${(n.content || '').length}`).join('|'),
+  () => graphFingerprint(noteStore.notes),
   () => {
     if (graphRegenTimer) clearTimeout(graphRegenTimer)
     graphRegenTimer = setTimeout(() => {
-      generateGraph()
-      startSimulation()
+      rebuildGraph()
     }, 600)
   }
 )
 
 // 切「全部 / 仅双链」只影响边的集合，节点坐标保留会立刻收敛；
 // 但为了布局能按新的边重新舒展，这里整体重建（顺便重置节点位置）。
+// 走 rebuildGraph：边集合变了 → 签名对不上存档 → 一定跑力导向，
+// 且以存档坐标为热启动初值（比从种子重排收敛快）。
 watch(linkMode, () => {
-  generateGraph()
-  startSimulation()
+  rebuildGraph()
 })
 
 onMounted(() => {
   nextTick(() => {
     if (!measureContainer()) return
-    generateGraph()
-    startSimulation()
+    rebuildGraph()
   })
 
   // 画布尺寸变化后中心点必须跟着变，否则窗口缩放后布局会偏到一边
@@ -1093,6 +1472,9 @@ onUnmounted(() => {
     cancelAnimationFrame(animationFrame)
     animationFrame = null
   }
+  // 切路由 / 关窗口时补一次落盘：去抖窗口（1s）可能还没到，
+  // 不补的话用户刚拖好的节点位置就丢了
+  flushSavePositions()
   // 聚焦动画的 RAF 句柄不在这里取消的话，切走路由后仍会继续写 offset 300ms
   if (focusAnimationFrame) {
     cancelAnimationFrame(focusAnimationFrame)

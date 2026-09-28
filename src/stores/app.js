@@ -59,7 +59,11 @@ export const useAppStore = defineStore('app', () => {
   const showLineNumbers = ref(false)
   const wordWrap = ref(true)
   const notesLocation = ref('')
-  const autoSync = ref(false)
+  // 默认开（T24 翻转）。两处默认值必须一致：这里是「全新安装 / key 不存在」时真正
+  // 生效的那个（loadConfig 在 key 缺失时 continue，不读 CONFIG_SCHEMA.fallback），
+  // storage.js 的 fallback 只管「重置设置」。两侧都写 true，否则会出现「重置后开、
+  // 新装却关」或反之的错位。关掉它的唯一途径是设置页 / toggleAutoSync 写 'false'。
+  const autoSync = ref(true)
   const sidebar = ref(true)
   // 新建笔记时使用的扩展名（md / markdown / txt），由 note.js 落盘与载入时共同遵守
   // 白名单本体见 @/constants/noteFile（下面 return 里照旧对外暴露同名引用）

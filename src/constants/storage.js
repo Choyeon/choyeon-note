@@ -84,7 +84,21 @@ export const LS_KEYS = Object.freeze({
    * 记一次性的迁移完成状态：`frontmatter.created / updated` 回填过就打上标记，
    * 下次启动跳过扫描，避免每次开机都重写用户文件。
    */
-  dateMigration: 'choyeon-date-migration-v1'
+  dateMigration: 'choyeon-date-migration-v1',
+
+  /**
+   * 图谱节点坐标存档（T36 · R-G3 布局持久化）。
+   * 存的是 `{ v, sig, savedAt, positions: { [noteId]: {x, y} } }`，由
+   * `views/GraphView.vue` 独占读写（它是唯一知道坐标系语义的地方）。
+   *
+   * 刻意**不加** CONFIG_SCHEMA 条目：它不是「设置页里的一项配置 ref」，加进
+   * schema 会让 loadConfig 在启动时把它读进 refMap、resetConfig 再按 schema
+   * 写一遍默认值 —— 那等于「重置设置 = 顺手清掉用户摆好的图」。
+   *
+   * 但它**要**留在 LS_KEYS 里：resetConfig 遍历 Object.values(LS_KEYS) 清键，
+   * 让「恢复默认设置」也能把图谱布局记忆一并清掉（回到确定性种子布局）。
+   */
+  graphPositions: 'choyeon-graph-positions'
 })
 
 /** 编辑器缩放的合法区间，越界值一律夹紧 */
@@ -180,7 +194,11 @@ export const CONFIG_SCHEMA = Object.freeze([
   { key: LS_KEYS.spellCheck, ref: 'spellCheck', parse: asBoolean, fallback: () => true },
   { key: LS_KEYS.lineNumbers, ref: 'showLineNumbers', parse: asBoolean, fallback: () => false },
   { key: LS_KEYS.wordWrap, ref: 'wordWrap', parse: asBoolean, fallback: () => true },
-  { key: LS_KEYS.autoSync, ref: 'autoSync', parse: asBoolean, fallback: () => false },
+  // 默认值 true（T24 翻转）。必须与「定向 reconcile」同批生效：只开默认、不做定向
+  // reconcile = 用户正在打字时整库重载，内容被冲掉（R-F5）；只做 reconcile、不开
+  // 默认 = 功能根本不触发。key 字符串（'choyeon-auto-sync'）保持历史值不变 ——
+  // 改一个字符就等于把所有老用户的开关重置一遍。
+  { key: LS_KEYS.autoSync, ref: 'autoSync', parse: asBoolean, fallback: () => true },
   { key: LS_KEYS.noteExtension, ref: 'noteExtension', parse: asNoteExtension, fallback: () => 'md' },
   { key: LS_KEYS.sidebar, ref: 'sidebar', parse: asBoolean, fallback: () => true },
   { key: LS_KEYS.codeTheme, ref: 'codeTheme', parse: asString, fallback: () => 'github' },

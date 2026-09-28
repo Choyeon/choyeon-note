@@ -493,10 +493,11 @@
                 <FileText class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
                 <div>
                   <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">当前版本</div>
-                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">v{{ currentVersion }}</div>
+                  <div class="text-[12px] mt-0.5" data-testid="current-version" :style="{ color: 'var(--color-text-tertiary)' }">{{ versionText }}</div>
                 </div>
               </div>
               <button 
+                data-testid="update-action"
                 class="px-4 py-1.5 rounded-lg text-[13px] font-medium cursor-pointer transition-all duration-200 hover:opacity-80 active:scale-95"
                 :style="{ 
                   background: updateStatus === 'checking' ? 'var(--color-bg-tertiary)' : 'var(--color-primary-surface)', 
@@ -519,8 +520,9 @@
               </div>
               <div 
                 class="text-[12px] leading-relaxed update-release-notes" 
+                data-testid="update-release-notes"
                 :style="{ color: 'var(--color-text-secondary)' }"
-                v-html="updateInfo.releaseNotes || '暂无更新说明'"
+                v-html="sanitizedReleaseNotes"
               ></div>
             </div>
           </div>
@@ -588,7 +590,7 @@
 
     <div class="cho-statusbar justify-between">
       <span class="cho-statusbar-hint">Choyeon Notes</span>
-      <span class="cho-statusbar-meta">v{{ currentVersion }}</span>
+      <span class="cho-statusbar-meta" data-testid="statusbar-version">{{ versionText }}</span>
     </div>
   </div>
 
@@ -642,6 +644,141 @@
        它跟着设置页一起销毁，不需要额外的路由或全局单例。 -->
   <WorkspaceManager v-model:visible="workspaceManagerOpen" @switched="onWorkspaceSwitched" />
 </template>
+
+<script>
+// ============================================================================
+// 更新链路的**纯函数**层（刻意放在普通 <script> 里 export）
+// ----------------------------------------------------------------------------
+// 这一段不碰 Pinia / router / window，全是「入参 → 出参」。原因是更新链路的判定
+// 全是形状分支（IPC 回执的旧/新形状、错误载荷是字符串还是对象、releaseNotes 是
+// 不是安全 HTML），这类逻辑在组件里写死就只能靠肉眼看；抽出来之后
+// `tests/updaterFeedback.test.js` 可以对每一条分支直接断言。
+//
+// 与 <script setup> 同处一个模块作用域（Vue SFC 会把两块拼进同一个模块），
+// 所以 setup 里引用这些函数时不需要也不允许 import 自己。
+// ============================================================================
+import DOMPurify from 'dompurify'
+
+/** 版本号取不到时的占位文案：写死「1.0.0」会让用户以为自己在跑最新版 */
+export const UNKNOWN_VERSION_TEXT = '未知'
+
+/** releaseNotes 为空时的兜底说明 */
+export const FALLBACK_RELEASE_NOTES = '暂无更新说明'
+
+/** toast 里错误消息的最大字符数：原始错误动辄一两百字符，UI 上没人读得完 */
+export const MAX_UPDATE_ERROR_LENGTH = 60
+
+/**
+ * 把更新类 IPC 的回执归一化成 `{ ok, skipped, code, error }`。
+ *
+ * 为什么要兼容：主进程与渲染进程是**同一份 dist 里分别打包的两份代码**，但线上
+ * 出现过「主进程换了形状、渲染进程还在按旧形状判」的错配。契约就一条：
+ * **认不出的一律按成功处理**（错误另有 updater:error 事件兜底），宁可漏报错，
+ * 也不能把一次成功的检查弹成失败。
+ *
+ * @param {unknown} res IPC 回执
+ * @returns {{ok: boolean, skipped: boolean, code: string, error: string}}
+ */
+export function normalizeUpdaterResult (res) {
+  // 旧成功形状：handler 直接 return true
+  if (res === true) return { ok: true, skipped: false, code: '', error: '' }
+  // 旧无返回值 handler / undefined：按成功处理
+  if (res === null || res === undefined) return { ok: true, skipped: false, code: '', error: '' }
+  if (typeof res !== 'object') return { ok: true, skipped: false, code: '', error: '' }
+
+  const code = typeof res.code === 'string' ? res.code : ''
+  const skipped = res.skipped === true
+  let error = ''
+  if (typeof res.error === 'string') error = res.error
+  else if (res.error !== undefined && res.error !== null) error = String(res.error)
+
+  if (res.ok === true) return { ok: true, skipped, code, error: '' }
+  if (res.ok === false) return { ok: false, skipped: false, code, error }
+  // 没有 ok 字段：旧失败形状 `{ error }` 与「未知但无害的形状」在这里分岔
+  if (error) return { ok: false, skipped: false, code, error }
+  return { ok: true, skipped, code, error: '' }
+}
+
+/**
+ * 回执是否代表失败。
+ * @param {unknown} res IPC 回执
+ * @returns {boolean}
+ */
+export function isUpdaterResultFailure (res) {
+  return normalizeUpdaterResult(res).ok === false
+}
+
+/**
+ * 取回执里的错误码（没有就是空串）。
+ * @param {unknown} res IPC 回执
+ * @returns {string}
+ */
+export function updaterResultCode (res) {
+  return normalizeUpdaterResult(res).code
+}
+
+/**
+ * 取错误消息。对象形状拿 message，字符串形状拿它本身，都没有给空串。
+ * @param {unknown} payload updater:error 事件载荷或 IPC 回执
+ * @returns {string}
+ */
+export function extractUpdateErrorMessage (payload) {
+  if (payload === null || payload === undefined) return ''
+  if (typeof payload === 'string') return payload
+  if (typeof payload !== 'object') return String(payload)
+  if (typeof payload.message === 'string' && payload.message) return payload.message
+  // IPC 回执的失败形状是 { ok:false, error } —— 同一个提取器两种载荷都要能吃
+  if (typeof payload.error === 'string' && payload.error) return payload.error
+  return ''
+}
+
+/**
+ * 截断过长的文案。
+ * @param {unknown} text 原始文案
+ * @param {number} [max] 最大字符数
+ * @returns {string}
+ */
+export function truncateText (text, max = MAX_UPDATE_ERROR_LENGTH) {
+  const raw = typeof text === 'string' ? text : (text === null || text === undefined ? '' : String(text))
+  const str = raw.trim()
+  if (!str) return ''
+  const limit = typeof max === 'number' && max > 0 ? max : MAX_UPDATE_ERROR_LENGTH
+  return str.length <= limit ? str : str.slice(0, limit) + '…'
+}
+
+/**
+ * 版本号显示文案：拿不到版本时显示「未知」而不是编一个。
+ * @param {unknown} version 版本号（不含 v 前缀）
+ * @returns {string}
+ */
+export function formatVersionText (version) {
+  const raw = typeof version === 'string' ? version.trim() : (version === null || version === undefined ? '' : String(version))
+  return raw ? `v${raw}` : UNKNOWN_VERSION_TEXT
+}
+
+/**
+ * releaseNotes 净化。
+ *
+ * 来源不可信：GitHub Release 正文是仓库所有者可写的一段 HTML，随 latest.yml 一起
+ * 下发，`v-html` 直接渲染等于把渲染进程的权限交给远端。走与 markdown 渲染同一套
+ * DOMPurify（同一份依赖、同一套默认策略，不另开门户）。
+ *
+ * @param {unknown} notes 原始更新说明（可能是 HTML 字符串）
+ * @returns {string} 安全 HTML；空值返回兜底说明
+ */
+export function sanitizeReleaseNotes (notes) {
+  const raw = typeof notes === 'string' ? notes : (notes === null || notes === undefined ? '' : String(notes))
+  if (!raw.trim()) return FALLBACK_RELEASE_NOTES
+  let clean = ''
+  try {
+    clean = DOMPurify.sanitize(raw, { ALLOWED_ATTR: ['href', 'title', 'target', 'rel', 'src', 'alt'] })
+  } catch {
+    // 拿不到 DOM（非浏览器环境）时不能原样返回 —— 宁可丢格式也不能丢防线
+    clean = raw.replace(/[&<>]/g, (ch) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' })[ch])
+  }
+  return clean && clean.trim() ? clean : FALLBACK_RELEASE_NOTES
+}
+</script>
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
@@ -776,7 +913,9 @@ async function refreshBingWallpaper() {
   }
 }
 
-const currentVersion = ref('1.0.0')
+// 版本号不再写死兜底值：写死 '1.0.0' 的后果是 getVersion 失败时界面理直气壮地
+// 显示一个假版本，用户据此判断「我用的不是最新版」——空白由 versionText 兜住。
+const currentVersion = ref('')
 const updateStatus = ref('idle')
 const updateInfo = ref(null)
 const downloadProgress = ref(0)
@@ -784,23 +923,124 @@ let updaterUnsubscribe = null
 /** 进页面 2 秒后自动检查更新；句柄留着是为了离开页面时能取消 */
 let updateCheckTimer = null
 
+/**
+ * 版本文案的唯一出口（设置页卡片 + 底部 statusbar 两处共用）。
+ * 取不到版本时显示「未知」，而不是编一个版本号。
+ */
+const versionText = computed(() => formatVersionText(currentVersion.value))
+
+/**
+ * 更新说明：DOMPurify 净化后的产物。
+ *
+ * 直接 v-html 原始 releaseNotes 属于把渲染进程交给远端 —— Release 正文随
+ * latest.yml 下发，是仓库所有者可写的内容。
+ */
+const sanitizedReleaseNotes = computed(() => sanitizeReleaseNotes(updateInfo.value?.releaseNotes))
+
+/**
+ * toast 去重闸门。
+ *
+ * 同一次失败会走两条路：IPC 回执 `{ ok:false }` 与事件 `updater:error`。两条都播报
+ * 的话，用户看到的是「检查更新失败」叠着另一条「检查更新失败」——看起来像两个故障。
+ * 同一个 key 在窗口期内只播一次。
+ */
+const toastGateAt = new Map()
+
+/**
+ * 带去重的 toast。
+ * @param {string} key 去重键
+ * @param {{type: string, message: string}} payload toast 载荷
+ * @param {number} [windowMs] 去重窗口（毫秒）
+ * @returns {void}
+ */
+function pushToastOnce (key, payload, windowMs = 1500) {
+  const now = Date.now()
+  const last = toastGateAt.get(key) || 0
+  if (now - last < windowMs) return
+  toastGateAt.set(key, now)
+  appStore.pushToast(payload)
+}
+
+/**
+ * 重启安装（「ready」态按钮）。
+ *
+ * quitAndInstall 在「还没下载完 / 安装包校验失败」时会抛错或返回 { ok:false }；
+ * 旧代码裸调用，失败时 UI 毫无反应 —— 用户以为点了没生效，反复点。
+ * 失败后留在 ready 态：用户还能再点一次，而不是被丢回「检查更新」。
+ *
+ * @returns {Promise<void>}
+ */
+async function quitAndInstallUpdate () {
+  try {
+    const result = await window.electronAPI.quitAndInstall()
+    if (isUpdaterResultFailure(result)) {
+      log.error('重启安装失败', { code: updaterResultCode(result) })
+      pushToastOnce('update-install', { type: 'error', message: '重启安装失败，请重试' })
+    }
+  } catch (e) {
+    log.error('重启安装失败', e)
+    pushToastOnce('update-install', { type: 'error', message: '重启安装失败，请重试' })
+  }
+}
+
+/**
+ * 下载可用更新（「available」态按钮）。
+ *
+ * @returns {Promise<void>}
+ */
+async function downloadPendingUpdate () {
+  updateStatus.value = 'downloading'
+  downloadProgress.value = 0
+  try {
+    const result = await window.electronAPI.downloadUpdate()
+    if (isUpdaterResultFailure(result)) {
+      updateStatus.value = 'idle'
+      const detail = truncateText(extractUpdateErrorMessage(result))
+      log.error('下载更新失败', { code: updaterResultCode(result) })
+      pushToastOnce('update-error', {
+        type: 'error',
+        message: detail ? '下载更新失败：' + detail : '下载更新失败，请稍后重试'
+      })
+    }
+  } catch (e) {
+    updateStatus.value = 'idle'
+    log.error('下载更新失败', e)
+    pushToastOnce('update-error', { type: 'error', message: '下载更新失败，请稍后重试' })
+  }
+}
+
 async function checkForUpdates() {
   if (!isElectron.value) return
   
   if (updateStatus.value === 'ready') {
-    window.electronAPI.quitAndInstall()
+    await quitAndInstallUpdate()
     return
   }
   
   if (updateStatus.value === 'available') {
-    updateStatus.value = 'downloading'
-    downloadProgress.value = 0
-    await window.electronAPI.downloadUpdate()
+    await downloadPendingUpdate()
     return
   }
   
   updateStatus.value = 'checking'
-  await window.electronAPI.checkForUpdates()
+  try {
+    const result = await window.electronAPI.checkForUpdates()
+    // 必须看回执：IPC 自身成功不代表检查成功，主进程把错误装在 { ok:false } 里
+    if (isUpdaterResultFailure(result)) {
+      updateStatus.value = 'idle'
+      const detail = truncateText(extractUpdateErrorMessage(result))
+      log.warn('检查更新失败', { code: updaterResultCode(result) })
+      pushToastOnce('update-error', {
+        type: 'error',
+        message: detail ? '检查更新失败：' + detail : '检查更新失败，请稍后重试'
+      })
+    }
+  } catch (e) {
+    // IPC reject（主进程崩了 / 通道不存在）：这里不接就是一次 unhandled rejection
+    updateStatus.value = 'idle'
+    log.error('检查更新失败', e)
+    pushToastOnce('update-error', { type: 'error', message: '检查更新失败，请稍后重试' })
+  }
 }
 
 function openFeedback() {
@@ -821,13 +1061,27 @@ function setupUpdaterListeners() {
         break
       case 'updater:update-not-available':
         updateStatus.value = 'idle'
+        // 必须给用户回话：不提示的话，「点了按钮界面毫无变化」到底是「已是最新」
+        // 还是「检查失败」永远分不清 —— 这正是「更新看起来不可用」的主要来源。
+        pushToastOnce('update-latest', { type: 'success', message: '当前已是最新版本' })
         break
-      case 'updater:error':
+      case 'updater:error': {
+        // 顺序有讲究：文案要先按「下载中还是在检查」定，读完再回 idle
+        const wasDownloading = updateStatus.value === 'downloading'
         updateStatus.value = 'idle'
-        // data 是主进程透传的失败载荷（可能是对象也可能是字符串），作为结构化上下文
-        // 进 data 而不是拼进 msg：拼串既丢字段又会绕不过走去 excerpt 截断。
-        log.error('自动更新失败', { detail: data })
+        const detail = truncateText(extractUpdateErrorMessage(data))
+        const title = wasDownloading ? '下载更新失败' : '检查更新失败'
+        // data 是主进程透传的失败载荷（结构化对象或字符串），作为结构化上下文进
+        // data 而不是拼进 msg：拼串既丢字段又会绕不过走去 excerpt 截断。
+        log.error('自动更新失败', { detail, code: data && data.code })
+        // 两次失败来源不同键会各弹一条，所以统一成一个键：一次失败只让用户看到一条。
+        // 文案仍是各自的：IPC 回执那条知道自己在哪个阶段，事件那条只能按当时状态推断。
+        pushToastOnce('update-error', {
+          type: 'error',
+          message: detail ? title + '：' + detail : title + '，请稍后重试'
+        })
         break
+      }
       case 'updater:download-progress':
         updateStatus.value = 'downloading'
         downloadProgress.value = Math.round(data.percent || 0)

@@ -599,17 +599,26 @@ function setupStartupUpdaterListener () {
   updaterUnsubscribe = window.electronAPI.onUpdaterEvent((event, data) => {
     switch (event) {
       case 'updater:update-available': {
+        // 设置页自己有完整的「更新说明 + 按钮」UI，这里再弹一条就是同一件事说两遍；
+        // 判断沿用 route.name 的顺序：进过设置页之后本条路径不再打扰。
+        if (settingsVisited) break
         const version = data && data.version ? ` v${data.version}` : ''
         appStore.pushToast({ type: 'info', message: `发现新版本${version}，可在设置页更新` })
         break
       }
       case 'updater:update-downloaded': {
+        if (settingsVisited) break
         appStore.pushToast({ type: 'success', message: '新版本已下载，可在设置页重启安装' })
         break
       }
       case 'updater:error': {
-        // data 由主进程透传（可能是对象也可能是字符串），走 data 而不是拼进 msg
+        // data 由主进程透传（结构化对象 { message, code, name }，旧版本可能是字符串），
+        // 走 log 的 data 而不是拼进 msg：拼串既丢字段又会被 excerpt 截断。
         log.error('启动检查更新失败', { detail: data })
+        // 用户视角：点了「自动检测」却永远安静 = 等于没检测。原始错误往往是一串
+        // HTTP/ENOENT 技术文本，放进 toast 只会让人读不懂，所以只给结论。
+        if (settingsVisited) break
+        appStore.pushToast({ type: 'error', message: '检查更新失败' })
         break
       }
       default:

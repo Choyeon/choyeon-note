@@ -3024,7 +3024,49 @@ ipcMain.handle('idmap:save', async (_, payload) => {
   }
 })
 
-function setupAutoUpdater() {
+// ============================================================
+// 自动更新（electron-updater）
+// ------------------------------------------------------------
+// 契约（渲染进程按这个形状判定）：
+//   成功 → { ok: true }（被并发检查合并时额外带 skipped: true）
+//   失败 → { ok: false, error: string, code: string }
+//   事件 updater:error 的载荷 → { message, code, name }
+// 关键节点一律进主进程日志：用户报「更新不可用」时，UI 只有一条 toast，
+// 只有日志能区分「没联网 / latest.yml 404 / 签名校验失败 / 磁盘写不下」。
+// ============================================================
+
+/**
+ * 把 electron-updater 抛出的东西规整成固定形状。
+ *
+ * 它抛得很杂：Error、带 code 的 HTTPError、甚至字符串。统一形状之后，
+ * IPC 回执与 updater:error 事件才是同一份数据，UI 不用猜字段在哪。
+ *
+ * @param {unknown} err 原始错误
+ * @returns {{message: string, code: string, name: string}}
+ */
+function describeUpdaterError (err) {
+  let message = ''
+  if (err && typeof err.message === 'string' && err.message) message = err.message
+  else if (typeof err === 'string' && err) message = err
+  else if (err && typeof err === 'object') message = String(err.error || err.code || '')
+  if (!message) message = '未知错误'
+  return {
+    message,
+    code: err && typeof err.code === 'string' ? err.code : '',
+    name: err && typeof err.name === 'string' ? err.name : ''
+  }
+}
+
+/**
+ * 检查更新的重入闸门。
+ *
+ * App.vue 的启动定时器与设置页挂载后的 2s 定时器是两条独立的时间线，「设置页在
+ * 启动窗口内被打开」这条路径上会同时到达 —— 结果是同一秒发两遍网络请求，
+ * 而且两次 update-available 会让 UI 状态闪两下。这里合并成一次。
+ */
+let updateCheckInFlight = false
+
+function setupAutoUpdater () {
   // updateConfigPath 指向不存在的文件会让 dev 下每次检查都失败；
   // 生产态由 electron-builder 生成的 app-update.yml 自动生效，无需指定。
   if (isDev && fsSync.existsSync(path.join(__dirname, '..', 'dev-app-update.yml'))) {
@@ -3035,19 +3077,26 @@ function setupAutoUpdater() {
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('checking-for-update', () => {
+    ipcLog.info('开始检查更新', { op: 'updater:checking' })
     mainWindow?.webContents.send('updater:checking')
   })
 
   autoUpdater.on('update-available', (info) => {
+    ipcLog.info('发现新版本', { op: 'updater:update-available', version: info && info.version })
     mainWindow?.webContents.send('updater:update-available', info)
   })
 
   autoUpdater.on('update-not-available', (info) => {
+    ipcLog.info('当前已是最新版本', { op: 'updater:update-not-available', version: info && info.version })
     mainWindow?.webContents.send('updater:update-not-available', info)
   })
 
   autoUpdater.on('error', (err) => {
-    mainWindow?.webContents.send('updater:error', err.message)
+    // 结构化对象而不是裸字符串：渲染进程要让 code 进日志、message 进 UI，
+    // 裸字符串一旦换行或超长，UI 上就只剩半截看不懂的话。
+    const detail = describeUpdaterError(err)
+    ipcLog.error('自动更新失败', Object.assign({ op: 'updater:error' }, detail))
+    mainWindow?.webContents.send('updater:error', detail)
   })
 
   autoUpdater.on('download-progress', (progressObj) => {
@@ -3055,30 +3104,53 @@ function setupAutoUpdater() {
   })
 
   autoUpdater.on('update-downloaded', (info) => {
+    ipcLog.info('新版本下载完成', { op: 'updater:update-downloaded', version: info && info.version })
     mainWindow?.webContents.send('updater:update-downloaded', info)
   })
 }
 
 ipcMain.handle('updater:check-for-updates', async () => {
+  // 并发合并：已经在检查中就不再打第二次网络，直接返回「被合并」。
+  // 返回值必须是 ok:true —— 合并不是失败，UI 不需要报错。
+  if (updateCheckInFlight) {
+    ipcLog.info('并发检查更新已合并', { op: 'updater:check-for-updates', skipped: true })
+    return { ok: true, skipped: true }
+  }
+  updateCheckInFlight = true
   try {
     await autoUpdater.checkForUpdates()
-    return true
+    return { ok: true }
   } catch (err) {
-    return { error: err.message }
+    const detail = describeUpdaterError(err)
+    ipcLog.error('检查更新失败', Object.assign({ op: 'updater:check-for-updates' }, detail))
+    return { ok: false, error: detail.message, code: detail.code }
+  } finally {
+    updateCheckInFlight = false
   }
 })
 
 ipcMain.handle('updater:download-update', async () => {
   try {
     await autoUpdater.downloadUpdate()
-    return true
+    return { ok: true }
   } catch (err) {
-    return { error: err.message }
+    const detail = describeUpdaterError(err)
+    ipcLog.error('下载更新失败', Object.assign({ op: 'updater:download-update' }, detail))
+    return { ok: false, error: detail.message, code: detail.code }
   }
 })
 
 ipcMain.handle('updater:quit-and-install', () => {
-  autoUpdater.quitAndInstall(false, true)
+  // quitAndInstall 在「还没下载完」时会抛错。裸调用会让 Promise reject 到渲染
+  // 进程，表现为 UI 上毫无反应的失败 —— 必须吞掉并返回结构化回执。
+  try {
+    autoUpdater.quitAndInstall(false, true)
+    return { ok: true }
+  } catch (err) {
+    const detail = describeUpdaterError(err)
+    ipcLog.error('重启安装失败', Object.assign({ op: 'updater:quit-and-install' }, detail))
+    return { ok: false, error: detail.message, code: detail.code }
+  }
 })
 
 // ============================================================

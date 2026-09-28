@@ -15,15 +15,20 @@
 //   这个脚本把「名字必须对得上」变成一条可执行的闸门。
 //
 // 用法：
-//   node scripts/verify-release-update.mjs                 # 校验 latest release
-//   node scripts/verify-release-update.mjs --tag v1.1.0    # 校验指定 tag
-//   node scripts/verify-release-update.mjs --local         # 只校验本地 dist-electron
+//   node scripts/verify-release-update.mjs                      # 校验 latest release
+//   node scripts/verify-release-update.mjs --tag v1.1.0         # 校验指定 tag
+//   node scripts/verify-release-update.mjs --dir dist-electron7  # 指定本地产物目录
+//   node scripts/verify-release-update.mjs --local              # 只校验本地产物
+//
+// 实现选择：
+//   走 GitHub REST API 而不是 spawn `gh` —— 公开仓库免鉴权即可读，而且
+//   「能 spawn 外部命令」不是所有环境都成立（受限沙箱里 execFileSync 会 EBUSY）。
+//   私有仓库或需要更高限额时设 GITHUB_TOKEN / GH_TOKEN 即可。
 //
 // 退出码：0 = 通过；1 = 有不通过项（CI 可用它卡发布）
 // ============================================================================
 
 import { readFileSync, existsSync, readdirSync } from 'node:fs'
-import { execFileSync } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -57,17 +62,49 @@ function readRepoFromPackage () {
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
   const p = pkg.build && pkg.build.publish
   if (!p || p.provider !== 'github') {
-    fail(`package.json 的 build.publish 不是 github provider（当前：${JSON.stringify(p || null)}）`)
+    die(`package.json 的 build.publish 不是 github provider（当前：${JSON.stringify(p || null)}）`)
   }
   return { owner: p.owner, repo: p.repo }
 }
 
-function fail (msg) {
+function die (msg) {
   console.error(`✗ ${msg}`)
   process.exit(1)
 }
 
-/** 极简 YAML 读取：只取 latest*.yml 需要的字段，不引第三方依赖 */
+// ---------------------------------------------------------------------------
+// GitHub REST API（无子进程依赖）
+// ---------------------------------------------------------------------------
+const API_BASE = `https://api.github.com/repos/${REPO.owner}/${REPO.repo}`
+
+function apiHeaders (accept) {
+  const headers = {
+    Accept: accept,
+    'User-Agent': 'choyeon-note-release-verify'
+  }
+  const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN || ''
+  if (token) headers.Authorization = `Bearer ${token}`
+  return headers
+}
+
+async function apiJson (path) {
+  const res = await fetch(`${API_BASE}${path}`, { headers: apiHeaders('application/vnd.github+json') })
+  if (!res.ok) {
+    throw new Error(`GET ${path} → ${res.status} ${res.statusText}`)
+  }
+  return res.json()
+}
+
+/** 拉 release 资产的文本内容（走 browser_download_url，公开仓免鉴权） */
+async function fetchAssetText (url) {
+  const res = await fetch(url, { headers: apiHeaders('application/octet-stream'), redirect: 'follow' })
+  if (!res.ok) throw new Error(`GET ${url} → ${res.status} ${res.statusText}`)
+  return res.text()
+}
+
+// ---------------------------------------------------------------------------
+// 极简 YAML 读取：只取 latest*.yml 需要的字段，不引第三方依赖
+// ---------------------------------------------------------------------------
 function parseUpdateManifest (text) {
   const out = { version: '', path: '', files: [] }
   let inFiles = false
@@ -109,19 +146,14 @@ function parseUpdateManifest (text) {
   return out
 }
 
-function ghJson (cmdArgs) {
-  const out = execFileSync('gh', cmdArgs, { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
-  return JSON.parse(out || '{}')
-}
-
 // ---------------------------------------------------------------------------
 // 1) 本地产物自检
 // ---------------------------------------------------------------------------
 function verifyLocal () {
-  console.log('\n── 本地产物（dist-electron）────────────────────────────')
+  console.log('\n── 本地产物 ───────────────────────────────────────────')
 
   if (!existsSync(DIST_ELECTRON)) {
-    fail(`找不到 ${DIST_ELECTRON}，先跑 npm run electron:build:win`)
+    die(`找不到 ${DIST_ELECTRON}，先跑 npm run electron:build:win`)
   }
 
   const entries = readdirSync(DIST_ELECTRON)
@@ -167,20 +199,21 @@ function verifyLocal () {
 // ---------------------------------------------------------------------------
 // 2) GitHub Release 侧校验（核心：名字必须对得上）
 // ---------------------------------------------------------------------------
-function verifyRemote (tag) {
+async function verifyRemote (tag) {
   console.log(`\n── GitHub Release（${REPO.owner}/${REPO.repo} @ ${tag}）────────`)
 
   let release
   try {
-    release = ghJson(['release', 'view', tag, '--repo', `${REPO.owner}/${REPO.repo}`, '--json', 'tagName,isLatest,isDraft,isPrerelease,assets'])
+    release = await apiJson(`/releases/tags/${encodeURIComponent(tag)}`)
   } catch (e) {
-    fail(`读取 release ${tag} 失败：${e.message}\n（确认已 gh auth login，且该 tag 的 release 已创建）`)
+    die(`读取 release ${tag} 失败：${e.message}\n（公开仓免鉴权；私有仓请设 GITHUB_TOKEN）`)
   }
 
-  check(`release ${tag} 不是草稿`, release.isDraft === false, `isDraft=${release.isDraft}`)
-  check(`release ${tag} 不是预发布`, release.isPrerelease === false, `isPrerelease=${release.isPrerelease}`)
+  check(`release ${tag} 不是草稿`, release.draft === false, `draft=${release.draft}`)
+  check(`release ${tag} 不是预发布`, release.prerelease === false, `prerelease=${release.prerelease}`)
   // electron-updater 走 .../releases/latest/download/...，非 latest 的 release 取不到
-  check(`release ${tag} 是 Latest`, release.isLatest === true, `isLatest=${release.isLatest}`)
+  const isLatest = release.tag_name === (await latestTagName().catch(() => ''))
+  check(`release ${tag} 是 Latest`, isLatest, isLatest ? tag : `当前 latest 是 ${release.tag_name || '?'} 之外的一个（got ${tag}）`)
 
   const assets = release.assets || []
   const assetNames = new Set(assets.map((a) => a.name))
@@ -195,15 +228,9 @@ function verifyRemote (tag) {
   if (!remoteManifests.length) return
 
   for (const a of remoteManifests) {
-    const outDir = join(ROOT, 'tmp', 'verify-release')
     let text = ''
     try {
-      execFileSync(
-        'gh',
-        ['release', 'download', tag, '--repo', `${REPO.owner}/${REPO.repo}`, '--pattern', a.name, '--dir', outDir, '--clobber'],
-        { encoding: 'utf8', stdio: ['ignore', 'ignore', 'pipe'] }
-      )
-      text = readFileSync(join(outDir, a.name), 'utf8')
+      text = await fetchAssetText(a.browser_download_url || a.url)
     } catch (e) {
       check(`能下载 ${a.name}`, false, e.message)
       continue
@@ -236,6 +263,15 @@ function verifyRemote (tag) {
   // 额外：确认 release 里确实有安装包本体（不然 latest.yml 指谁都没用）
   const installer = assets.find((a) => /\.exe$|\.dmg$|\.AppImage$|\.deb$/.test(a.name))
   check('release 上包含安装包本体', Boolean(installer), installer ? installer.name : '没有 exe/dmg/AppImage/deb')
+
+  // 差分更新用的 blockmap 不是必须，但缺了会让每次更新都全量下载
+  const hasBlockmap = assets.some((a) => /\.blockmap$/.test(a.name))
+  check('release 上包含 .blockmap（差分更新）', hasBlockmap, hasBlockmap ? '有' : '缺 —— 每次更新会全量下载')
+}
+
+async function latestTagName () {
+  const r = await apiJson('/releases/latest')
+  return r.tag_name || ''
 }
 
 // ---------------------------------------------------------------------------
@@ -263,7 +299,7 @@ if (localOnly) {
   report()
 } else {
   const tag = tagArg || `v${localParsed[0]?.manifest.version || ''}`
-  if (!tag || tag === 'v') fail('推不出 tag：--tag 未给，且本地 latest*.yml 没有 version 字段')
-  verifyRemote(tag)
+  if (!tag || tag === 'v') die('推不出 tag：--tag 未给，且本地 latest*.yml 没有 version 字段')
+  await verifyRemote(tag)
   report()
 }

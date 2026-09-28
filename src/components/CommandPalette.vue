@@ -41,16 +41,26 @@
             <template v-else>
               <template v-for="group in grouped" :key="group.section">
                 <div class="cp-section">{{ group.section }}</div>
+                <!-- 禁用项刻意**不**用原生 disabled 属性：原生 disabled 的 button 收不到
+                     鼠标事件，cursor: not-allowed 与「点一下给提示」都会失效。
+                     这里用 aria-disabled + 自己的拦截逻辑，语义与交互两头都保住。 -->
                 <button
                   v-for="(cmd, idx) in group.items"
                   :key="cmd.id"
                   class="cp-item"
-                  :class="{ 'cp-item-selected': flatIndexOf(group.section, idx) === selected }"
-                  @mouseenter="selected = flatIndexOf(group.section, idx)"
+                  :class="{
+                    'cp-item-selected': flatIndexOf(group.section, idx) === selected,
+                    'cp-item-disabled': cmd.disabled
+                  }"
+                  :aria-disabled="cmd.disabled ? 'true' : 'false'"
+                  :title="cmd.disabled ? (cmd.disabledHint || '该命令当前不可用') : ''"
+                  @mouseenter="onItemHover(flatIndexOf(group.section, idx))"
                   @click="run(cmd)"
                 >
                   <component :is="cmd.icon || Command" class="cp-item-icon" />
                   <div class="cp-item-label">{{ cmd.label }}</div>
+                  <!-- 「不可用」标记：置灰不能只靠改透明度，浅色/深色下都要一眼认出 -->
+                  <span v-if="cmd.disabled" class="cp-item-disabled-tag">不可用</span>
                   <!-- 角标由 useCommands 统一提供：只认快捷键注册表（getBinding → formatBinding），
                        注册表里没有这条命令（如「导出」「设置字号」）则为空串、不渲染 -->
                   <kbd v-if="cmd.hotkey" class="cp-item-kbd">{{ cmd.hotkey }}</kbd>
@@ -77,7 +87,14 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
 import { Command, Search } from 'lucide-vue-next'
-import { rankCommands, useCommands } from '@/composables/useCommands'
+import {
+  rankCommands,
+  useCommands,
+  isCommandDisabled,
+  firstSelectableIndex,
+  nextSelectableIndex,
+  runCommand
+} from '@/composables/useCommands'
 import { formatBinding } from '@/constants/shortcuts'
 import { createLogger } from '@/utils/logger'
 import { LOG_MODULES } from '@/constants/logging'
@@ -125,6 +142,12 @@ const grouped = computed(() => {
   return Array.from(map.entries()).map(([section, items]) => ({ section, items }))
 })
 
+/**
+ * 扁平列表 == 分组渲染顺序（grouped 是按 ranked 顺序切的段），
+ * 所以键盘导航与命中检测统一打在 ranked 上，不必再维护第二份扁平数组。
+ */
+const flat = computed(() => ranked.value)
+
 // 扁平化索引以便 selected 能跨 section 工作
 function flatIndexOf(section, idx) {
   let acc = 0
@@ -135,18 +158,19 @@ function flatIndexOf(section, idx) {
   return -1
 }
 
-function findByFlatIndex(i) {
-  let acc = 0
-  for (const g of grouped.value) {
-    if (i < acc + g.items.length) return g.items[i - acc]
-    acc += g.items.length
-  }
-  return null
-}
-
 watch(query, () => {
-  selected.value = 0
+  // 置灰项仍会进列表（隐藏了用户会以为功能没了），但高亮必须落在**可用**项上，
+  // 否则一进面板就是「回车没反应」
+  selected.value = firstSelectableIndex(flat.value)
   nextTick(() => scrollSelectedIntoView())
+})
+
+// 可用性会在面板开着的时候变化（撤回栈被清空 / 新操作入栈 / 栈被撤空）。
+// 当前高亮那条刚好变灰时，把高亮挪到第一条可用项 —— 不动的话就是「回车没反应」。
+watch(flat, () => {
+  if (selected.value < 0 || isCommandDisabled(flat.value[selected.value])) {
+    selected.value = firstSelectableIndex(flat.value)
+  }
 })
 
 watch(
@@ -154,37 +178,55 @@ watch(
   async (open) => {
     if (open) {
       query.value = ''
-      selected.value = 0
+      selected.value = firstSelectableIndex(flat.value)
       await nextTick()
       inputRef.value?.focus?.()
     }
   }
 )
 
+/** ↑↓ 共用：step = +1 向下、-1 向上，跳过禁用项 */
+function move(step) {
+  const next = nextSelectableIndex(flat.value, selected.value, step)
+  selected.value = next
+  if (next >= 0) scrollSelectedIntoView()
+}
 function moveUp() {
-  const total = ranked.value.length
-  if (total === 0) return
-  selected.value = (selected.value - 1 + total) % total
-  scrollSelectedIntoView()
+  move(-1)
 }
 function moveDown() {
-  const total = ranked.value.length
-  if (total === 0) return
-  selected.value = (selected.value + 1) % total
-  scrollSelectedIntoView()
+  move(1)
+}
+/** 悬停不接管禁用项：鼠标扫过时高亮不能停在点不动的那条上 */
+function onItemHover(idx) {
+  if (isCommandDisabled(flat.value[idx])) return
+  selected.value = idx
 }
 function runSelected() {
-  const cmd = findByFlatIndex(selected.value)
-  if (cmd) run(cmd)
+  // selected 为 -1 = 整列都不可用（导航已跳过），此时回车什么都不做
+  if (selected.value < 0) return
+  run(flat.value[selected.value])
 }
 function run(cmd) {
-  try {
-    cmd.action?.()
-  } catch (e) {
-    // id 与异常分开放：id 是注册表常量，留在 msg 里会让同一类失败 msg 各不相同，
-    // 只能堆 aaa/bbb 尾巴；放进 data 才能按字段过滤。e 交给 logger 拆 stack。
-    log.error('命令执行失败（action 抛出异常）', { id: cmd.id, err: e })
-  }
+  return runCommand(cmd, {
+    onRun: (c) => {
+      try {
+        c.action?.()
+      } catch (e) {
+        // id 与异常分开放：id 是注册表常量，留在 msg 里会让同一类失败 msg 各不相同，
+        // 只能堆 aaa/bbb 尾巴；放进 data 才能按字段过滤。e 交给 logger 拆 stack。
+        log.error('命令执行失败（action 抛出异常）', { id: c.id, err: e })
+      }
+    },
+    onBlocked: (c) => {
+      // 不执行、也不关面板：关掉等于"点了没反应"，那正是本轮要消灭的体验噪音。
+      // 给一句能看懂的原因（useCommands 的 disabledHint，缺省有兜底）。
+      appStore?.pushToast?.({
+        type: 'info',
+        message: c.disabledHint || '该命令当前不可用'
+      })
+    }
+  })
 }
 function close() {
   appStore.closeCommandPalette()
@@ -324,6 +366,31 @@ onBeforeUnmount(() => {
   height: 16px;
   flex-shrink: 0;
   color: var(--color-primary);
+}
+
+/* 禁用项：置灰而不是隐藏 —— 命令在但不让你点，比凭空消失更好发现。
+   降 opacity 而不是改某个具体颜色：亮色/暗色主题下都成立，不用维护两套色值。
+   图标同时褪成 tertiary：只降透明度时，主色图标在暗色下仍然很跳，
+   用户会以为是「高亮的可用项」。 */
+.cp-item-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.cp-item-disabled:hover {
+  background: transparent;
+}
+.cp-item-disabled .cp-item-icon {
+  color: var(--color-text-tertiary);
+}
+.cp-item-disabled-tag {
+  flex-shrink: 0;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--color-text-tertiary);
+  padding: 0 6px;
+  border-radius: 5px;
+  border: 1px dashed var(--color-border);
+  user-select: none;
 }
 .cp-item-label {
   flex: 1;

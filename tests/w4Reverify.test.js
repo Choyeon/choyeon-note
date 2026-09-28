@@ -245,27 +245,37 @@ describe('Y3 · 删除失败：撤回栈不登记（带挂起写入也不登记�
 })
 
 // ---------------------------------------------------------------------------
-// Y4 · 「新建但还没落盘」的笔记：第一次删必然失败，第二次必须能删掉
-//       —— 这一条同时检验失败分支里的兜底写盘是不是承重件
+// Y4 · 「新建但还没落盘」的笔记：一次删除就该清掉
+//
+// ⚠ 语义变更（C2-A / N3 修复，2026-09-28）：
+//   本条**原先**断言「第一次删必然失败、第二次才成功」。那正是 N3 报的回退 ——
+//   W4 把「磁盘上压根没这个文件」当成真失败，于是新建不敲字的笔记要删两次。
+//   C2-A 加了存在性前置闸门：确认磁盘上没有 → 没东西可删 → 不算失败 → 正常出库，
+//   行为回到 W4 之前（一次删掉）。这条断言因此也随之翻转成「一次即出库」。
+//
+//   「失败分支里的 flushSave 兜底是不是承重件」这条**没有**被删掉，只是换了场景：
+//   新建未落盘的场景不再进失败分支，兜底改由 tests/deleteExistsGate.test.js 的
+//   H-3 组（文件真存在 + 有挂起写入 + 删不掉 → 改动被补回磁盘）钉住。
+//   —— 即「场景变了所以不该触发」，不是「兜底被弄坏了」。
 // ---------------------------------------------------------------------------
-describe('Y4 · 新建未落盘的笔记：失败后仍能靠第二次删除清掉', () => {
-  it('Y4a 第一次失败（磁盘上没这个文件）→ 第二次成功出库', async () => {
+describe('Y4 · 新建未落盘的笔记：一次删除即出库（N3 修复后）', () => {
+  it('Y4a 磁盘上没有这个文件 → 一次删除即出库，且不报失败', async () => {
     const note = store.createNote('', 'Y4')
     expect(note.filePath, '前置条件：新笔记还没落盘').toBeFalsy()
     expect(disk.files.has(`${ROOT}/Y4.md`), '前置条件：磁盘上不该有它').toBe(false)
 
-    // 第一次：文件根本不存在 → 主进程返回 {ok:false}
+    // ★ N3：一次就该删掉，不该弹「文件不存在」让用户再点一次
     await store.deleteNote(note.id)
-    expect(byId(note.id), '第一次失败，笔记应留在库里').toBeTruthy()
-    expect(store.lastDeleteError, '第一次必须报出失败原因').toBeTruthy()
+    expect(byId(note.id), '★ 一次没删掉，还在库里（W4 的回退）').toBeUndefined()
+    expect(store.lastDeleteError, '没东西可删却报了失败').toBe('')
+    // 磁盘上什么都没删 → 不该上报删除方式（Sidebar 读到会谎报进了回收站）
+    expect(store.lastTrashMethod, '没删任何东西却上报了方式').toBe('')
 
-    // 第二次：这次磁盘上有文件了，必须真删掉
+    // 再删一次是空操作：不许抛、不许把状态弄脏
     await store.deleteNote(note.id)
-
-    expect(byId(note.id), '第二次删除没能把笔记清掉').toBeUndefined()
-    expect(store.lastDeleteError, '成功之后不该残留失败原因').toBe('')
-    expect(store.lastTrashMethod, '成功之后应记下删除方式').toBe(TRASH_METHOD_SYSTEM)
-    expect(disk.files.has(`${ROOT}/Y4.md`), '磁盘文件应已删除').toBe(false)
+    expect(byId(note.id)).toBeUndefined()
+    expect(store.lastDeleteError, '空操作不该留下失败原因').toBe('')
+    expect(disk.files.has(`${ROOT}/Y4.md`), '磁盘上本来就没它，也不该凭空多出来').toBe(false)
   })
 })
 

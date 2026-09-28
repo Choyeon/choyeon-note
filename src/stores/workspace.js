@@ -2,6 +2,10 @@ import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { IS_ELECTRON as isElectron, hasElectronAPI } from '@/utils/env'
 import { readLocal, writeLocal } from '@/utils/storage'
+// 历史键单独导入：它是**冻结值**，与「当前键」LS_KEYS.notesLocation 是两个概念。
+// 用 LS_KEYS.notesLocation 去读老数据 = 把「迁移旧数据」和「读当前配置」耦合，
+// 将来真改当前键时迁移会静默失效。详见 constants/storage.js 里的说明。
+import { LEGACY_NOTES_LOCATION } from '@/constants/storage'
 
 const LS_WORKSPACES = 'choyeon-workspaces'
 const LS_ACTIVE_WS = 'choyeon-active-workspace'
@@ -157,9 +161,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       activeId.value = readLocal(LS_ACTIVE_WS, null)
     }
 
-    // 兼容旧版本：升级前只有 choyeon-notes-location 一个字符串
+    // 兼容旧版本：升级前只有 choyeon-notes-location 一个字符串。
+    // ⚠️ 这里读的是**冻结的历史键**（LEGACY_NOTES_LOCATION），不是当前键
+    // LS_KEYS.notesLocation —— 老数据躺在旧键里，跟着当前键走就迁移不到。
     if (!workspaces.value.length) {
-      const legacy = localStorage.getItem('choyeon-notes-location')
+      const legacy = localStorage.getItem(LEGACY_NOTES_LOCATION)
       if (legacy && legacy !== 'sample') {
         const migrated = {
           id: generateId(),

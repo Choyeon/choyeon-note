@@ -101,6 +101,25 @@ export const LS_KEYS = Object.freeze({
   graphPositions: 'choyeon-graph-positions'
 })
 
+/**
+ * 历史遗留的「笔记目录」键 —— 单工作空间时代的位置。
+ *
+ * ⚠️ 这是**冻结值**：只用于把老版本数据迁移到多工作空间结构（见
+ * `stores/workspace.js` 的 hydrate），语义上**不等于**
+ * `LS_KEYS.notesLocation`（后者是**当前**键，将来可能改名）。
+ *
+ * 为什么不能写成 `LS_KEYS.notesLocation` 的别名、也不该断言两者相等：
+ * 一旦将来真的把当前键改名（比如加 `-v2`），别名写法会让迁移逻辑跟着
+ * **新键**走 —— 老用户磁盘上躺着的还是旧键，迁移从此静默失效，表现为
+ * 「升级后笔记库列表空了」。两个概念必须各自独立演进：当前键可以改，
+ * 历史键永远指向老版本写进去的那个字符串。
+ *
+ * 为什么**不**放进 LS_KEYS：resetConfig 遍历 `Object.values(LS_KEYS)` 清键，
+ * 放进去就等于「恢复默认设置 = 顺手抹掉老版本的位置记录」，下次冷启动再想
+ * 迁移时数据已经没了。
+ */
+export const LEGACY_NOTES_LOCATION = 'choyeon-notes-location'
+
 /** 编辑器缩放的合法区间，越界值一律夹紧 */
 const ZOOM_MIN = 50
 const ZOOM_MAX = 200

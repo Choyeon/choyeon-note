@@ -179,6 +179,12 @@
             </g>
 
             <g class="nodes">
+              <!--
+                ⚠️ 每个节点渲染**两个** <circle>：先画外圈 halo（r+12，只在 hover /
+                选中时淡入做光晕），再画主体（r）。所以画布 DOM 里 `circle` 的数量
+                是节点数的 **2 倍** —— 写探针 / 读代码时别把 DOM 的 circle 数当
+                节点数（32 个 circle 其实是 16 个节点）。
+              -->
               <g 
                 v-for="node in visibleNodes" 
                 :key="node.id"
@@ -286,7 +292,17 @@
           </div>
         </div>
 
-        <div class="absolute left-5 bottom-5 flex items-center gap-3 px-3 py-2 rounded-lg shadow-sm" :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }">
+        <!--
+          画布内图例的计数口径（与页面底部状态栏**不是**同一个口径，别混着读）：
+          · 这里用的是 visibleNodes / visibleLinks —— 会被搜索框与「局部」模式过滤；
+          · 底部状态栏用的是 nodes / links —— 不受搜索影响，但 links 受「仅双链」影响。
+          · 上面每个节点渲染两个 <circle>(halo + 主体)，DOM 里 circle 数是这里的 2 倍。
+        -->
+        <div
+          class="absolute left-5 bottom-5 flex items-center gap-3 px-3 py-2 rounded-lg shadow-sm"
+          :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }"
+          title="画布内计数：受搜索框与「局部」模式过滤。每个节点渲染 2 个 circle（halo + 主体），DOM 里 circle 数是这里节点数的 2 倍。"
+        >
           <div class="flex items-center gap-1.5">
             <div class="w-2.5 h-2.5 rounded-full" :style="{ background: 'var(--color-primary)' }"></div>
             <span class="text-[11px] font-medium" :style="{ color: 'var(--color-text-secondary)' }">{{ visibleNodes.length }} 节点</span>
@@ -336,7 +352,20 @@
       <span class="cho-statusbar-hint">
         单击选中 · 双击打开笔记 · 滚轮缩放 · 拖拽画布平移
       </span>
-      <span class="cho-statusbar-meta">
+      <!--
+        状态栏计数口径（写探针 / 读数字前先看这里，别照着 DOM 猜）：
+        · 「N 节点」= 全库节点数（nodes.length）—— **不受**「全部 / 仅双链」开关
+          影响，也不被搜索框过滤（搜索只影响画布里的 visibleNodes）；
+        · 「M 链接」= **当前 linkMode 过滤后**的边数（links.length）—— 切「仅双链」
+          后只剩 wiki 边，M 会变小；此时括号里是「双链 = M / 标签 = 0 / 相似 = 0」，
+          三项之和恒等于 M；
+        · 画布里每个节点渲染**两个** <circle>（halo + 主体），DOM 里 circle 数是
+          节点数的 **2 倍** —— 别拿 DOM 的 circle 数当节点数。
+      -->
+      <span
+        class="cho-statusbar-meta"
+        title="节点数 = 全库节点（不受「仅双链」与搜索影响）；链接数 = 当前过滤后的边（切「仅双链」会变小）；画布里每个节点渲染 2 个 circle，DOM circle 数是节点数的 2 倍。"
+      >
         {{ nodes.length }} 节点 · {{ links.length }} 链接（双链 {{ linkStats.wiki }} · 标签 {{ linkStats.tag }} · 相似 {{ linkStats.similar }}）
       </span>
     </div>
@@ -958,6 +987,9 @@ function generateGraph() {
     linkList.push({ source, target, strength: e.weight, kind: e.kind })
   }
 
+  // linkList 是**过滤后**的边集合：buildLinkEdges 已按当前 linkMode 剔除不要的边，
+  // 所以状态栏的「M 链接」（links.length）与 linkStats 都是**当前过滤条件下**的口径，
+  // 切到「仅双链」后数字会变小 —— 这不是 bug，就是这个开关的验收点。
   nodesRaw = nodeList
   linksRaw = linkList
   nodes.value = nodeList
@@ -1291,7 +1323,18 @@ function getLinkCount (nodeId, kind) {
   return count
 }
 
-/** 全图各类边的条数：状态栏展示，同时也是「仅双链」模式的直接验收点 */
+/**
+ * 全图各类边的条数：状态栏展示，同时也是「仅双链」模式的直接验收点。
+ *
+ * ⚠️ 口径：统计的是 `linksRaw`，也就是**当前 linkMode 过滤后**的边集合
+ * （generateGraph 里 `buildLinkEdges({ linkMode })` 已经把不要的边剔掉了）。
+ * 所以切「仅双链」时 wiki = 全部边、tag = 0、similar = 0，三者之和恒等于
+ * 状态栏那个「M 链接」。它**不是**「不考虑过滤的全量边数」—— 想看全量要先
+ * 切回「全部关系」。
+ *
+ * 另：这里的「边数」与画布里的 `<circle>` 数量无关。每个节点渲染两个 circle
+ * （halo + 主体），DOM 里 circle 数是节点数的 2 倍，别混用两个口径。
+ */
 const linkStats = computed(() => {
   structureVersion.value
   const stats = { wiki: 0, tag: 0, similar: 0 }

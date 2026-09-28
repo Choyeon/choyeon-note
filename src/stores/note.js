@@ -1998,12 +1998,53 @@ export const useNoteStore = defineStore('note', () => {
         }
       }
 
+      // ── 存在性前置闸门（N3 / N1 同根同源，一个闸门一起解决）────────────
+      // 背景：刚新建还没落盘的笔记，filePath 是 null、防抖定时器也没起，
+      // 磁盘上压根没有这个文件 —— deleteFile 必然回 ENOENT。W4 之前它被
+      // 当成「删完了」，W4 之后被当成「真失败」，于是：
+      //   N3：弹「文件不存在」+ 得点第二次才删掉（相对 W4 之前的轻微回退）；
+      //   N1：失败分支里的 flushSave 兜底把 filePath 从 null 补成真路径，
+      //       diffSnapshots 认 filePath 字段 → 撤回栈被塞进一条「已删除「X」」
+      //       而笔记其实还在的名不副实条目。
+      //
+      // 解法：删之前先问一次「它在不在」。**确认不在 = 没东西可删 = 不算失败**。
+      //
+      // 两条保守纪律（探测本身不可靠时绝不替用户做「不用删」的决定）：
+      //   ① 拿不到 fileExists 能力（浏览器模式 / 老 preload / 测试 mock）→
+      //      全部候选按「未知」处理，照旧尝试 delete，失败即失败；
+      //   ② fileExists 自己抛异常 / 回 undefined → 该条按「未知」处理，
+      //      仍然尝试 delete —— 探测失败不该让文件留在磁盘上。
+      // 不把方法摘出来存：摘出来会丢 this 绑定，老 preload 里若写成普通
+      // function 就会炸。这里只记一个能力开关，调用仍走 window.electronAPI。
+      const canProbe = typeof window.electronAPI?.fileExists === 'function'
+      // path → true（确认存在）| false（确认不存在）| 'unknown'（探测无结论）
+      const existence = new Map()
+      let existingCount = 0
+      let unknownCount = 0
+      for (const p of candidates) {
+        if (!canProbe) { existence.set(p, 'unknown'); unknownCount += 1; continue }
+        try {
+          const present = await window.electronAPI.fileExists(p)
+          if (present === true) { existence.set(p, true); existingCount += 1 }
+          else if (present === false) { existence.set(p, false) }
+          else { existence.set(p, 'unknown'); unknownCount += 1 }
+        } catch (error) {
+          // 探测自己炸了 ≠ 文件不存在：保守起见仍尝试删除
+          existence.set(p, 'unknown')
+          unknownCount += 1
+          noteLog.warn('删除前存在性探测失败，按未知处理并照旧尝试删除', { path: p, err: error })
+        }
+      }
+
       // 每个候选都单独判定成败：**至少一条成功**才算这次删除成功。
       // 失败原因只留首个 —— 多条路径同时失败时，第一条通常就是根因。
       let anyOk = false
       let failureReason = ''
       let bestMethod = ''
       for (const p of candidates) {
+        // 确认磁盘上没有它 → 跳过。这里若照样调 deleteFile，主进程必然回
+        // ENOENT，把「本来就没文件可删」误报成删除失败（N3 的根因）。
+        if (existence.get(p) === false) continue
         try {
           // detail:true → 回 { ok, method, path }；不传只回 true/false。
           // 三种形态归一：只有 `raw === true`（老形态成功）或 detail 形态的
@@ -2036,7 +2077,11 @@ export const useNoteStore = defineStore('note', () => {
       // 候选路径（既没有 filePath 也算不出路径）时，删除就是纯内存操作，
       // 这时候拒绝 splice 会让笔记永远删不掉。
       const hasDisk = Boolean(window.electronAPI) && candidates.size > 0
-      if (hasDisk && !anyOk) {
+      // 「无可删之物」：所有候选都**确认**不在磁盘上（且没有探测不出结论的）。
+      // 典型场景 = 新建还没落盘的笔记。这不是失败：没东西可删却报失败，
+      // 就是 N3 那个「得点第二次」的回退。直接走下面的正常出库。
+      const nothingToDelete = existingCount === 0 && unknownCount === 0
+      if (hasDisk && !nothingToDelete && !anyOk) {
         // 磁盘上的文件还在 → 笔记必须留在库里，否则用户以为删掉了、
         // 下次启动它「复活」，甚至重名新建时把真文件覆盖掉。
         // 三件事一个都不做：不 splice、不解绑路径映射、不动 currentNoteId。

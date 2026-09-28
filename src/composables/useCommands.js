@@ -49,6 +49,23 @@ const log = createLogger(LOG_MODULES.commands)
  * 全局命令聚合器。
  * 命令面板 (CommandPalette) 使用该 composable 生成可执行命令列表。
  * 每个命令具有: id / label / keywords(搜索辅助) / icon / action / section / hotkey
+ * 以及两个**可选**的可用性字段: disabled / disabledHint（见 §条目可用性）
+ *
+ * ============ §条目可用性：条目级 when 机制（本轮新增）============
+ * 历史问题：28 条命令无条件注册，`app.undoFileOp`（撤回上一步文件操作）因此
+ * 常驻显示，哪怕撤销栈是空的 —— 用户点了只会拿到一句「没有可撤回的文件操作」。
+ *
+ * 机制：本文件内部维护两张小表 —— `COMMAND_AVAILABILITY`（id → 判定函数）与
+ * `COMMAND_LABEL`（id → 动态文案函数），在 `push()` 入队时求值，产出**扁平的布尔**
+ * `disabled` 交给面板。面板只读布尔，不需要理解判定函数、也不需要在渲染时再跑一遍。
+ *
+ * 响应式：`push()` 是 `computed` 收集器内部调用的，判定函数里读的是 Pinia 的
+ * ref/computed（`noteStore.canUndoFileOperation`），依赖被收集 → 撤销栈一变，
+ * 整个命令列表自动重算，置灰/解禁不需要任何人手动刷新。
+ * （判定函数里**禁止**缓存快照，那会让依赖收集不到，等于没做。）
+ *
+ * 可见性取「置灰」而不是「隐藏」：对标 Obsidian —— 命令在但不让你点，
+ * 比凭空消失更好发现；且置灰项仍能被搜到，用户不会以为功能没了。
  *
  * ============ 本轮（T12）打通的核心：快捷键显示的唯一真源 ============
  * 历史问题：这里用的是自己那套冒号风格 id（`note:new`、`view:notes`、`theme:light`…），字段 `cmd.hotkey`
@@ -108,6 +125,108 @@ const GENERATED_APP_ICON = {
   // 撤回文件结构操作（新建/移动/重命名/删除/文件夹增删）—— 用 Undo2 而不是 RotateCcw：
   // RotateCcw 已被 view.zoomReset 占用，两个「重置 / 撤回」共用一个图标在面板里分不清
   'app.undoFileOp': Undo2
+}
+
+/**
+ * 撤回条目里「具体撤什么」的最大字数。
+ *
+ * 面板条目是单行 + `text-overflow: ellipsis`，而栈顶文案本身可能是
+ * 「已删除「2026 年度 OKR 对齐会议纪要（第三版）」」这种长度 —— 不截断会把
+ * 角标（Ctrl+Alt+Z）挤出可视区。取 18：中文 18 字大约占条目宽度的一半，
+ * 剩下的空间还放得下角标与「不可用」标记。
+ * @type {number}
+ */
+const UNDO_LABEL_MAX = 18
+
+/**
+ * 命令 id → 可用性判定函数。返回 `true` = 现在可用。
+ *
+ * 只在 `push()` 里调用一次，结果降级成布尔 `disabled` 交给面板。
+ * 判定函数**必须读 Pinia 的 ref/computed**（而不是缓存一份快照），
+ * 否则 computed 收集不到依赖，撤销栈变了条目也不会跟着置灰/解禁。
+ *
+ * 新增条件命令只需在这里加一行 —— 面板那一侧不需要改。
+ * @type {Record<string, (ctx: {appStore: object, noteStore: object, router: object}) => boolean>}
+ */
+const COMMAND_AVAILABILITY = {
+  // 空撤回栈时不给点：点了不会误操作（执行器仍会拦），但条目亮着是条体验噪音
+  'app.undoFileOp': (ctx) => readCanUndoFileOperation(ctx.noteStore)
+}
+
+/**
+ * 命令 id → 动态文案函数。返回 `null` 表示沿用原 label。
+ *
+ * 存在的理由（QA 提的次生问题）：「撤回上一步文件操作」语义不自足 ——
+ * 用户看到它并不知道将要撤回**什么**。有可撤回操作时把栈顶描述带上：
+ * 「撤回：已删除「购物清单」」。
+ * @type {Record<string, (ctx: {appStore: object, noteStore: object, router: object}) => string|null>}
+ */
+const COMMAND_LABEL = {
+  'app.undoFileOp': (ctx) => {
+    const desc = readUndoFileOperationLabel(ctx.noteStore)
+    if (!desc) return null
+    return `撤回：${clipText(desc, UNDO_LABEL_MAX)}`
+  }
+}
+
+/**
+ * 命令 id → 禁用时的一句话原因。空串时面板兜底成「该命令当前不可用」。
+ * 点禁用项时用它 toast：不执行、也不关面板（关掉等于「点了没反应」）。
+ * @type {Record<string, string>}
+ */
+const COMMAND_DISABLED_HINT = {
+  'app.undoFileOp': '暂无可撤回的文件操作'
+}
+
+/**
+ * 按长截断，超长补省略号。
+ * @param {unknown} value 原文
+ * @param {number} max 最大字数
+ * @returns {string} 截断后的文本
+ */
+function clipText (value, max) {
+  const text = typeof value === 'string' ? value : String(value ?? '')
+  if (!text) return ''
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+/**
+ * 读 store 上一个可能是「值 / getter / 未解包 ref」的字段。
+ *
+ * 真实运行时 noteStore 是 Pinia 实例，computed 已被自动解包成**布尔/字符串**；
+ * 但装配期或替身里可能是函数形态或未解包的 ref，这里按形态手判。
+ * 与 `useAppActions.js` 的 `readCanUndoFileOperation` / `readUndoLabel` 同一口径
+ * （本文件不便 import 那两个私有函数，故就地实现；形态规则必须保持一致）。
+ *
+ * @param {object|null|undefined} store store 或替身
+ * @param {string} key 字段名
+ * @returns {*} 解出来的值
+ */
+function readStoreValue (store, key) {
+  if (!store) return undefined
+  const raw = store[key]
+  if (typeof raw === 'function') return raw()
+  if (raw && typeof raw === 'object' && 'value' in raw) return raw.value
+  return raw
+}
+
+/**
+ * 有没有可撤回的文件操作（严格等于 true 才算有）。
+ * @param {object|null|undefined} noteStore 笔记 store
+ * @returns {boolean} 有返回 true
+ */
+function readCanUndoFileOperation (noteStore) {
+  return readStoreValue(noteStore, 'canUndoFileOperation') === true
+}
+
+/**
+ * 栈顶那条撤回操作的人类可读描述。
+ * @param {object|null|undefined} noteStore 笔记 store
+ * @returns {string} 拿不到返回空串
+ */
+function readUndoFileOperationLabel (noteStore) {
+  const value = readStoreValue(noteStore, 'undoFileOperationLabel')
+  return typeof value === 'string' ? value : ''
 }
 
 /**
@@ -182,20 +301,37 @@ export function useCommands (options = {}) {
     const seen = new Set()
 
     /**
-     * 统一入队口：算角标、填默认字段、去重。
+     * 统一入队口：算角标、填默认字段、去重、算可用性。
      * id 尽量直接用**注册表 id**，这样 `SHORTCUT_MAP[id]` 命中，角标自动有了。
+     *
+     * 可用性这一段（本轮新增）**必须在 computed 里求值**：判定函数读的是
+     * `noteStore` 上的响应式字段，此刻正是收集依赖的时机。挪到 computed 之外
+     * 只求一次，条目就会永远停在初次打开面板时的状态。
      */
     function push (item) {
       if (seen.has(item.id)) return
       seen.add(item.id)
+
+      const ctx = { appStore, noteStore, router }
+      const check = COMMAND_AVAILABILITY[item.id]
+      // 表里没有这条命令 → 恒可用（保持既有 27 条的无条件语义，不误伤）
+      const disabled = typeof check === 'function' ? !check(ctx) : false
+      const dynamicLabel = COMMAND_LABEL[item.id]
+      const label = typeof dynamicLabel === 'function'
+        ? (dynamicLabel(ctx) || item.label)
+        : item.label
+
       items.push({
         id: item.id,
         section: item.section || '其他',
-        label: item.label,
+        label,
         keywords: item.keywords || '',
         icon: item.icon,
         action: item.action,
-        hotkey: hotkeyLabel(appStore, item.id)
+        hotkey: hotkeyLabel(appStore, item.id),
+        // 布尔而不是函数：面板只负责渲染与拦击，不负责理解业务条件
+        disabled,
+        disabledHint: disabled ? (COMMAND_DISABLED_HINT[item.id] || '') : ''
       })
     }
 
@@ -543,6 +679,83 @@ export function useCommands (options = {}) {
   })
 
   return { quickActions }
+}
+
+// ---------------------------------------------------------------------------
+// 禁用项的消费规则（面板侧的唯一实现，单测直接打这里）
+//
+// 刻意做成**纯函数导出**而不是写在 CommandPalette.vue 的 setup 里：
+//   键盘导航跳过禁用项、点击禁用项不执行 —— 这两条是行为契约，
+//   藏在 SFC 内部就只能靠真机点， regressions 抓不到。放这里可以被单测直接断言。
+// ---------------------------------------------------------------------------
+
+/**
+ * 这条命令现在是不是不可用。
+ * @param {object|null|undefined} cmd 命令条目
+ * @returns {boolean} 不可用返回 true
+ */
+export function isCommandDisabled (cmd) {
+  return Boolean(cmd && cmd.disabled === true)
+}
+
+/**
+ * 列表里第一条**可用**命令的下标；全不可用返回 -1（面板此时不高亮任何一条）。
+ * @param {Array<object>} list 扁平命令列表
+ * @returns {number} 下标，或 -1
+ */
+export function firstSelectableIndex (list) {
+  const arr = Array.isArray(list) ? list : []
+  for (let i = 0; i < arr.length; i += 1) {
+    if (!isCommandDisabled(arr[i])) return i
+  }
+  return -1
+}
+
+/**
+ * 从 `from` 出发按 `step` 方向找下一条**可用**命令，跳过禁用项。
+ *
+ * 两个刻意的行为：
+ * 1. 循环扫描（走满一圈都没找到才返回 -1）—— 只有一条可用项时 ↑↓ 停在那条上，
+ *    而不是在禁用项之间空转；
+ * 2. `from` 为 -1（当前没有高亮）时：向下从头找、向上从尾找，符合「↓ 到第一条」的直觉。
+ *
+ * @param {Array<object>} list 扁平命令列表
+ * @param {number} from 起始下标（-1 = 当前无高亮）
+ * @param {number} step 方向（正数向下，负数向上）
+ * @returns {number} 下标，或 -1（整列都不可用时）
+ */
+export function nextSelectableIndex (list, from, step) {
+  const arr = Array.isArray(list) ? list : []
+  const n = arr.length
+  if (n === 0) return -1
+  const dir = step >= 0 ? 1 : -1
+  const start = Number.isInteger(from) && from >= 0 ? from : (dir > 0 ? -1 : 0)
+  let i = start
+  for (let k = 0; k < n; k += 1) {
+    i = (i + dir + n) % n
+    if (!isCommandDisabled(arr[i])) return i
+  }
+  return -1
+}
+
+/**
+ * 执行一条命令，禁用时不执行（这是「点了没反应」与「点了误操作」的唯一闸门）。
+ *
+ * @param {object|null|undefined} cmd 命令条目
+ * @param {object} [handlers={}] 回调
+ * @param {Function} [handlers.onRun] 可用来执行时调用
+ * @param {Function} [handlers.onBlocked] 被禁用拦下时调用（用于给一句人话提示）
+ * @returns {'ran'|'blocked'|'none'} 执行结果；`none` = 条目本身不存在
+ */
+export function runCommand (cmd, handlers = {}) {
+  const opts = handlers && typeof handlers === 'object' ? handlers : {}
+  if (!cmd || typeof cmd.action !== 'function') return 'none'
+  if (isCommandDisabled(cmd)) {
+    if (typeof opts.onBlocked === 'function') opts.onBlocked(cmd)
+    return 'blocked'
+  }
+  if (typeof opts.onRun === 'function') opts.onRun(cmd)
+  return 'ran'
 }
 
 /**

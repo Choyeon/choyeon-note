@@ -85,16 +85,26 @@
           <Sidebar @toggle-sidebar="appStore.toggleSidebar" />
         </div>
         
-        <main class="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
+        <!-- 侧边栏收起后的占位栏。
+             旧实现是 <main> 内部一个 absolute left-3 top-3 z-40 的浮动按钮，它压在
+             编辑器 / 列表自己的顶部工具栏上面 —— 那就是「收起后和右边 main 内容遮挡」。
+             现在改成 sidebar-wrapper 与 <main> 之间的**真实 flex 兄弟节点**：main 是
+             flex-1 min-w-0，会自动让出这 44px，结构上不可能再遮挡任何 main 内容，
+             比调 z-index / 位移都可靠（那两者只是把遮挡挪个位置）。 -->
+        <div
+          v-if="showSidebar && !appStore.sidebar"
+          class="sidebar-rail w-11 shrink-0 h-full flex flex-col items-center pt-3 transition-all duration-200"
+        >
           <button
-            v-if="showSidebar && !appStore.sidebar"
-            class="absolute left-3 top-3 z-40 w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200 shadow-md hover:shadow-lg"
-            :style="{ background: 'var(--color-surface)', border: '1px solid var(--color-border)' }"
+            class="sidebar-rail-btn w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200"
             title="展开侧边栏"
             @click="appStore.toggleSidebar"
           >
             <PanelRight class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
           </button>
+        </div>
+
+        <main class="flex-1 min-w-0 h-full flex flex-col overflow-hidden relative">
           <router-view v-slot="{ Component, route: viewRoute }">
             <div :key="viewRoute.fullPath" class="page-wrapper h-full flex flex-col">
               <component :is="Component" />
@@ -738,6 +748,28 @@ function detectPlatform() {
 .sidebar-open {
   width: 260px;
   opacity: 1;
+}
+
+/* 收起后的占位栏：宽度由模板的 w-11 给，这里只管「它是 main 之外的独立一列」。
+   底色保持透明 —— 它是布局分隔而不是一块面板，涂色会让收起态多出一条突兀的竖条。 */
+.sidebar-rail {
+  background: transparent;
+}
+
+/* 与 Sidebar.vue 里那个「收起侧边栏」按钮同一套视觉（w-9 h-9 rounded-lg +
+   surface 底 + border），只有一个方向图标的差别。
+   保留轻微 shadow 让它在内容上方有层次 —— 它是正常流里的元素，不靠 absolute 压内容。 */
+.sidebar-rail-btn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  /* 走项目已有的 shadow token：它在 style.css 里有明暗两套值，
+     写死 rgba 会让暗色模式下的投影看不见。 */
+  box-shadow: var(--shadow-sm);
+}
+
+.sidebar-rail-btn:hover {
+  background: var(--color-surface-hover);
+  box-shadow: var(--shadow-md);
 }
 
 .titlebar-icon {

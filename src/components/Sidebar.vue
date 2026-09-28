@@ -1,27 +1,31 @@
 <template>
   <aside class="acrylic-sidebar w-[260px] min-w-[260px] h-full flex flex-col overflow-hidden">
-    <div class="h-12 min-h-12 flex items-center gap-2 px-4 shrink-0">
-      <PenLine class="w-5 h-5 flex-shrink-0" :style="{ color: 'var(--color-primary)' }" />
-      <span class="font-semibold text-[15px]" :style="{ color: 'var(--color-text-primary)' }">Choyeon Notes</span>
-      <div class="flex-1"></div>
-      <button 
-        class="w-8 h-8 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-        title="收起侧边栏"
-        @click="$emit('toggle-sidebar')"
-      >
-        <PanelLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
-      </button>
-    </div>
+    <!-- 品牌区（图标 + 「Choyeon Notes」）已移除：品牌统一由 Electron 标题栏承载
+         （App.vue 的 .titlebar-electron，只在 isElectron 下渲染）。原先两者上下只差
+         9px，图标一个是 /icon.png 一个是 PenLine，文案还不一致（Note / Notes），
+         属于同一件事说两遍。
 
-    <div class="px-3 pb-2 shrink-0">
+         取舍说明（不是 bug，别改回去）：isElectron === false 时标题栏整块不渲染，
+         因此浏览器（dev 调试）模式下侧边栏顶部没有品牌标识。这是刻意接受的 ——
+         浏览器模式只用于开发调试，不是发布形态，而重复品牌区是用户明确要去掉的。 -->
+    <div class="px-3 pt-3 pb-2 shrink-0 flex items-center gap-2">
       <button 
-        class="w-full flex items-center gap-2 h-9 px-3 rounded-lg cursor-text transition-all text-left hover:bg-[var(--color-surface-hover)]"
+        class="flex-1 min-w-0 flex items-center gap-2 h-9 px-3 rounded-lg cursor-text transition-all text-left hover:bg-[var(--color-surface-hover)]"
         :style="{ background: 'var(--color-bg-tertiary)' }"
         @click="$router.push('/search')"
       >
         <Search class="w-4 h-4 flex-shrink-0" :style="{ color: 'var(--color-text-tertiary)' }" />
-        <span class="text-[13px] flex-1" :style="{ color: 'var(--color-text-tertiary)' }">搜索笔记...</span>
-        <kbd class="text-[10px] px-1.5 py-0.5 rounded" :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border-light)' }">{{ quickSwitcherHint }}</kbd>
+        <span class="text-[13px] flex-1 truncate" :style="{ color: 'var(--color-text-tertiary)' }">搜索笔记...</span>
+        <kbd class="text-[10px] px-1.5 py-0.5 rounded shrink-0" :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border-light)' }">{{ quickSwitcherHint }}</kbd>
+      </button>
+      <!-- 收起按钮是搜索框的**同级兄弟**，不嵌进上面那个 button 里：
+           button 套 button 是非法 HTML，浏览器会把外层拆开。 -->
+      <button 
+        class="sidebar-collapse-btn w-9 h-9 shrink-0 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200"
+        title="收起侧边栏"
+        @click="$emit('toggle-sidebar')"
+      >
+        <PanelLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
       </button>
     </div>
 
@@ -278,9 +282,12 @@
 import { computed, reactive, ref, nextTick, provide } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useNoteStore } from '@/stores/note'
+// PenLine 原先只用在侧边栏品牌行的图标上；品牌行去重后已随其删除，
+// 这里同步摘掉 —— 留着会让 lucide 在构建期报 MISSING_EXPORT。
+// Folder 同样是死 import（viewItems 用的是 FolderOpen / FolderPlus），顺手一并摘掉。
 import {
-  PenLine, Search, CalendarDays, GitBranch, Tag, KeyRound,
-  Folder, FolderOpen, FileText,
+  Search, CalendarDays, GitBranch, Tag, KeyRound,
+  FolderOpen, FileText,
   Plus, Settings, PanelLeft, FolderPlus,
   Pencil, Copy, Trash2
 } from 'lucide-vue-next'
@@ -924,6 +931,18 @@ async function applyDndTarget({ source, targetKind, targetPath, targetFolderCont
 </script>
 
 <style scoped>
+/* 「收起侧边栏」按钮：与 App.vue 里 .sidebar-rail-btn（展开）同一套视觉，
+   只有方向图标不同。背景/边框写在这里而不是写内联 style —— 内联 style 的优先级
+   高于任何选择器，写成 :style 会让 hover 态永远打不过它（hover 等于没有）。 */
+.sidebar-collapse-btn {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+}
+
+.sidebar-collapse-btn:hover {
+  background: var(--color-surface-hover);
+}
+
 .nav-item:hover { background: var(--color-surface-hover); }
 .nav-item.is-active { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
 .tree-note:hover { background: var(--color-surface-hover); }

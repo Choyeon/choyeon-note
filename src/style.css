@@ -2488,29 +2488,22 @@ a.wikilink.is-unresolved::after {
 /* =========================
  * Sidebar: 视图导航、文件树、DnD、右键菜单容器
  * ========================= */
-.nav-item.is-active {
-  background: var(--color-primary-surface);
-  font-weight: 600;
-}
-.nav-item.is-active::before {
-  content: '';
-  position: absolute;
-  left: -8px;
-  top: 25%;
-  bottom: 25%;
-  width: 3px;
-  border-radius: 2px;
-  background: var(--color-primary);
-}
-.nav-item {
-  position: relative;
-}
+/* nav-item 的选中态（12% 底色 + 左侧 3px 主色条）已迁到 Sidebar.vue 的
+   <style scoped>，这里不再重复定义。
+   为什么迁走而不是留着：nav-item 只在 Sidebar.vue 里出现，scoped 选择器多一个
+   [data-v-xxx] 属性、特异性更高，下面这两条旧规则（--color-primary-surface 底 +
+   left:-8px / top:25% 的色条）被它**完全覆盖**，是改了也看不到的死规则。留着的
+   代价不是多几行，是同一条视觉规则两份定义，下次改选中态必然只改一处、漏一处。
+   顺带说明那条 font-weight:600：nav-item 的标题 <span> 自带 font-medium(500)，
+   子元素自己的字重声明压过父级继承，所以 600 从来没作用到文字上，删掉不会让
+   切换导航项时的字宽发生变化（也就不存在横向抖动）。 */
 
-/* folder / note 行选中 */
-.folder-row.is-selected,
-.note-row.is-selected {
-  background: var(--color-primary-surface) !important;
-}
+/* folder-row / note-row 的选中底色已迁到 FolderNode.vue 的 <style scoped>，
+   同样是 12%。原来这里那条规则带 !important —— 它是级联里的最后手段，会把
+   FolderNode 组件里那份新规则一起压死，导致「选中态统一到 12%」在这两处根本
+   没生效（浅色模式下仍是 8% 的 --color-primary-surface，与同屏的 nav-item /
+   根级笔记行不一致）。这两个类只在 FolderNode.vue 里出现，删掉全局这份后由
+   组件那份单独生效。 */
 
 /* folder-row indent-line 动画与细节 */
 .folder-node {
@@ -2541,11 +2534,17 @@ a.wikilink.is-unresolved::after {
   transition: opacity 0.15s ease;
 }
 
-/* DnD drop target */
+/* DnD drop target
+   注意：这里的 background **不能**加 !important。之前加了，结果它压死了组件里
+   自己的 .is-drop-target 规则（FolderNode 的 15% 底色、Sidebar 根行的底色都是
+   死规则），拖放高亮实际一直用的是全局 --color-primary-surface（浅色 8%），
+   改组件里的值根本看不见。去掉 !important 后，组件级（带 scoped data 属性、
+   特异性更高）的规则正常生效，这里只保留兜底底色与虚线描边。
+   is-drop-target 只在 FolderNode.vue 与 Sidebar.vue 两处使用，两边都有自己的规则。 */
 .is-drop-target {
   outline: 2px dashed var(--color-primary);
   outline-offset: -2px;
-  background: var(--color-primary-surface) !important;
+  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
   border-radius: 6px;
 }
 

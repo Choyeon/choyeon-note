@@ -77,17 +77,25 @@
 
       <!-- Hover Actions -->
       <span class="row-actions flex items-center gap-0.5 ml-1 opacity-0 group-hover:opacity-100 transition-opacity">
+        <!-- 与 Sidebar .tree-note 里的行内操作按钮同一条规则：
+             父级 .folder-row 整行是 draggable="true"（拖文件夹改层级要用），
+             按钮不阻断拖拽的话，按住这颗 20px 的按钮手一抖就会变成「拖整行」，
+             触发行上的 @dragstart 把文件夹拖走，而本该执行的点击动作不会发生。 -->
         <button
           class="w-5 h-5 rounded flex items-center justify-center hover:bg-[var(--color-surface-hover)]"
           title="在文件夹内新建笔记"
+          draggable="false"
           @click.stop="createNoteInFolder(folder.path)"
+          @dragstart.stop.prevent
         >
           <Plus class="w-3 h-3" :style="{ color: 'var(--color-text-tertiary)' }" />
         </button>
         <button
           class="w-5 h-5 rounded flex items-center justify-center hover:bg-[var(--color-surface-hover)]"
           title="新建子文件夹"
+          draggable="false"
           @click.stop="createSubfolder(folder.path)"
+          @dragstart.stop.prevent
         >
           <FolderPlus class="w-3 h-3" :style="{ color: 'var(--color-text-tertiary)' }" />
         </button>
@@ -467,7 +475,24 @@ function onDrop(e, kind, pathOrId) {
 
 .folder-row.is-selected,
 .note-row.is-selected {
-  background: color-mix(in srgb, var(--color-primary) 10%, transparent);
+  background: color-mix(in srgb, var(--color-primary) 12%, transparent);
+}
+
+/* 选中态左侧主色条：光靠 12% 底色在亚克力半透明背景上太弱，跟 hover 只差 4%
+   透明度，扫一眼分不出「选中」和「鼠标划过」。补一条 3px 主色竖条后，明暗两套
+   主题下都能立刻认出选中行，同时**不需要**继续加深底色（加深会破坏主题一致性）。
+   上下各内缩 5px，给相邻行留出呼吸感；pointer-events:none 保证它不吃点击。 */
+.folder-row.is-selected::before,
+.note-row.is-selected::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-primary);
+  pointer-events: none;
 }
 
 .indent-line {

@@ -8,9 +8,27 @@
          取舍说明（不是 bug，别改回去）：isElectron === false 时标题栏整块不渲染，
          因此浏览器（dev 调试）模式下侧边栏顶部没有品牌标识。这是刻意接受的 ——
          浏览器模式只用于开发调试，不是发布形态，而重复品牌区是用户明确要去掉的。 -->
-    <div class="px-3 pt-3 pb-2 shrink-0 flex items-center gap-2">
-      <button 
-        class="flex-1 min-w-0 flex items-center gap-2 h-9 px-3 rounded-lg cursor-text transition-all text-left hover:bg-[var(--color-surface-hover)]"
+    <!-- 头部拆成两行：第一行只有「收起侧边栏」，第二行是搜索框独占整行。
+         ① 按钮**左对齐**而不是右对齐（几何账，改动前先算）：
+            展开态：侧边栏行内 px-2(pt-2) → 按钮左边缘 8px、上边缘 8px；
+            收起态：窄栏 w-12(48px) 里居中放 w-9(36px) → 左边缘 6px、上边缘 8px。
+            Δ=2px、上边缘完全重合，视觉上就是「侧边栏只是变窄了」，按钮不跳位。
+            若放右侧，收起后按钮要从 x≈212px 跳到 x≈6px，那正是用户抱怨的乱跑。
+         ② 「收起」是窗口级操作，不该和搜索框（内容级控件）挤在同一行抢宽度 ——
+            260px 侧栏里搜索框原本只剩 192px（260 - px-3×2 - 按钮 36 - gap 8），
+            现在独占整行恢复到 244px（260 - px-2×2）。
+         ③ 两个按钮是同一个 flex-col 容器里的**同级兄弟**，不是嵌套：button 套
+            button 是非法 HTML，浏览器会把外层拆开，事件与布局都会失控。 -->
+    <div class="sidebar-header px-2 pt-2 pb-2 shrink-0 flex flex-col gap-2">
+      <button
+        class="sidebar-collapse-btn w-9 h-9 self-start rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200"
+        title="收起侧边栏"
+        @click="$emit('toggle-sidebar')"
+      >
+        <PanelLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
+      </button>
+      <button
+        class="sidebar-search-btn w-full flex items-center gap-2 h-9 px-3 rounded-lg cursor-text transition-all text-left hover:bg-[var(--color-surface-hover)]"
         :style="{ background: 'var(--color-bg-tertiary)' }"
         @click="$router.push('/search')"
       >
@@ -18,26 +36,21 @@
         <span class="text-[13px] flex-1 truncate" :style="{ color: 'var(--color-text-tertiary)' }">搜索笔记...</span>
         <kbd class="text-[10px] px-1.5 py-0.5 rounded shrink-0" :style="{ background: 'var(--color-bg-secondary)', color: 'var(--color-text-tertiary)', border: '1px solid var(--color-border-light)' }">{{ quickSwitcherHint }}</kbd>
       </button>
-      <!-- 收起按钮是搜索框的**同级兄弟**，不嵌进上面那个 button 里：
-           button 套 button 是非法 HTML，浏览器会把外层拆开。 -->
-      <button 
-        class="sidebar-collapse-btn w-9 h-9 shrink-0 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200"
-        title="收起侧边栏"
-        @click="$emit('toggle-sidebar')"
-      >
-        <PanelLeft class="w-4 h-4" :style="{ color: 'var(--color-text-secondary)' }" />
-      </button>
     </div>
 
     <div class="flex-1 min-h-0 overflow-y-auto cho-scrollbar px-2 pb-2">
-      <div class="mt-2 px-2">
-        <span class="text-[11px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">视图</span>
+      <!-- 分区标题：两个分区用**同一组 class**（sidebar-section-title + 同一 span 规格），
+           只有上间距不同（首个 mt-1、后续 mt-4），下方统一 mb-1。
+           之前「视图」是 mt-2 且没有下间距、「文件」是 mt-4，两级标题的疏密不一致，
+           看起来像两个各自为政的模块。 -->
+      <div class="sidebar-section-title mt-1 px-2 mb-1">
+        <span class="text-[11px] font-semibold uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">视图</span>
       </div>
 
       <div 
         v-for="item in viewItems" 
         :key="item.id"
-        class="nav-item flex items-center gap-2 h-9 px-2 mt-0.5 rounded-md cursor-pointer transition-colors"
+        class="nav-item flex items-center gap-2 h-9 px-2 mt-0.5 rounded-md cursor-pointer transition-colors relative"
         :class="{ 'is-active': isActiveRoute(item.route) }"
         @click="$router.push(item.route)"
       >
@@ -52,8 +65,8 @@
         >{{ item.label }}</span>
       </div>
 
-      <div class="mt-4 px-2 flex items-center justify-between">
-        <span class="text-[11px] font-medium uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">文件</span>
+      <div class="sidebar-section-title mt-4 px-2 mb-1 flex items-center justify-between">
+        <span class="text-[11px] font-semibold uppercase tracking-wider" :style="{ color: 'var(--color-text-tertiary)' }">文件</span>
         <div class="flex items-center gap-1">
           <button
             class="text-[10px] px-1.5 py-0.5 rounded transition-colors hover:bg-[var(--color-surface-hover)]"
@@ -77,8 +90,8 @@
 
       <div class="mt-1" @dragover.prevent="onRootDragOver" @dragleave="clearDropState" @drop.prevent="onRootDrop" @contextmenu.prevent.stop="openRootContextMenu">
         <div 
-          class="flex items-center gap-1.5 h-9 px-2 rounded-md cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] relative" 
-          :class="{ 'is-drop-target': rootDrop }"
+          class="root-folder-row flex items-center gap-1.5 h-9 px-2 rounded-md cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] relative" 
+          :class="{ 'is-drop-target': rootDrop, 'is-active': !noteStore.selectedFolder }"
           @click="selectRootFolder"
         >
           <FolderOpen 
@@ -102,7 +115,7 @@
           <div
             v-for="note in sortedRootNotes"
             :key="note.id"
-            class="tree-note flex items-center gap-1.5 h-8 px-2 pr-2 rounded-md cursor-pointer transition-all duration-150 hover:bg-[var(--color-surface-hover)] relative"
+            class="tree-note group flex items-center gap-1.5 h-8 px-2 pr-2 rounded-md cursor-pointer transition-all duration-150 hover:bg-[var(--color-surface-hover)] relative"
             :class="{ 'is-selected': noteStore.currentNoteId === note.id }"
             :style="{ paddingLeft: '24px' }"
             draggable="true"
@@ -141,6 +154,42 @@
               @blur="commitRootRename"
               @click.stop
             />
+            <!-- 悬停操作区：与 FolderNode 的 .row-actions 同一套范式
+                 （group-hover 显隐 + w-5 h-5 小按钮 + @click.stop）。
+                 之前根级笔记行没有任何行内操作，只能右键或双击 —— 文件夹行有、
+                 笔记行没有，同一棵树里两种交互口径。
+                 用 ml-1 shrink-0 在正常流里占位，**不用 absolute**：absolute 会压住
+                 标题文字，长标题直接被盖掉一截。
+                 内联重命名时整块隐藏：输入框已经在编辑了，再挂一排按钮既挤又容易误点。 -->
+            <span
+              v-if="!(renameState.active && renameState.target === note.id)"
+              class="row-actions flex items-center gap-0.5 ml-1 shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              <!-- 这两个按钮必须同时带 draggable="false" 和 @dragstart.stop.prevent：
+                   父级 .tree-note 整行是 draggable="true"（拖笔记进文件夹要用）。
+                   HTML5 DnD 里拖拽会从 mousedown 的那层往上冒泡找可拖拽祖先，
+                   按钮不阻断的话，按住这颗 20px 的删除键手一抖就会被判定成「拖行」，
+                   于是触发行上的 @dragstart 把笔记拖去别处，而删除确认弹窗根本不会弹 ——
+                   想删除、结果笔记被搬走了。与 FolderNode 的 .row-actions 保持同一口径。 -->
+              <button
+                class="w-5 h-5 rounded flex items-center justify-center hover:bg-[var(--color-surface-hover)]"
+                title="重命名"
+                draggable="false"
+                @click.stop="startRenameRootNote(note.id)"
+                @dragstart.stop.prevent
+              >
+                <Pencil class="w-3 h-3" :style="{ color: 'var(--color-text-tertiary)' }" />
+              </button>
+              <button
+                class="w-5 h-5 rounded flex items-center justify-center hover:bg-[var(--color-surface-hover)]"
+                title="移到废纸篓"
+                draggable="false"
+                @click.stop="requestDeleteRootNote(note.id)"
+                @dragstart.stop.prevent
+              >
+                <Trash2 class="w-3 h-3" :style="{ color: 'var(--color-text-tertiary)' }" />
+              </button>
+            </span>
             <!-- before/after indicator -->
             <span v-if="siblingDrop.kind==='before' && siblingDrop.path===note.id && siblingDrop.folder===''" class="drop-indicator drop-indicator--before"></span>
             <span v-if="siblingDrop.kind==='after' && siblingDrop.path===note.id && siblingDrop.folder===''" class="drop-indicator drop-indicator--after"></span>
@@ -517,6 +566,29 @@ async function deleteNoteAndReport (id) {
     return
   }
   reportTrashMethodIfKnown(noteStore.lastTrashMethod)
+}
+
+/**
+ * 根级笔记行内「移到废纸篓」按钮的处理器。
+ *
+ * 为什么先确认再删：这是个 20px 的悬停小按钮，误点成本比右键菜单高得多（菜单要
+ * 先右键、再从列表里挑一项）。回收站虽然找得回，但「笔记突然不见了」本身就是惊吓。
+ * 文案与右键菜单的 deleteItemHere **逐字一致**，两条入口不会各自漂移。
+ *
+ * @param {string} id 笔记 id
+ * @returns {Promise<void>}
+ */
+async function requestDeleteRootNote (id) {
+  const target = noteStore.notes.find(n => n.id === id)
+  const ok = await askDialog({
+    mode: 'confirm',
+    title: '删除笔记',
+    // 与 deleteNoteAndReport 的真实行为一致：进回收站，不是物理删除
+    message: `确定删除笔记「${target?.title || '未命名'}」吗？文件会被移入回收站，可以在回收站里找回。`,
+    danger: true
+  })
+  if (!ok) return
+  await deleteNoteAndReport(id)
 }
 
 async function deleteFolderWithNotice (folderPath, folderName) {
@@ -937,20 +1009,49 @@ async function applyDndTarget({ source, targetKind, targetPath, targetFolderCont
 .sidebar-collapse-btn {
   background: var(--color-surface);
   border: 1px solid var(--color-border);
+  /* 与 App.vue 的 .sidebar-rail-btn 同款 shadow token —— 它在 style.css 里有
+     明暗两套值，写死 rgba 会让暗色模式下的投影直接看不见。 */
+  box-shadow: var(--shadow-sm);
 }
 
 .sidebar-collapse-btn:hover {
   background: var(--color-surface-hover);
+  box-shadow: var(--shadow-md);
 }
 
+/* ============ 选中态：12% 底色 + 左侧主色条 ============ */
 .nav-item:hover { background: var(--color-surface-hover); }
-.nav-item.is-active { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.nav-item.is-active { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
 .tree-note:hover { background: var(--color-surface-hover); }
-.tree-note.is-selected { background: color-mix(in srgb, var(--color-primary) 10%, transparent); }
+.tree-note.is-selected { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
+.root-folder-row.is-active { background: color-mix(in srgb, var(--color-primary) 12%, transparent); }
+
+/* 主色条：选中底色（12%）与 hover 只差 4% 透明度，在半透明的亚克力侧边栏上
+   根本分辨不出「选中」和「鼠标划过」。补一条 3px 主色竖条后一眼可辨，同时
+   **不必**继续加深底色 —— 加深会破坏明暗两套主题的一致性。
+   上下各内缩 5px 给相邻行留呼吸感；pointer-events:none 保证它不吃点击。
+   注意 .tree-note 带内联 paddingLeft:24px：色条用 left:0，因此仍贴在行的
+   左边缘、不跟着缩进走（缩进由 padding 给），这正是想要的效果。 */
+.nav-item.is-active::before,
+.tree-note.is-selected::before,
+.root-folder-row.is-active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 5px;
+  bottom: 5px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--color-primary);
+  pointer-events: none;
+}
 
 .tree-note {
   position: relative;
 }
+
+/* 悬停操作区：与 FolderNode 的 .row-actions 同一条过渡曲线 */
+.row-actions { transition: opacity 0.15s ease; }
 
 .tree-note .drop-indicator {
   position: absolute;
@@ -965,8 +1066,15 @@ async function applyDndTarget({ source, targetKind, targetPath, targetFolderCont
 .tree-note .drop-indicator--before { top: -1px; }
 .tree-note .drop-indicator--after  { bottom: -1px; }
 
-.is-drop-target {
-  background: color-mix(in srgb, var(--color-primary) 14%, transparent);
+/* 拖放高亮：全局 style.css 的 .is-drop-target 去掉 !important 之后，
+   这条组件级规则（带 scoped data 属性）才能真正生效 —— 以前被它压死，
+   根行的拖放底色一直是全局那个更浅的值，改这里看不见。
+   选择器刻意写成 .root-folder-row.is-drop-target（0,3,0）而不是裸 .is-drop-target（0,2,0）：
+   「全部笔记」行在未选中任何文件夹时同时带 .is-active，后者是 0,3,0，
+   裸选择器打不过它，拖到根上就会只显示「选中态」的 12% 而看不出「拖放态」。
+   底色与 FolderNode 的 .folder-row.is-drop-target 保持一致（15% + 虚线描边）。 */
+.root-folder-row.is-drop-target {
+  background: color-mix(in srgb, var(--color-primary) 15%, transparent);
   outline: 1px dashed var(--color-primary);
   outline-offset: -1px;
 }

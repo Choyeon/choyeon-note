@@ -89,11 +89,13 @@
              旧实现是 <main> 内部一个 absolute left-3 top-3 z-40 的浮动按钮，它压在
              编辑器 / 列表自己的顶部工具栏上面 —— 那就是「收起后和右边 main 内容遮挡」。
              现在改成 sidebar-wrapper 与 <main> 之间的**真实 flex 兄弟节点**：main 是
-             flex-1 min-w-0，会自动让出这 44px，结构上不可能再遮挡任何 main 内容，
-             比调 z-index / 位移都可靠（那两者只是把遮挡挪个位置）。 -->
+             flex-1 min-w-0，会自动让出这 48px，结构上不可能再遮挡任何 main 内容，
+             比调 z-index / 位移都可靠（那两者只是把遮挡挪个位置）。
+             ⚠️ 这个元素**永远不许**加 absolute：一旦脱离文档流，main 就不会再为它
+             让位，遮挡 bug 立刻回归（tests/sidebarChrome.test.js 有结构性闸门）。 -->
         <div
           v-if="showSidebar && !appStore.sidebar"
-          class="sidebar-rail w-11 shrink-0 h-full flex flex-col items-center pt-3 transition-all duration-200"
+          class="sidebar-rail w-12 shrink-0 h-full flex flex-col items-center pt-2 transition-all duration-200"
         >
           <button
             class="sidebar-rail-btn w-9 h-9 rounded-lg flex items-center justify-center cursor-pointer transition-all duration-200"
@@ -750,10 +752,25 @@ function detectPlatform() {
   opacity: 1;
 }
 
-/* 收起后的占位栏：宽度由模板的 w-11 给，这里只管「它是 main 之外的独立一列」。
-   底色保持透明 —— 它是布局分隔而不是一块面板，涂色会让收起态多出一条突兀的竖条。 */
+/* 收起后的占位栏：宽度由模板的 w-12 给（48px），这里只管它「看起来就是收起后的
+   侧边栏」。
+
+   底色**必须**涂 --sidebar-bg（与 .acrylic-sidebar 同一个 token）：
+   之前的注释写「它是布局分隔不是面板，涂色会突兀」，那是照着「一条空白里飘着
+   一个按钮」的形态写的 —— 用户要的是「窄栏做得更像样」，透明底只会让收起态显得
+   按钮悬空、不知道它属于谁。涂上侧边栏底色 + 右侧 1px 分隔线之后，收起态就是
+   侧边栏本体收窄，展开/收起是同一块面板的连续变化。
+   --sidebar-bg 在 [data-glass='false'] 下会退化成 --color-surface（实色），
+   玻璃与实色两种模式都有定义，不会塌成透明。 */
 .sidebar-rail {
-  background: transparent;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--color-border);
+  /* 与 .acrylic-sidebar 同款模糊：不补这一条，开了壁纸时窄栏会露出**没模糊**的
+     墙纸，而展开态是模糊的 —— 同一块面板两种质感，收起反而更脏。
+     --sidebar-blur / --sidebar-saturate 在 [data-glass='false'] 下是 0px / 100%，
+     实色模式不受影响。 */
+  backdrop-filter: blur(var(--sidebar-blur)) saturate(var(--sidebar-saturate));
+  -webkit-backdrop-filter: blur(var(--sidebar-blur)) saturate(var(--sidebar-saturate));
 }
 
 /* 与 Sidebar.vue 里那个「收起侧边栏」按钮同一套视觉（w-9 h-9 rounded-lg +

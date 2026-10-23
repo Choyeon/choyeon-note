@@ -252,12 +252,67 @@ const appBgStyle = computed(() => {
  * 同一天已有结果就直接用缓存，避免每次启动/每次开开关都打一次网络请求。
  * 失败时保留上一张图（setBingWallpaper 内部会这么处理），只记录错误。
  */
+/**
+ * 取源失败后的自动重试间隔（ms）。
+ * 退避而不是固定间隔：断网 / 接口抽风时，固定 15s 打一次只会把失败日志刷满，
+ * 而用户真正需要的是「过一会儿网络好了它能自己好起来」。次数封顶 3 次，
+ * 免得整天挂在后台反复请求一个已经彻底不可用的源。
+ */
+const WALLPAPER_RETRY_DELAYS = [15000, 60000, 180000]
+let wallpaperRetryTimer = null
+let wallpaperRetryCount = 0
+
+function clearWallpaperRetry() {
+  if (wallpaperRetryTimer) {
+    clearTimeout(wallpaperRetryTimer)
+    wallpaperRetryTimer = null
+  }
+}
+
+/** 失败后安排一次退避重试；超出上限就不再打扰（保留上一张图，等下次启动） */
+function scheduleWallpaperRetry() {
+  if (!appStore.bingWallpaper) return
+  if (wallpaperRetryTimer) return
+  if (wallpaperRetryCount >= WALLPAPER_RETRY_DELAYS.length) return
+  const delay = WALLPAPER_RETRY_DELAYS[wallpaperRetryCount]
+  wallpaperRetryCount += 1
+  wallpaperRetryTimer = setTimeout(() => {
+    wallpaperRetryTimer = null
+    refreshBingWallpaper({ force: true })
+  }, delay)
+}
+
 async function refreshBingWallpaper({ force = false } = {}) {
   if (!appStore.bingWallpaper) return
   if (!force && appStore.bingWallpaperUrl && appStore.bingWallpaperDate === todayStamp()) return
 
-  const result = await fetchBingWallpaper()
-  appStore.setBingWallpaper(result)
+  try {
+    const result = await fetchBingWallpaper({
+      market: appStore.bingWallpaperMarket,
+      pref: appStore.bingWallpaperPref
+    })
+    appStore.setBingWallpaper(result)
+    if (result && result.error) {
+      scheduleWallpaperRetry()
+    } else {
+      // 成功了就把退避清零：下次再失败还能从最短间隔开始，而不是一路走到 3 分钟
+      clearWallpaperRetry()
+      wallpaperRetryCount = 0
+    }
+  } catch (e) {
+    // 取源模块内部已经逐源兜住异常，这里只防「兜不住」的那部分变成 unhandled rejection
+    appStore.setBingWallpaper({ error: (e && e.message) || '壁纸获取异常' })
+    scheduleWallpaperRetry()
+  }
+}
+
+/** 网络恢复（离线 → 在线）时立刻重试一次，不必等退避计时器 */
+function onWallpaperOnline() {
+  if (!appStore.bingWallpaper) return
+  if (!appStore.bingWallpaperError) return
+  clearWallpaperRetry()
+  wallpaperRetryCount = 0
+  refreshBingWallpaper({ force: true })
 }
 
 // ---------------------------------------------------------------------------
@@ -564,7 +619,16 @@ watch(() => appStore.codeTheme, (newTheme) => {
 watch(() => appStore.bingWallpaper, (enabled) => {
   if (enabled) {
     refreshBingWallpaper()
+  } else {
+    // 关掉就不该再有任何后台请求：退避计时器一并收掉
+    clearWallpaperRetry()
+    wallpaperRetryCount = 0
   }
+})
+
+// 换源：地区 / 数据源偏好一改就重拉。只改参数不重拉 = 用户换了个源却还看着旧图。
+watch([() => appStore.bingWallpaperMarket, () => appStore.bingWallpaperPref], () => {
+  refreshBingWallpaper({ force: true })
 })
 
 // 自动同步开关 / 笔记目录变化时重建监听
@@ -687,6 +751,7 @@ onMounted(() => {
   setupBeforeUnload()
 
   window.addEventListener('keydown', onGlobalKeydown, true)
+  window.addEventListener('online', onWallpaperOnline)
 
   // dev 期漂移守卫：不 await，不阻塞首屏；日志走 logger 的 app 模块，
   // dev 下默认级别是 info，通过/未通过两条都会出现在控制台（不再直接 console.*）。
@@ -716,7 +781,9 @@ onUnmounted(() => {
     beforeUnloadHandler = null
   }
   stopNotesWatch()
+  clearWallpaperRetry()
   window.removeEventListener('keydown', onGlobalKeydown, true)
+  window.removeEventListener('online', onWallpaperOnline)
 })
 
 function detectPlatform() {

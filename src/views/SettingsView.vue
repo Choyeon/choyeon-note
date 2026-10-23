@@ -154,6 +154,45 @@
                 </button>
               </div>
             </div>
+
+            <!-- 换源：地区与数据源。只在壁纸开启时露出，关着时它们没有任何意义 -->
+            <div v-if="appStore.bingWallpaper" class="settings-row">
+              <div class="flex items-center gap-3">
+                <Globe class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">壁纸地区</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">决定每日壁纸的市场版本（mkt）</div>
+                </div>
+              </div>
+              <select
+                class="px-3 py-1.5 rounded-lg text-[13px] cursor-pointer border outline-none transition-all duration-200 focus:ring-2 focus:ring-[var(--color-primary-ring)]"
+                aria-label="壁纸地区"
+                :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', borderColor: 'var(--color-border)' }"
+                :value="appStore.bingWallpaperMarket"
+                @change="appStore.setBingWallpaperMarket($event.target.value)"
+              >
+                <option v-for="m in wallpaperMarkets" :key="m.id" :value="m.id">{{ m.name }}</option>
+              </select>
+            </div>
+
+            <div v-if="appStore.bingWallpaper" class="settings-row">
+              <div class="flex items-center gap-3">
+                <Shuffle class="w-4 h-4" :style="{ color: 'var(--color-text-tertiary)' }" />
+                <div>
+                  <div class="text-[14px] font-medium" :style="{ color: 'var(--color-text-primary)' }">壁纸数据源</div>
+                  <div class="text-[12px] mt-0.5" :style="{ color: 'var(--color-text-tertiary)' }">官方接口不稳定时可钉死镜像</div>
+                </div>
+              </div>
+              <select
+                class="px-3 py-1.5 rounded-lg text-[13px] cursor-pointer border outline-none transition-all duration-200 focus:ring-2 focus:ring-[var(--color-primary-ring)]"
+                aria-label="壁纸数据源"
+                :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-primary)', borderColor: 'var(--color-border)' }"
+                :value="appStore.bingWallpaperPref"
+                @change="appStore.setBingWallpaperSourcePref($event.target.value)"
+              >
+                <option v-for="p in wallpaperSourcePrefs" :key="p.id" :value="p.id">{{ p.name }}</option>
+              </select>
+            </div>
           </div>
         </div>
 
@@ -786,7 +825,12 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 import { useNoteStore } from '@/stores/note'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { fetchBingWallpaper } from '@/utils/bingWallpaper'
+import {
+  fetchBingWallpaper,
+  WALLPAPER_MARKETS,
+  WALLPAPER_SOURCE_PREFS,
+  WALLPAPER_SOURCE_LABELS
+} from '@/utils/bingWallpaper'
 import WorkspaceManager from '@/components/WorkspaceManager.vue'
 // 代码高亮主题的下拉选项必须来自 markdown 的 codeThemes 注册表：手抄一份等于
 // 承认它可以漂移，而漂移的结果就是「设置里有、引擎里没有」。
@@ -801,7 +845,8 @@ import {
   FolderOpen, RefreshCw, Paperclip, Folder, AlertTriangle, RotateCcw,
   FileText, Edit, Zap,
   Image, MessageCircle, Github,
-  ZoomIn, ZoomOut, Maximize2, Library
+  ZoomIn, ZoomOut, Maximize2, Library,
+  Globe, Shuffle
 } from 'lucide-vue-next'
 import { createLogger } from '@/utils/logger'
 import { LOG_MODULES } from '@/constants/logging'
@@ -858,10 +903,12 @@ function onWorkspaceSwitched (workspace) {
 
 // ===== Bing 每日壁纸 =====
 const bingRefreshing = ref(false)
-const bingTried = ref([])
 const bingHasError = computed(() => !!appStore.bingWallpaperError)
 
-const SOURCE_LABELS = { official: '官方接口', biturl: '公开镜像' }
+// 下拉选项与取源模块同源：Store 归一化、请求参数、UI 三处共用一份白名单
+const wallpaperMarkets = WALLPAPER_MARKETS
+const wallpaperSourcePrefs = WALLPAPER_SOURCE_PREFS
+const SOURCE_LABELS = WALLPAPER_SOURCE_LABELS
 
 const bingStatus = computed(() => {
   if (bingRefreshing.value) return '正在获取今日壁纸…'
@@ -881,8 +928,12 @@ const bingStatus = computed(() => {
   return '尚未获取，点"刷新"立即拉取'
 })
 
-// 手动刷新时逐个源的失败原因，挂在 status 的 tooltip 上方便排障
-const bingTriedText = computed(() => (bingTried.value || []).join('\n'))
+/**
+ * 逐源留痕（挂在 status 的 tooltip 上）。
+ * 取自 store 而不是本页局部 ref：启动自动拉取那次也要看得见，
+ * 否则「手动刷新才排得到障」——用户看到的现象恰恰来自启动时那次。
+ */
+const bingTriedText = computed(() => (appStore.bingWallpaperTried || []).join('\n'))
 
 /** 自动同步自我解释的固定文案：关闭分支必须用这一句把后果说出口（R-S4） */
 const AUTO_SYNC_OFF_HINT = '关闭时，笔记在应用外被修改不会自动同步进来'
@@ -905,9 +956,14 @@ async function refreshBingWallpaper() {
   if (bingRefreshing.value) return
   bingRefreshing.value = true
   try {
-    const result = await fetchBingWallpaper()
-    bingTried.value = result.tried || []
+    // 带上用户选的地区与数据源偏好：设置页改完点刷新，必须按新参数走
+    const result = await fetchBingWallpaper({
+      market: appStore.bingWallpaperMarket,
+      pref: appStore.bingWallpaperPref
+    })
     appStore.setBingWallpaper(result)
+  } catch (e) {
+    appStore.setBingWallpaper({ error: (e && e.message) || '壁纸获取异常' })
   } finally {
     bingRefreshing.value = false
   }

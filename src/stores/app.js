@@ -14,6 +14,14 @@ import { LS_KEYS, CONFIG_SCHEMA, SKIP, normalizeNoteExtension } from '@/constant
 // IS_ELECTRON 同时以两个名字引入：`isElectron` 是文件内历史用法（拼写存盘判断等），
 // `IS_ELECTRON` 用于快捷键保留键分级的默认入参（与 @/constants/shortcuts 里的语义同名，便于对照阅读）。
 import { IS_ELECTRON as isElectron, IS_ELECTRON } from '@/utils/env'
+// 壁纸「地区 / 数据源」的归一化口径与取源模块共用一份：store 写什么，
+// fetchBingWallpaper 就认什么（下拉、持久化、请求参数三者同源）。
+import {
+  normalizeWallpaperMarket,
+  normalizeWallpaperSourcePref,
+  DEFAULT_WALLPAPER_MARKET,
+  DEFAULT_WALLPAPER_SOURCE_PREF
+} from '@/utils/bingWallpaper'
 import { createLogger } from '../utils/logger.js'
 import { LOG_MODULES } from '../constants/logging.js'
 
@@ -88,6 +96,16 @@ export const useAppStore = defineStore('app', () => {
   /** 壁纸实际来源：official（主进程官方接口）/ biturl（公开 API），用于设置页排障 */
   const bingWallpaperSource = ref('')
   const bingWallpaperError = ref('')
+  /** 壁纸地区（mkt）：换源的一部分，白名单由 normalizeWallpaperMarket 把关 */
+  const bingWallpaperMarket = ref(DEFAULT_WALLPAPER_MARKET)
+  /** 数据源偏好：auto / official / biturl，含义见 utils/bingWallpaper */
+  const bingWallpaperPref = ref(DEFAULT_WALLPAPER_SOURCE_PREF)
+  /**
+   * 上一次取源的逐源留痕（纯内存，不持久化）。
+   * 以前这份存在 SettingsView 的局部 ref 里，于是「设置页手动刷新」看得到、
+   * 「启动时自动拉」看不到；收进 store 后两条路径共用同一份排障信息。
+   */
+  const bingWallpaperTried = ref([])
   const autoCheckUpdates = ref(true)
   const appVersion = ref('')
   // 可自定义快捷键：{ [shortcutId]: binding }，缺省回落到内置默认值
@@ -156,6 +174,8 @@ export const useAppStore = defineStore('app', () => {
     bingWallpaperTitle,
     bingWallpaperDate,
     bingWallpaperSource,
+    bingWallpaperMarket,
+    bingWallpaperPref,
     editorZoom,
     autoCheckUpdates,
     hotkeys,
@@ -657,8 +677,9 @@ export const useAppStore = defineStore('app', () => {
       const target = configRefs[entry.ref]
       if (target) target.value = entry.fallback()
     }
-    // 壁纸错误态是纯内存状态（没有对应 key），单独清
+    // 壁纸的错误态与取源留痕是纯内存状态（没有对应 key），单独清
     bingWallpaperError.value = ''
+    bingWallpaperTried.value = []
 
     applyTheme()
     applyAccentColor()
@@ -933,8 +954,10 @@ export const useAppStore = defineStore('app', () => {
    * 写入一次壁纸结果。url 为空表示失败，此时只记 error 并保留旧图，
    * 避免网络抖动导致背景直接变黑。
    */
-  function setBingWallpaper({ url = '', title = '', date = '', error = '', source = '' } = {}) {
+  function setBingWallpaper({ url = '', title = '', date = '', error = '', source = '', tried = null } = {}) {
     bingWallpaperError.value = error
+    // 成功与失败都要留痕：失败时它是「为什么换源也没换出图」的唯一线索
+    if (Array.isArray(tried)) bingWallpaperTried.value = tried
     if (!url) return
     bingWallpaperUrl.value = url
     bingWallpaperTitle.value = title
@@ -946,6 +969,28 @@ export const useAppStore = defineStore('app', () => {
       if (date) localStorage.setItem(LS_KEYS.bingWallpaperDate, date)
       if (source) localStorage.setItem(LS_KEYS.bingWallpaperSource, source)
     } catch (e) { /* localStorage 满或被禁用时忽略，不影响内存态 */ }
+  }
+
+  /**
+   * 壁纸地区（换源）。改完由 App.vue 的 watcher 强制重拉一次 —— 只改参数不重拉，
+   * 用户看到的还是上一张图，等于改了个寂寞。
+   *
+   * @param {string} market 白名单内的 mkt；脏值归一化为默认 zh-CN
+   * @returns {string} 实际生效的值
+   */
+  function setBingWallpaperMarket(market) {
+    const normalized = normalizeWallpaperMarket(market)
+    bingWallpaperMarket.value = normalized
+    localStorage.setItem(LS_KEYS.bingWallpaperMarket, normalized)
+    return normalized
+  }
+
+  /** 数据源偏好（换源）：auto / official / biturl */
+  function setBingWallpaperSourcePref(pref) {
+    const normalized = normalizeWallpaperSourcePref(pref)
+    bingWallpaperPref.value = normalized
+    localStorage.setItem(LS_KEYS.bingWallpaperPref, normalized)
+    return normalized
   }
 
   function toggleAutoCheckUpdates() {
@@ -1064,6 +1109,9 @@ export const useAppStore = defineStore('app', () => {
     bingWallpaperDate,
     bingWallpaperSource,
     bingWallpaperError,
+    bingWallpaperMarket,
+    bingWallpaperPref,
+    bingWallpaperTried,
     autoCheckUpdates,
     appVersion,
     hotkeys,
@@ -1107,6 +1155,8 @@ export const useAppStore = defineStore('app', () => {
     resetEditorZoom,
     toggleBingWallpaper,
     setBingWallpaper,
+    setBingWallpaperMarket,
+    setBingWallpaperSourcePref,
     toggleAutoCheckUpdates,
     getBinding,
     setHotkey,

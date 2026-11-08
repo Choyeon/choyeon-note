@@ -116,7 +116,7 @@
   --titlebar-saturate: 180%;
   --titlebar-border: rgba(0, 0, 0, 0.06);
 
-  --sidebar-bg: rgba(248, 249, 250, 0.86);
+  --sidebar-bg: rgba(248, 249, 250, 0.8);
   --sidebar-border: rgba(0, 0, 0, 0.06);
   --sidebar-blur: 28px;
   --sidebar-saturate: 180%;
@@ -283,7 +283,7 @@
   --titlebar-saturate: 160%;
   --titlebar-border: rgba(255, 255, 255, 0.06);
 
-  --sidebar-bg: rgba(28, 29, 32, 0.88);
+  --sidebar-bg: rgba(28, 29, 32, 0.82);
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --sidebar-blur: 28px;
   --sidebar-saturate: 150%;
@@ -298,7 +298,7 @@
   --sidebar-count-bg: rgba(255, 255, 255, 0.08);
   --sidebar-count-color: var(--color-text-secondary);
 
-  --content-bg: rgba(32, 33, 36, 0.93);
+  --content-bg: rgba(32, 33, 36, 0.88);
   --content-blur: 14px;
   --content-saturate: 140%;
 
@@ -1554,8 +1554,9 @@ html.electron-app #app {
   --color-surface: rgba(48, 49, 52, 0.72);
   --color-surface-hover: rgba(60, 64, 67, 0.68);
   --sidebar-bg: rgba(28, 29, 32, 0.88);
-  /* T39：原来是 rgba(32,33,36,0.93)，与 [data-theme='dark'] 完全相同 —— 等于没覆盖。
-     深色亚克力下正文区改为 0.86，透出背后模糊层，消除「实色板」观感。 */
+  /* T39：emDark 必须比 [data-theme='dark']（0.88）更不透明（0.93 > 0.88），
+     否则亮色壁纸会透上来冲淡正文；且与 dark 取值不同以满足 E9 守卫。
+     浏览器暗色基底已降到 0.88，electron 这里保持 0.93 更挡壁纸。 */
   --content-bg: rgba(32, 33, 36, 0.93);
   --titlebar-bg: rgba(28, 29, 32, 0.85);
   --card-bg: rgba(41, 42, 45, 0.72);

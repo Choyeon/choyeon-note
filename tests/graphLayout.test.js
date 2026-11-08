@@ -679,9 +679,12 @@ describe('C · 真实挂载：冷启动两次排布一致（R-G3 主验收）', 
     const { store } = await mountGraph(makeNotes(6))
     await wait(SAVE_DEBOUNCE_MS + 400)
 
+    // 首次布局稳定后会自动 fitView，基线不再恒为 0（这正是要修的「小团居角」问题）；
+    // 因此以「基线 + 平移量」来判定平移是否生效，而不是写死 160。
+    const base = outerOffset()
     panCanvas(160, 120)
     await nextTick()
-    expect(outerOffset().x).toBeCloseTo(160, 0)
+    expect(outerOffset().x).toBeCloseTo(base.x + 160, 0)
 
     // 正文一字未改，只把整批笔记挪到另一个文件夹
     store.notes = store.notes.map(n => ({ ...n, folder: '新目录' }))
@@ -698,9 +701,12 @@ describe('C · 真实挂载：冷启动两次排布一致（R-G3 主验收）', 
     const { store } = await mountGraph(makeNotes(6))
     await wait(SAVE_DEBOUNCE_MS + 400)
 
+    // 首次布局稳定后会自动 fitView，基线不再恒为 0（这正是要修的「小团居角」问题）；
+    // 因此以「基线 + 平移量」来判定平移是否生效，而不是写死 160。
+    const base = outerOffset()
     panCanvas(160, 120)
     await nextTick()
-    expect(outerOffset().x).toBeCloseTo(160, 0)
+    expect(outerOffset().x).toBeCloseTo(base.x + 160, 0)
 
     // 等长改写：关键词 → 关键语（3 字换 3 字），长度严格不变
     const original = store.notes

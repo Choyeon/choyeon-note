@@ -116,7 +116,7 @@
   --titlebar-saturate: 180%;
   --titlebar-border: rgba(0, 0, 0, 0.06);
 
-  --sidebar-bg: rgba(248, 249, 250, 0.65);
+  --sidebar-bg: rgba(248, 249, 250, 0.86);
   --sidebar-border: rgba(0, 0, 0, 0.06);
   --sidebar-blur: 28px;
   --sidebar-saturate: 180%;
@@ -260,8 +260,8 @@
   --color-border-focus: #8ab4f8;
 
   --color-text-primary: #f1f3f4;
-  --color-text-secondary: #9aa0a6;
-  --color-text-tertiary: #6b7280;
+  --color-text-secondary: #b6bbc2;
+  --color-text-tertiary: #8b929b;
   --color-text-inverse: #202124;
   --color-text-on-primary: #202124;
   --color-text-body: #dfe3e8;
@@ -283,7 +283,7 @@
   --titlebar-saturate: 160%;
   --titlebar-border: rgba(255, 255, 255, 0.06);
 
-  --sidebar-bg: rgba(28, 29, 32, 0.7);
+  --sidebar-bg: rgba(28, 29, 32, 0.88);
   --sidebar-border: rgba(255, 255, 255, 0.06);
   --sidebar-blur: 28px;
   --sidebar-saturate: 150%;
@@ -1497,11 +1497,11 @@ html.electron-app #app {
   --color-bg-tertiary: rgba(232, 234, 240, 0.68);
   --color-surface: rgba(255, 255, 255, 0.72);
   --color-surface-hover: rgba(232, 234, 240, 0.68);
-  --sidebar-bg: rgba(248, 249, 250, 0.6);
+  --sidebar-bg: rgba(248, 249, 250, 0.86);
   /* T39：原来是 rgba(255,255,255,0.95)，与 :root 完全相同 —— 等于没覆盖。
      亚克力模式下正文区应当透出一点背景，改为 0.88。 */
-  --content-bg: rgba(255, 255, 255, 0.88);
-  --titlebar-bg: rgba(255, 255, 255, 0.45);
+  --content-bg: rgba(255, 255, 255, 0.93);
+  --titlebar-bg: rgba(255, 255, 255, 0.82);
   --card-bg: rgba(255, 255, 255, 0.72);
   --color-border: rgba(0, 0, 0, 0.06);
   --color-border-light: rgba(0, 0, 0, 0.04);
@@ -1521,7 +1521,7 @@ html.electron-app #app {
   /* 文本 */
   --color-text-primary: rgba(20, 23, 28, 0.92);
   --color-text-secondary: rgba(95, 99, 104, 0.85);
-  --color-text-tertiary: rgba(128, 134, 139, 0.78);
+  --color-text-tertiary: rgba(128, 134, 139, 0.85);
   --color-text-inverse: rgba(255, 255, 255, 0.95);
   --color-text-on-primary: rgba(255, 255, 255, 0.95);
   --color-text-body: rgba(35, 39, 46, 0.9);
@@ -1540,7 +1540,7 @@ html.electron-app #app {
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
 
   /* 侧边栏搜索框 / 计数徽标 —— 覆在亚克力侧栏上，必须半透明 */
-  --sidebar-search-bg: rgba(255, 255, 255, 0.45);
+  --sidebar-search-bg: rgba(255, 255, 255, 0.6);
   --sidebar-search-bg-hover: rgba(255, 255, 255, 0.62);
   --sidebar-search-bg-focus: rgba(255, 255, 255, 0.8);
   --sidebar-search-border: rgba(0, 0, 0, 0.08);
@@ -1553,11 +1553,11 @@ html.electron-app #app {
   --color-bg-tertiary: rgba(60, 64, 67, 0.68);
   --color-surface: rgba(48, 49, 52, 0.72);
   --color-surface-hover: rgba(60, 64, 67, 0.68);
-  --sidebar-bg: rgba(28, 29, 32, 0.6);
+  --sidebar-bg: rgba(28, 29, 32, 0.88);
   /* T39：原来是 rgba(32,33,36,0.93)，与 [data-theme='dark'] 完全相同 —— 等于没覆盖。
      深色亚克力下正文区改为 0.86，透出背后模糊层，消除「实色板」观感。 */
-  --content-bg: rgba(32, 33, 36, 0.86);
-  --titlebar-bg: rgba(28, 29, 32, 0.5);
+  --content-bg: rgba(32, 33, 36, 0.93);
+  --titlebar-bg: rgba(28, 29, 32, 0.85);
   --card-bg: rgba(41, 42, 45, 0.72);
   --color-border: rgba(255, 255, 255, 0.08);
   --color-border-light: rgba(255, 255, 255, 0.04);
@@ -1576,10 +1576,10 @@ html.electron-app #app {
   --color-surface-elevated: rgba(58, 59, 62, 0.82);
   --reading-bg: rgba(28, 29, 32, 0.85);
 
-  /* 文本 */
+  /* 文本（深色亚克力下原值偏暗，整体抬一档保证可读性；仍保持 translucent 口径） */
   --color-text-primary: rgba(241, 243, 244, 0.95);
-  --color-text-secondary: rgba(154, 160, 166, 0.85);
-  --color-text-tertiary: rgba(107, 114, 128, 0.78);
+  --color-text-secondary: rgba(182, 187, 194, 0.9);
+  --color-text-tertiary: rgba(139, 146, 155, 0.85);
   --color-text-inverse: rgba(32, 33, 36, 0.95);
   --color-text-on-primary: rgba(32, 33, 36, 0.95);
   --color-text-body: rgba(223, 227, 232, 0.92);
@@ -1598,8 +1598,8 @@ html.electron-app #app {
   --card-shadow: 0 4px 16px rgba(0, 0, 0, 0.38), 0 1px 2px rgba(0, 0, 0, 0.28);
 
   /* 侧边栏搜索框 / 计数徽标 */
-  --sidebar-search-bg: rgba(255, 255, 255, 0.06);
-  --sidebar-search-bg-hover: rgba(255, 255, 255, 0.12);
+  --sidebar-search-bg: rgba(255, 255, 255, 0.12);
+  --sidebar-search-bg-hover: rgba(255, 255, 255, 0.18);
   --sidebar-search-bg-focus: rgba(32, 33, 36, 0.78);
   --sidebar-search-border: rgba(255, 255, 255, 0.1);
   --sidebar-count-bg: rgba(255, 255, 255, 0.1);

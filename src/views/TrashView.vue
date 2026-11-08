@@ -74,6 +74,19 @@
       删除时若系统回收站可用，条目会直接进入<b>系统回收站</b>，不会出现在下面这个列表里 —— 那种情况请到系统回收站找回。
     </div>
 
+    <!-- ===================== 无通道友好态（示例 / 浏览器预览） ===================== -->
+    <div
+      v-if="channelMissing"
+      class="px-6 py-3 flex items-start gap-2 border-b"
+      :style="{ borderColor: 'var(--color-border-light)', background: 'var(--color-primary-surface)' }"
+      data-testid="trash-nochannel"
+    >
+      <Info class="w-4 h-4 flex-shrink-0 mt-0.5" :style="{ color: 'var(--color-primary)' }" />
+      <div class="flex-1 text-[13px] leading-5" :style="{ color: 'var(--color-text-secondary)' }">
+        当前是<b>示例模式 / 浏览器预览</b>，回收站需要桌面版（Electron 主进程）才能使用。安装并打开桌面版后即可查看与还原已删除的笔记。
+      </div>
+    </div>
+
     <!-- ===================== 错误态 ===================== -->
     <div
       v-if="errorMessage"
@@ -103,7 +116,7 @@
 
       <!-- 空态 -->
       <div
-        v-else-if="!errorMessage && entries.length === 0"
+        v-else-if="!errorMessage && !channelMissing && entries.length === 0"
         class="flex flex-col items-center justify-center py-24"
         data-testid="trash-empty"
       >
@@ -538,6 +551,8 @@ const trashExists = ref(true)
 const retentionDays = ref(30)
 const loading = ref(false)
 const errorMessage = ref('')
+/** 无 Electron 主进程 / 示例模式下回收站通道不可用：用友好提示替代吓人红错 */
+const channelMissing = ref(false)
 const selectedIds = ref([])
 const busyId = ref('')
 const purging = ref(false)
@@ -710,13 +725,19 @@ async function loadTrash () {
   errorMessage.value = ''
   try {
     const api = typeof window !== 'undefined' ? window.electronAPI : null
-    if (!api || typeof api.trashList !== 'function') {
+    const isSample =
+      appStore.notesLocation === 'sample' ||
+      (typeof localStorage !== 'undefined' && localStorage.getItem(LS_KEYS.notesLocation) === 'sample')
+    if (isSample || !api || typeof api.trashList !== 'function') {
       entries.value = []
       trashDir.value = ''
       retentionDays.value = 30
-      errorMessage.value = '当前环境没有回收站通道（需要 Electron 主进程）'
+      // 示例模式 / 浏览器预览没有主进程通道：用友好信息态替代吓人红错 + 无效重试
+      channelMissing.value = true
+      errorMessage.value = ''
       return
     }
+    channelMissing.value = false
     const res = await api.trashList()
     if (!res || res.ok === false) {
       entries.value = []

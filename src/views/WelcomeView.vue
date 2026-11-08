@@ -124,7 +124,7 @@
     <!-- 底部状态栏：统一毛玻璃效果 -->
     <div class="cho-statusbar">
       <span class="cho-statusbar-meta">
-        Choyeon Notes v{{ appVersion }} · 欢迎页面
+        Choyeon Notes{{ appVersion ? ' v' + appVersion : '' }} · 欢迎页面
       </span>
     </div>
   </div>
@@ -152,7 +152,7 @@ const log = createLogger(LOG_MODULES.app)
 
 const selectedPath = ref(null)
 const isLoading = ref(false)
-const appVersion = ref('2.0.2')
+const appVersion = ref('')
 const isElectron = computed(() => typeof window !== 'undefined' && !!window.electronAPI)
 
 onMounted(async () => {

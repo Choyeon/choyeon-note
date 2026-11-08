@@ -135,14 +135,14 @@
                   {{ cell.date }}
                 </div>
 
-                <div class="w-full mt-1 min-h-[36px] flex flex-col gap-0.5">
+                <div class="w-full mt-1 min-h-[36px] min-w-0 flex flex-col gap-0.5">
                   <div
                     v-for="note in cell.notes.slice(0, 2)"
                     :key="note.id"
-                    class="day-note px-1 py-0.5 rounded text-[9px] font-medium truncate transition-all duration-200 hover:opacity-80"
+                    class="day-note w-full min-w-0 px-1.5 py-0.5 rounded text-[10px] font-medium truncate transition-all duration-200 hover:opacity-80"
                     :style="{
                       background: 'var(--color-bg-tertiary)',
-                      color: 'var(--color-text-secondary)'
+                      color: 'var(--color-text-primary)'
                     }"
                     :title="note.title"
                     @click.stop="openNote(note.id)"

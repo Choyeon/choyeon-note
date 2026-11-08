@@ -685,9 +685,10 @@ const tagColorMap = computed(() => {
 function getNodeColor(node) {
   if (selectedNode.value === node.id) return 'var(--color-primary)'
   if (node.tags && node.tags.length > 0) {
-    return tagColorMap.value[node.tags[0]] || 'var(--color-surface)'
+    return tagColorMap.value[node.tags[0]] || 'var(--color-text-tertiary)'
   }
-  return 'var(--color-surface)'
+  // 无标签节点用中性灰而非 surface：深色下 surface 接近黑、浅色下接近白，都会「隐身」
+  return 'var(--color-text-tertiary)'
 }
 
 const neighborIds = computed(() => {
@@ -1234,6 +1235,33 @@ function startSimulation() {
       node.y += node.vy
     }
 
+    // 碰撞分离：力导向只管斥力/引力，不保证节点间最小间距，
+    // 小图上孤立节点容易被中心引力拽到一起、长标题标签互相压字。这里做一遍位置级
+    // 分离（不注入速度，避免干扰收敛判定）；大图交给带截断的斥力处理，避免 O(n²) 开销。
+    // 间距按两节点标题宽度估算（CJK 约 11px/字，截断到 14 字），保证标签不重叠。
+    if (nodesRaw.length < REPULSION_GRID_MIN) {
+      const labelHalf = (l) => (Math.min(String(l || '').length, 14) * 11) / 2 + 4
+      for (let i = 0; i < nodesRaw.length; i++) {
+        const a = nodesRaw[i]
+        for (let j = i + 1; j < nodesRaw.length; j++) {
+          const b = nodesRaw[j]
+          const dx = b.x - a.x
+          const dy = b.y - a.y
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1
+          const minDist = labelHalf(a.label) + labelHalf(b.label) + 28
+          if (dist < minDist) {
+            const push = (minDist - dist) / 2
+            const ux = dx / dist
+            const uy = dy / dist
+            a.x -= ux * push
+            a.y -= uy * push
+            b.x += ux * push
+            b.y += uy * push
+          }
+        }
+      }
+    }
+
     // 一帧只触发一次响应式更新，而不是 4N 次属性写入各触发一次
     frameTick.value++
     // 坐标动过了 → 标记脏（一次赋值，不做任何 IO；真正的写在收敛后才发生）
@@ -1256,6 +1284,8 @@ function startSimulation() {
       animationFrame = null
       // 坐标稳定了 —— 这才是唯一该排落盘的时刻（去抖 1s）
       scheduleSavePositions()
+      // 首次布局收敛后自动适配视图，避免大留白 / 标签重叠（用户手动操作过则跳过）
+      if (autoFitEnabled && nodesRaw.length > 0) fitView()
     }
   }
 
@@ -1376,23 +1406,49 @@ function zoomOut() {
   scale.value = Math.max(scale.value / 1.2, 0.3)
 }
 
-function resetView() {
+/**
+ * 按节点包围盒自动适配视图：把整张图缩放到刚好塞进画布（留边距），
+ * 消除「小团居中 + 大量留白 + 标签重叠」的初始观感。
+ * 仅在没有用户手动平移/缩放过时才自动触发（autoFitEnabled）。
+ */
+function fitView() {
   if (!measureContainer() || nodesRaw.length === 0) return
 
-  scale.value = 1
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+  for (const n of nodesRaw) {
+    if (n.x < minX) minX = n.x
+    if (n.y < minY) minY = n.y
+    if (n.x > maxX) maxX = n.x
+    if (n.y > maxY) maxY = n.y
+  }
+  const pad = 60
+  const bw = Math.max(maxX - minX, 1)
+  const bh = Math.max(maxY - minY, 1)
+  const sx = (containerRect.width - pad * 2) / bw
+  const sy = (containerRect.height - pad * 2) / bh
+  let s = Math.min(sx, sy)
+  s = Math.max(0.2, Math.min(s, 2))
+  scale.value = s
 
-  let sumX = 0
-  let sumY = 0
-  for (const n of nodesRaw) { sumX += n.x; sumY += n.y }
-  const centerX = sumX / nodesRaw.length
-  const centerY = sumY / nodesRaw.length
+  const cx = (minX + maxX) / 2
+  const cy = (minY + maxY) / 2
+  offsetX.value = containerRect.width / 2 - cx * s
+  offsetY.value = containerRect.height / 2 - cy * s
+}
 
-  offsetX.value = containerRect.width / 2 - centerX
-  offsetY.value = containerRect.height / 2 - centerY
+/** 首次布局稳定 / 重置时是否自动适配视图；用户一旦手动平移或缩放即关闭 */
+let autoFitEnabled = true
+
+function resetView() {
+  if (!measureContainer() || nodesRaw.length === 0) return
+  // 重置 = 重新适配内容，并把自动适配开关重新打开
+  autoFitEnabled = true
+  fitView()
 }
 
 function onWheel(e) {
   e.preventDefault()
+  autoFitEnabled = false
   const delta = e.deltaY > 0 ? 0.9 : 1.1
   const newScale = Math.max(0.3, Math.min(3, scale.value * delta))
 
@@ -1410,12 +1466,14 @@ function onWheel(e) {
 
 function onCanvasMouseDown(e) {
   if (e.button !== 0) return
+  autoFitEnabled = false
   isPanning.value = true
   lastMousePos.value = { x: e.clientX, y: e.clientY }
 }
 
 function startDragNode(node, e) {
   if (e.button !== 0) return
+  autoFitEnabled = false
   isDraggingNode.value = true
   draggedNodeId.value = node.id
   lastMousePos.value = { x: e.clientX, y: e.clientY }
@@ -1491,6 +1549,8 @@ onMounted(() => {
   nextTick(() => {
     if (!measureContainer()) return
     rebuildGraph()
+    // 若是从磁盘恢复了坐标（不再跑力导向），初次仍需适配一次视图
+    if (!simulationRunning && autoFitEnabled && nodesRaw.length > 0) fitView()
   })
 
   // 画布尺寸变化后中心点必须跟着变，否则窗口缩放后布局会偏到一边
@@ -1499,6 +1559,8 @@ onMounted(() => {
       const hadSize = containerRect.width > 0
       measureContainer()
       if (hadSize && simulationRunning) startSimulation()
+      // 没在跑力导向时（含从磁盘恢复坐标），尺寸变化后重新适配内容
+      else if (hadSize && autoFitEnabled && nodesRaw.length > 0) fitView()
     })
     resizeObserver.observe(graphContainer.value)
   }

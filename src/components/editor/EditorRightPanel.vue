@@ -4,17 +4,17 @@
     :style="{ borderColor: 'var(--sidebar-border)' }"
   >
     <div
-      class="flex items-stretch h-10 min-h-10 border-b px-2 gap-1 overflow-x-auto cho-scrollbar"
+      class="flex items-stretch h-10 min-h-10 border-b px-1.5 gap-1 overflow-x-auto cho-scrollbar"
       :style="{ borderColor: 'var(--color-border)' }"
     >
       <template v-for="panelTab in rightPanelTabs" :key="panelTab.key">
         <div
-          class="flex items-center px-2 cursor-pointer border-b-2 transition-colors whitespace-nowrap shrink-0"
+          class="flex items-center px-1.5 cursor-pointer border-b-2 transition-colors whitespace-nowrap shrink-0"
           :style="tab === panelTab.key ? { borderColor: 'var(--color-primary)' } : { borderColor: 'transparent' }"
           @click="setTab(panelTab.key)"
         >
-          <component :is="panelTab.icon" class="w-3.5 h-3.5 mr-1" :style="{ color: tab === panelTab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
-          <span class="text-[12px] font-medium" :style="{ color: tab === panelTab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">{{ panelTab.label }}</span>
+          <component :is="panelTab.icon" class="w-3 h-3 mr-1" :style="{ color: tab === panelTab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
+          <span class="text-[11px] font-medium" :style="{ color: tab === panelTab.key ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">{{ panelTab.label }}</span>
           <span
             v-if="panelTab.badge !== undefined && panelTab.badge > 0"
             class="ml-1 text-[10px] px-1.5 rounded-full"

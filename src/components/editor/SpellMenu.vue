@@ -62,7 +62,7 @@
 
 <script setup>
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
-import { X, BookPlus, EyeOff, Copy, CornerDownLeft } from 'lucide-vue-next'
+import { X, BookPlus, EyeOff, Copy, CornerDownLeft, ReplaceAll } from 'lucide-vue-next'
 
 const props = defineProps({
   show: { type: Boolean, default: false },
@@ -75,7 +75,7 @@ const props = defineProps({
   occurrences: { type: Number, default: 1 }
 })
 
-const emit = defineEmits(['close', 'replace', 'ignore', 'ignore-all', 'add-dictionary', 'copy'])
+const emit = defineEmits(['close', 'replace', 'replace-all', 'ignore', 'ignore-all', 'add-dictionary', 'copy'])
 
 const menuRef = ref(null)
 const size = ref({ w: 232, h: 260 })

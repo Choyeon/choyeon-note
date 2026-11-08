@@ -200,27 +200,6 @@ export function parseWikiLinks (md) {
   return results
 }
 
-// 与 parseWikiLinks 相同，但 start/end 是基于原始字符串的偏移（性能略低，用于 hover 定位）
-export function parseWikiLinksWithSourceMap (md) {
-  if (!md) return []
-  const results = []
-  const tokens = scanCodes(md)
-  let idx = 0
-  const re = new RegExp(WIKI_REGEX.source, WIKI_REGEX.flags)
-  let m
-  while ((m = re.exec(md)) !== null) {
-    const start = m.index
-    const end = m.index + m[0].length
-    if (inCode(tokens, start, end)) continue
-    const embed = m[1] === '!'
-    const target = m[2].trim()
-    const hash = (m[3] || '').replace(/^#/, '') || ''
-    const alias = (m[4] || '').replace(/^\|/, '') || ''
-    results.push({ raw: m[0], embed, target, hash, alias, start, end })
-    idx = end
-  }
-  return results
-}
 function scanCodes (text) {
   const tokens = []
   let i = 0

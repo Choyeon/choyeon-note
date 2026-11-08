@@ -56,15 +56,3 @@ export function formatDate (date, style = 'datetime') {
   return `${year}-${month}-${day} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`
 }
 
-/**
- * 按天分组用的日期键（YYYY-MM-DD，本地时区）。
- * 直接 new Date(...).toDateString() 会带上星期且受 locale 影响，不适合做 key。
- * @param {Date|number|string|null|undefined} date 日期值
- * @returns {string} 非法日期返回 ''
- */
-export function formatDateKey (date) {
-  if (!date) return ''
-  const d = toDate(date)
-  if (!d) return ''
-  return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-}

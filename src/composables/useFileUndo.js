@@ -103,14 +103,6 @@ export function bindUndoHost (host) {
 }
 
 /**
- * 取当前宿主（测试与诊断用）。
- * @returns {object|null} 宿主
- */
-export function getUndoHost () {
-  return undoHost
-}
-
-/**
  * 取栈的原始数组（测试 / 诊断用）。
  * @returns {Array<object>} 记录数组（由旧到新）
  */

@@ -30,11 +30,3 @@ export function writeLocal (key, value) {
   }
 }
 
-/** 删除键；存储不可用时不抛 */
-export function removeLocal (key) {
-  try {
-    localStorage.removeItem(key)
-  } catch {
-    /* 忽略：存储不可用 */
-  }
-}

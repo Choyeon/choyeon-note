@@ -580,30 +580,3 @@ export function insertText(text, selectOffset = text.length) {
 /** 插入标签起始符 `#`：后面接着敲文字即成标签，候选项由 obsidianAutocomplete 接管 */
 export const insertTag = insertText('#')
 
-export function insertTemplate(template) {
-  return (view) => {
-    const { state } = view
-    const range = state.selection.main
-    const line = state.doc.lineAt(range.from)
-    const prefix = range.from === line.from ? '' : '\n'
-    const insert = `${prefix}${template}\n`
-    view.dispatch({
-      changes: { from: range.from, to: range.to, insert },
-      selection: EditorSelection.cursor(range.from + insert.length),
-      scrollIntoView: true,
-      userEvent: 'input.insert'
-    })
-    return true
-  }
-}
-
-/** 折叠当前标题下的内容（配合 CM6 foldGutter 使用） */
-export const foldCurrentHeading = (view) => {
-  const { state } = view
-  const range = state.selection.main
-  const line = state.doc.lineAt(range.from)
-  if (!HEADING_RE.test(line.text)) return false
-  // 交由 CodeMirror 内置 foldCode 处理，这里只负责把光标挪到行首
-  view.dispatch({ selection: EditorSelection.cursor(line.from) })
-  return false
-}

@@ -47,15 +47,6 @@ export { NOTE_EXTENSIONS }
  */
 export const RESERVED_CONFLICT_ID = '__reserved__'
 
-/**
- * severity 三档的枚举（对外只读，方便调用方不写魔法字符串）。
- * - block：同 scope 实占 → 默认拒绝写入，可 override
- * - warn：跨 scope 抢键 / 保留键警告级 → 允许写入，仅提示
- * - hard：保留键硬拒绝 → 任何情况都不写
- * @type {Readonly<{BLOCK: string, WARN: string, HARD: string}>}
- */
-export const CONFLICT_SEVERITY = Object.freeze({ BLOCK: 'block', WARN: 'warn', HARD: 'hard' })
-
 export const useAppStore = defineStore('app', () => {
   const theme = ref('system')
   const systemTheme = ref('light')

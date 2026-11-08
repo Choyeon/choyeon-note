@@ -560,30 +560,3 @@ export function initLogging (options = {}) {
   }
 }
 
-/**
- * 取当前接线句柄的只读状态（未初始化时返回 null）。
- * 给设置页 / 测试用来判断「现在是落盘模式还是仅内存模式」。
- * @returns {object|null}
- */
-export function getLogTransportState () {
-  if (!state) return null
-  return {
-    mode: state.mode,
-    disabled: state.disabled,
-    queued: state.queue.length,
-    dropped: state.dropped,
-    failures: state.failures,
-    mainLevelSynced: state.mainLevelSynced
-  }
-}
-
-/**
- * 拆掉接线并恢复内核默认出口。测试收尾与 HMR 卸载用；
- * 应用正常退出时不必调用（窗口关闭即释放）。
- * @returns {void}
- */
-export function resetLogBootstrap () {
-  if (!state) return
-  disposeState(state)
-  state = null
-}

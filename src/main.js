@@ -2,6 +2,8 @@
 // main.js —— 应用入口
 // ============================================================================
 
+// Tauri 兼容层必须是第一个 import：env.js 在模块加载时就求值 IS_ELECTRON。
+import './utils/tauriBridge.js'
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import App from './App.vue'

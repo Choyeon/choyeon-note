@@ -7,6 +7,10 @@ dist-ssr/
 dist-electron*/
 out/
 
+# Tauri build output
+src-tauri/target/
+src-tauri/gen/
+
 # Electron builder output
 release/
 win-unpacked/

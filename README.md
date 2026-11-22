@@ -1,11 +1,12 @@
 # Choyeon Note
 
-[![Electron](https://img.shields.io/badge/Electron-43-47848F?logo=electron&logoColor=white)](https://www.electronjs.org/)
+[![Tauri](https://img.shields.io/badge/Tauri-2-FFC131?logo=tauri&logoColor=white)](https://tauri.app/)
+[![Rust](https://img.shields.io/badge/Rust-1.77%2B-DEA584?logo=rust&logoColor=white)](https://www.rust-lang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3-4FC08D?logo=vue.js&logoColor=white)](https://vuejs.org/)
 [![License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Release](https://img.shields.io/github/v/release/Choyeon/choyeon-note?label=Release)](https://github.com/Choyeon/choyeon-note/releases)
 
-**Choyeon Note** 是一款基于 Electron 与 Vue 3 的桌面 Markdown 笔记应用。它以你选择的本地目录作为笔记库，提供 CodeMirror 6 编辑器、Obsidian 风格的双向链接与本地文件管理能力——**笔记就是你目录里的 `.md` 文件，永远不锁死在任何数据库里**。
+**Choyeon Note** 是一款基于 Tauri 2 与 Vue 3 的桌面 Markdown 笔记应用。它以你选择的本地目录作为笔记库，提供 CodeMirror 6 编辑器、Obsidian 风格的双向链接与本地文件管理能力——**笔记就是你目录里的 `.md` 文件，永远不锁死在任何数据库里**。
 
 > 想要先看看长什么样？往下翻就是实拍界面预览 👇
 
@@ -102,7 +103,8 @@
 
 前往 [GitHub Releases](https://github.com/Choyeon/choyeon-note/releases) 页面，下载对应平台的最新安装包：
 
-- **Windows**：`ChoyeonNote-x64.exe`（NSIS 安装包）或 `ChoyeonNote-Portable-x64.exe`（免安装便携版）。
+- **Windows**：Tauri 生成的 `.msi` / `.exe` 安装包（由 `npm run tauri:build:win` 产出）。
+- **macOS**：`.dmg` / `.app`；**Linux**：`.deb` / `.AppImage`。
 - 应用内检测到新版本时会通过 GitHub Releases 自动提示更新。
 
 ### 方式二：从源码构建
@@ -111,7 +113,8 @@
 
 #### 环境要求
 
-- **Node.js 22.12.0 或更高版本**（当前锁定的 Electron 43.4.1 要求 `>=22.12.0`，Vite 8 要求 `^20.19.0 || >=22.12.0`，取交集后项目最低版本为 22.12.0）。
+- **Node.js 22.12.0 或更高版本**（Vite 8 要求 `^20.19.0 || >=22.12.0`）。
+- **Rust 1.77.2 或更高版本**，以及对应平台的 C/C++ 链接工具链（Windows 需 MSVC Build Tools 或 MinGW-w64）。
 - npm（随 Node.js 安装）。
 - Windows 发布流程（`build:c`）还需已完成身份认证的 GitHub CLI，并具备目标仓库 Release 权限。
 
@@ -127,12 +130,12 @@ npm install
 
 | 命令 | 用途 |
 |---|---|
-| `npm run dev` | 启动 Vite 前端开发服务器；不启动 Electron。 |
+| `npm run dev` | 启动 Vite 前端开发服务器；不启动桌面窗口。 |
 | `npm run build` | 构建前端资源到 `dist/`。 |
 | `npm run preview` | 使用 Vite 本地预览已构建的前端资源，通常先运行 `npm run build`。 |
-| `npm run electron:dev` | 并行启动 Vite 与 Electron，等待开发服务器就绪后打开桌面应用。 |
-| `npm run electron:build` | 构建前端，并用 electron-builder 打包当前平台。 |
-| `npm run electron:build:win` | 构建 Windows x64 的 NSIS 安装包与便携版。 |
+| `npm run tauri:dev` | 并行启动 Vite 与 Tauri 桌面窗口（推荐的开发方式）。 |
+| `npm run tauri:build` | 构建前端并打包当前平台的 Tauri 安装包。 |
+| `npm run tauri:build:win` | 构建 Windows x64（GNU 目标）的 Tauri 安装包。 |
 | `npm run generate:icons` | 从 `build/icons/source.png` 生成多尺寸 PNG 和 Windows ICO；也可在命令末尾通过 `-- <源图片路径>` 指定输入。 |
 | `npm run build:c` | Windows 专用：构建到 `C:\choyeon-note\v<版本>`，再通过 GitHub CLI 创建或更新对应 Release。 |
 | `npm test` | 以单次运行模式执行 Vitest 测试套件。 |
@@ -152,7 +155,7 @@ npm install
 
 | 层 | 技术 |
 |---|---|
-| 桌面运行时 | Electron `^43.1.1` |
+| 桌面运行时 | Tauri `2` + Rust（WebView2 / WKWebView / WebKitGTK） |
 | 前端框架 | Vue `^3.4.0` + Composition API |
 | 路由 | Vue Router `^4.2.5` |
 | 状态管理 | Pinia `^2.1.7` |
@@ -164,7 +167,7 @@ npm install
 | 样式 | Tailwind CSS `^3.4.0` + PostCSS + Autoprefixer |
 | 构建 | Vite `^8.2.0` |
 | 测试 | Vitest `^3.2.7` + jsdom |
-| 打包与更新 | electron-builder `^26.15.3` + electron-updater `^6.8.9` |
+| 打包与更新 | Tauri Bundler + GitHub Releases（Rust 侧检查与下载） |
 | 图标处理 | sharp `^0.35.3` + ICO 容器生成脚本 |
 
 ---
@@ -175,15 +178,24 @@ npm install
 choyeon-note/
 ├── build/
 │   └── icons/                    # 应用图标与生成结果
-├── electron/
-│   ├── main.cjs                  # Electron 主进程、文件系统与更新 IPC
-│   ├── preload.cjs               # 安全的渲染进程桥接
-│   └── path-safety.cjs           # 笔记目录路径校验
+├── electron/                     # 旧主进程源码（仅作为契约参考与测试夹具，不参与运行）
+├── src-tauri/
+│   ├── src/
+│   │   ├── fs_commands.rs        # 文件系统与路径安全
+│   │   ├── trash.rs              # 系统回收站 + 库内 .trash
+│   │   ├── watch.rs              # 笔记目录增量监听
+│   │   ├── logging.rs            # main.log 落盘与轮转
+│   │   ├── settings.rs           # 工作空间 / 映射表 / 密码本
+│   │   ├── system.rs             # 窗口、菜单、壁纸与更新
+│   │   └── state.rs              # 应用状态与路径兼容
+│   ├── capabilities/             # WebView 权限声明
+│   ├── icons/                    # 各平台应用图标
+│   └── tauri.conf.json           # 窗口、构建与打包配置
 ├── public/                       # 静态资源
 ├── scripts/
 │   ├── build-c.js                # Windows 构建与 GitHub Release 发布
 │   ├── generate-icons.js         # 多尺寸 PNG / ICO 生成
-│   └── screenshot.mjs            # 真实 Electron + CDP 自动截图（用于本 README）
+│   └── screenshot.mjs            # 历史 Electron 自动截图脚本（用于本 README 的既有截图）
 ├── src/
 │   ├── assets/
 │   │   └── code-themes/          # 6 份内置 Highlight.js 主题 CSS
@@ -203,7 +215,8 @@ choyeon-note/
 │   │   ├── dictionary.js          # 英文词库
 │   │   ├── markdown.js           # Markdown、Obsidian 语法与 Mermaid 渲染
 │   │   ├── noteIndex.js          # 双链、标签与大纲索引
-│   │   └── spellcheck.js         # 拼写检查与纠错建议
+│   │   ├── spellcheck.js         # 拼写检查与纠错建议
+│   │   └── tauriBridge.js        # Tauri → electronAPI 兼容层（渲染层零改动）
 │   ├── views/
 │   │   └── settings/             # 词典与快捷键设置子组件
 │   ├── App.vue
@@ -281,8 +294,8 @@ choyeon-note/
 
 - **笔记正文**：直接读写用户选择的工作空间目录，支持嵌套文件夹以及 `.md`、`.markdown`、`.txt` 文件。应用不会把笔记正文放进数据库。
 - **界面与编辑器配置**：保存在渲染进程 `localStorage`，键统一使用 `choyeon-` 前缀；集中定义的配置键见 `src/constants/storage.js`，当前笔记、最近访问与最近搜索等状态也沿用该前缀。
-- **Electron 应用数据**：当前工作空间写入 `userData/settings.json`，工作空间列表写入 `userData/workspaces.json`，拼写忽略词和自定义词典写入 `userData/spell-data.json`。
-- **密码本**：Electron 环境下按工作空间写入 `userData/vaults/<workspaceId>.json`，不会混入笔记目录；敏感值在 `safeStorage` 可用时使用操作系统凭据库加密。纯浏览器预览环境仅使用 `choyeon-kv-vault` 作为后备存储。
+- **应用数据**：Tauri 复用旧版 Electron 的 `userData` 目录，当前工作空间写入 `userData/settings.json`，工作空间列表写入 `userData/workspaces.json`，拼写忽略词和自定义词典写入 `userData/spell-data.json`，升级后原有配置不丢失。
+- **密码本**：桌面环境下按工作空间写入 `userData/vaults/<workspaceId>.json`，不会混入笔记目录；敏感值使用操作系统凭据库加密（Windows DPAPI）。纯浏览器预览环境仅使用 `choyeon-kv-vault` 作为后备存储。
 
 ---
 
@@ -291,8 +304,9 @@ choyeon-note/
 - 当前未实现数学公式或 KaTeX 渲染，`$...$` 与 `$$...$$` 不会被渲染为公式。
 - 拼写检查基于内置英文词库，仅检查英文单词；中文分词与中文拼写纠错不在当前能力范围内。
 - Highlight.js 使用约 40 种常用语言的精简集，而不是完整语言包；未收录语言会退化为自动检测或纯文本显示。
-- `npm run dev` 只启动浏览器中的前端，无法提供 Electron 文件系统、系统安全存储和自动更新能力；完整桌面开发请使用 `npm run electron:dev`。
-- 密码本依赖 Electron `safeStorage`。操作系统凭据库不可用时，敏感值会降级为明文落盘，界面会显示警告。
+- Tauri 无边框窗口不显示原生菜单栏；与原 Electron 版本视觉一致，所有操作仍可通过快捷键与命令面板完成。
+- `npm run dev` 只启动浏览器中的前端，无法提供桌面文件系统、系统安全存储和自动更新能力；完整桌面开发请使用 `npm run tauri:dev`。
+- 密码本依赖操作系统凭据库。在非 Windows 平台上当前不提供系统级加密，界面会显示相应提示。
 - `npm run build:c` 是仓库定制的 Windows 发布脚本，固定输出到 `C:\choyeon-note\v<版本>` 并操作 GitHub Releases，不适合作为通用本地打包命令。
 
 ---

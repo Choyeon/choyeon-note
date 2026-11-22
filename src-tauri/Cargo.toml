@@ -1,0 +1,43 @@
+[package]
+name = "choyeon-note"
+version = "2.0.0"
+description = "Choyeon Note - Tauri desktop Markdown notebook"
+authors = ["Choyeon"]
+license = "MIT"
+edition = "2021"
+rust-version = "1.77.2"
+
+[lib]
+name = "choyeon_note_lib"
+path = "src/lib.rs"
+
+[[bin]]
+name = "choyeon-note"
+path = "src/main.rs"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
+tauri-plugin-shell = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+chrono = "0.4"
+dirs = "7"
+notify = "8"
+walkdir = "2"
+reqwest = { version = "0.12", features = ["blocking", "json", "rustls-tls"] }
+base64 = "0.22"
+trash = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security_Cryptography", "Win32_System_Memory"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

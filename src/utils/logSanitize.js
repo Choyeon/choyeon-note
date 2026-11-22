@@ -264,7 +264,7 @@ function stripHome (normalized, home) {
 
 /**
  * ⚠️ 双副本警告（DUAL-COPY）：`redactPath` 及其关键正则 / 常量在
- * `electron/main.cjs` 里还有一份**等价的 CJS 副本** —— 主进程是 CommonJS 且
+ * `旧主进程实现（历史 Electron 版）` 里还有一份**等价的 CJS 副本** —— 主进程是 CommonJS 且
  * `src/` 不进安装包，无法 import 本模块。**改这里必须同步改那边**，否则
  * 「家目录必须遮蔽」会在主进程侧漏掉，而主进程记的恰恰是最容易夹带绝对路径的
  * 那些记录（写盘失败 / 越界拒绝 / errno 上下文）。

@@ -43,8 +43,8 @@ import {
 } from '../src/utils/trashIndex.js'
 
 const REAL_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const PRELOAD_PATH = path.join(REAL_ROOT, 'electron', 'preload.cjs')
-const MAIN_PATH = path.join(REAL_ROOT, 'electron', 'main.cjs')
+const PRELOAD_PATH = path.join(REAL_ROOT, 'tests', 'fixtures', 'legacy-electron', 'preload.cjs')
+const MAIN_PATH = path.join(REAL_ROOT, 'tests', 'fixtures', 'legacy-electron', 'main.cjs')
 
 const sha256 = (buf) => crypto.createHash('sha256').update(buf).digest('hex')
 
@@ -927,7 +927,7 @@ describe('trashIndex · 30 天过期清理', () => {
 // G. 双副本 / 通道一致性（主进程 + preload）
 //
 // 内核在 src/utils/trashIndex.js（ESM，被 vitest 直接加载），而真正跑 IPC 的
-// 是 electron/main.cjs —— 它不能 require src/（打包时 src 不进安装包，详见
+// 是 旧主进程实现（历史 Electron 版） —— 它不能 require src/（打包时 src 不进安装包，详见
 // tests/mainLogParity.test.js 的头部说明），所以那里有一份等价实现。
 // 副本一定会漂移，而漂移的后果是「UI 看到的元数据格式和主进程写出来的不是一
 // 回事」—— 这类故障单测永远抓不到，只能源码级比对。

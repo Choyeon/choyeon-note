@@ -2,9 +2,9 @@
 // mainLogParity.test.js —— 主进程日志侧与渲染侧脱敏/常量的一致性守卫
 //
 // 为什么必须有这个文件：
-//   `src/utils/logSanitize.js`（ESM）与 `electron/main.cjs`（CJS）里各有一份
+//   `src/utils/logSanitize.js`（ESM）与 `旧主进程实现（历史 Electron 版）`（CJS）里各有一份
 //   **等价的路径遮蔽实现**。不是有人偷懒复制 —— 主进程是 CommonJS，且
-//   electron-builder 只打包 dist/** 与 electron/**，`src/` 不进安装包，主进程一旦
+//   打包器 只打包 dist/** 与 electron/**，`src/` 不进安装包，主进程一旦
 //   import 就必定 MODULE_NOT_FOUND（dev 下能跑、打包后炸，是最坏的一类不一致）。
 //
 //   但副本就一定会漂移，而漂移的后果是**隐私**：主进程记的恰恰是最容易夹带绝对
@@ -43,7 +43,7 @@ import {
 import { SENSITIVE_KEY_PATTERN } from '@/utils/logSanitize'
 
 const PROJECT_ROOT = process.cwd()
-const MAIN_SRC = fs.readFileSync(path.join(PROJECT_ROOT, 'electron', 'main.cjs'), 'utf-8')
+const MAIN_SRC = fs.readFileSync(path.join(PROJECT_ROOT, 'tests', 'fixtures', 'legacy-electron', 'main.cjs'), 'utf-8')
 const SANITIZE_SRC = fs.readFileSync(path.join(PROJECT_ROOT, 'src', 'utils', 'logSanitize.js'), 'utf-8')
 
 /**

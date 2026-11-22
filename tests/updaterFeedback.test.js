@@ -41,7 +41,7 @@ import SettingsView, {
 } from '@/views/SettingsView.vue'
 
 /** 主进程源码：主进程行为只能用源码级断言覆盖（理由见文件头） */
-const MAIN_SRC = readFileSync(resolve(process.cwd(), 'electron', 'main.cjs'), 'utf8')
+const MAIN_SRC = readFileSync(resolve(process.cwd(), 'tests', 'fixtures', 'legacy-electron', 'main.cjs'), 'utf8')
 
 /** 设置页挂载后自动检查的延迟（与 SettingsView 的 2000ms 对齐） */
 const AUTO_CHECK_DELAY = 2000
@@ -526,7 +526,7 @@ describe('更新反馈 · E 主进程返回形状契约（源码级）', () => {
 
 describe('更新反馈 · F preload 事件白名单', () => {
   it('F1 【B】主进程发的 6 个事件，preload 一个不少地登记了，且退订会摘干净', () => {
-    const preload = readFileSync(resolve(process.cwd(), 'electron', 'preload.cjs'), 'utf8')
+    const preload = readFileSync(resolve(process.cwd(), 'tests', 'fixtures', 'legacy-electron', 'preload.cjs'), 'utf8')
     const channels = [
       'updater:checking',
       'updater:update-available',

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest'
 import path from 'node:path'
 import fs from 'node:fs/promises'
 import os from 'node:os'
-import { validatePath, safeJoin, validatePathAsync } from '../electron/path-safety.cjs'
+import { validatePath, safeJoin, validatePathAsync } from './fixtures/legacy-electron/path-safety.cjs'
 
 const BASE = path.resolve('/home/user/notes')
 const PARENT = path.resolve('/home/user')

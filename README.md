@@ -116,7 +116,6 @@
 - **Node.js 22.12.0 或更高版本**（Vite 8 要求 `^20.19.0 || >=22.12.0`）。
 - **Rust 1.77.2 或更高版本**，以及对应平台的 C/C++ 链接工具链（Windows 需 MSVC Build Tools 或 MinGW-w64）。
 - npm（随 Node.js 安装）。
-- Windows 发布流程（`build:c`）还需已完成身份认证的 GitHub CLI，并具备目标仓库 Release 权限。
 
 #### 安装依赖
 
@@ -137,7 +136,6 @@ npm install
 | `npm run tauri:build` | 构建前端并打包当前平台的 Tauri 安装包。 |
 | `npm run tauri:build:win` | 构建 Windows x64（GNU 目标）的 Tauri 安装包。 |
 | `npm run generate:icons` | 从 `build/icons/source.png` 生成多尺寸 PNG 和 Windows ICO；也可在命令末尾通过 `-- <源图片路径>` 指定输入。 |
-| `npm run build:c` | Windows 专用：构建到 `C:\choyeon-note\v<版本>`，再通过 GitHub CLI 创建或更新对应 Release。 |
 | `npm test` | 以单次运行模式执行 Vitest 测试套件。 |
 
 ---
@@ -178,7 +176,6 @@ npm install
 choyeon-note/
 ├── build/
 │   └── icons/                    # 应用图标与生成结果
-├── electron/                     # 旧主进程源码（仅作为契约参考与测试夹具，不参与运行）
 ├── src-tauri/
 │   ├── src/
 │   │   ├── fs_commands.rs        # 文件系统与路径安全
@@ -193,9 +190,7 @@ choyeon-note/
 │   └── tauri.conf.json           # 窗口、构建与打包配置
 ├── public/                       # 静态资源
 ├── scripts/
-│   ├── build-c.js                # Windows 构建与 GitHub Release 发布
-│   ├── generate-icons.js         # 多尺寸 PNG / ICO 生成
-│   └── screenshot.mjs            # 历史 Electron 自动截图脚本（用于本 README 的既有截图）
+│   └── generate-icons.js         # 多尺寸 PNG / ICO 生成
 ├── src/
 │   ├── assets/
 │   │   └── code-themes/          # 6 份内置 Highlight.js 主题 CSS
@@ -222,7 +217,10 @@ choyeon-note/
 │   ├── App.vue
 │   ├── main.js
 │   └── style.css
-├── tests/                        # Vitest 测试
+├── tests/
+│   ├── fixtures/
+│   │   └── legacy-electron/      # 旧主进程源码快照，仅作测试夹具
+│   └── *.test.js                 # Vitest 测试
 ├── index.html
 ├── package.json
 ├── package-lock.json
@@ -307,7 +305,6 @@ choyeon-note/
 - Tauri 无边框窗口不显示原生菜单栏；与原 Electron 版本视觉一致，所有操作仍可通过快捷键与命令面板完成。
 - `npm run dev` 只启动浏览器中的前端，无法提供桌面文件系统、系统安全存储和自动更新能力；完整桌面开发请使用 `npm run tauri:dev`。
 - 密码本依赖操作系统凭据库。在非 Windows 平台上当前不提供系统级加密，界面会显示相应提示。
-- `npm run build:c` 是仓库定制的 Windows 发布脚本，固定输出到 `C:\choyeon-note\v<版本>` 并操作 GitHub Releases，不适合作为通用本地打包命令。
 
 ---
 

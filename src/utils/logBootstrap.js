@@ -2,7 +2,7 @@
 // logBootstrap.js —— 渲染侧日志系统的「接线层」
 //
 // 位置：T08 交付的是内核（logger.js 只产出 LogEntry、只认 sink），T09 交付的是
-// 落盘侧（electron/main.cjs 的 log:append 通道 + 文件轮转）。两侧都就绪，但**中间
+// 落盘侧（旧主进程实现（历史 Electron 版） 的 log:append 通道 + 文件轮转）。两侧都就绪，但**中间
 // 那根线没人接**：内核默认 sink 是 consoleSink，只往控制台打，主进程的 log:append
 // 因此没有任何真实调用方，日志根本落不了盘。本模块就是那根线。
 //

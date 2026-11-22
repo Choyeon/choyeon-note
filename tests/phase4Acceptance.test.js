@@ -319,7 +319,7 @@ describe('C · 日志双份拷贝守卫的有效性', () => {
   })
 
   it('C2 独立复核：两份实现里同一组正则/常量字面值逐字相同（换一套取法再比一次）', () => {
-    const main = readSrc('electron/main.cjs')
+    const main = readSrc('tests/fixtures/legacy-electron/main.cjs')
     const sanitize = readSrc('src/utils/logSanitize.js')
     const flat = (s) => s.replace(/\s+/g, ' ')
 
@@ -344,7 +344,7 @@ describe('C · 日志双份拷贝守卫的有效性', () => {
   })
 
   it('C3 两份都必须有 DUAL-COPY 标记（提醒改一处必须改两处）', () => {
-    expect(readSrc('electron/main.cjs')).toContain('DUAL-COPY')
+    expect(readSrc('tests/fixtures/legacy-electron/main.cjs')).toContain('DUAL-COPY')
     expect(readSrc('src/utils/logSanitize.js')).toContain('DUAL-COPY')
   })
 })

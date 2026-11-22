@@ -10,7 +10,7 @@
 // 硬约束：**本文件必须零 import、零副作用**。
 // 与 utils/fileNaming.js 同一个理由 —— 它要同时被
 //   · 渲染进程（ESM，走 Vite 打包）
-//   · 主进程（electron/main.cjs，CommonJS）
+//   · 主进程（旧主进程实现（历史 Electron 版），CommonJS）
 //   · 单测（vitest / 纯 node）
 // 复用。任何依赖都会让其中一侧加载不了。这里连 type-only 的工具函数都不放，
 // 只放数据；需要计算的地方一律放进 logger.js / logSanitize.js。

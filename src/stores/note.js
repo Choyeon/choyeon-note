@@ -173,7 +173,7 @@ async function safeWriteFile (filePath, content) {
  * 笔记文件扩展名白名单（KNOWN_EXTENSIONS）与后缀匹配（EXT_PATTERN）来自
  * @/constants/noteFile —— 渲染侧唯一来源，与 app.js 的 NOTE_EXTENSIONS 同源。
  * 载入时三种都认，切换默认扩展名不会让旧笔记"消失"；新建时才按设置项决定。
- * 主进程 electron/main.cjs 里的那份刻意保持独立：那是安全边界，不能由渲染
+ * 主进程 旧主进程实现（历史 Electron 版） 里的那份刻意保持独立：那是安全边界，不能由渲染
  * 进程的常量来约束文件读写。
  */
 

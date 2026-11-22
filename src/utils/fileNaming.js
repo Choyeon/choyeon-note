@@ -13,7 +13,7 @@
 //     按 JS 的 UTF-16 长度去截会把多字节汉字切一半，磁盘上留下乱码文件名。
 //
 // 方案：全部收进一个零 import 的纯函数模块。零 import 是硬要求 —— 这个模块要同时
-// 被渲染进程（store / 视图）、主进程（electron/main.cjs）和单测复用，任何
+// 被渲染进程（store / 视图）、主进程（旧主进程实现（历史 Electron 版））和单测复用，任何
 // `import node:path` 之类的依赖都会让它没法在主进程侧直接 require。
 //
 // 不变量（由 tests/fileNaming.test.js 逐条断言）：

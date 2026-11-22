@@ -469,13 +469,13 @@ export function resetLogger () {
 // 给主进程落盘方（T09）的对照实现
 //
 // 为什么这里要写一份注释里的 CJS：
-//   package.json 是 "type": "module"，主进程是 electron/main.cjs（CommonJS），
-//   而 electron-builder 的 files 只打包 `dist/**`、`electron/**`——src/ 不进安装包。
+//   package.json 是 "type": "module"，主进程是 旧主进程实现（历史 Electron 版）（CommonJS），
+//   而 打包器 的 files 只打包 `dist/**`——src/ 不进安装包。
 //   所以主进程**不应该** `require('../src/utils/logger.js')`：dev 下能跑（Node ≥22.12
 //   支持 require(ESM)），打包后必定 MODULE_NOT_FOUND。这与 utils/noteFile.js 的
 //   做法一致：主进程保留自己的那份安全边界实现。
 //
-// 因此主进程请把下面这段复制进 electron/main.cjs，并保持**输出格式与本文件格式
+// 因此主进程请把下面这段复制进 旧主进程实现（历史 Electron 版），并保持**输出格式与本文件格式
 // 逐字节一致**，两份记录才能在同一个 main.log 里按时间戳正确排序（R-L3）：
 //
 //   // 与 src/utils/logger.js 的 formatLogLine 保持逐字节一致（design §4.4）

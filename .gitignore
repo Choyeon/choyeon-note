@@ -3,19 +3,11 @@ node_modules/
 # Build output
 dist/
 dist-ssr/
-# 带数字后缀的是「输出目录被锁死时换目录重打」的产物（dist-electron2/3/…），同样不能提交
-dist-electron*/
 out/
 
 # Tauri build output
 src-tauri/target/
 src-tauri/gen/
-
-# Electron builder output
-release/
-win-unpacked/
-*.blockmap
-latest.yml
 
 # Logs
 logs/
@@ -63,9 +55,6 @@ coverage/
 *.tmp
 *.orig
 *.rej
-
-# Electron builder cache
-.electron-builder-cache/
 
 # Assistant workspace data
 tmp/

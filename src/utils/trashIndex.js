@@ -24,7 +24,7 @@
 //      目录」的顺序兜底恢复 originPath，并在条目上打 `degraded` 标记，让 UI 能诚实
 //      地标出「原位置未知」，而不是装作精确。
 //
-// 通道侧 wiring 在 electron/main.cjs（trash:list / trash:restore / trash:purge），
+// 通道侧 wiring 在 旧主进程实现（历史 Electron 版）（trash:list / trash:restore / trash:purge），
 // UI 侧接线是 T28 的 TrashView.vue。
 // ============================================================================
 

@@ -6,7 +6,7 @@
 //   B 去抖与 flush：连写合并、即时 flush、beforeunload / pagehide 兜底；
 //   C 浏览器降级：没有 electronAPI 时走 localStorage，含损坏 / 存储不可用；
 //   D 绝不写用户 .md：真实临时目录里的 .md 跑完整流程，逐字节比对；
-//   E 真实 main.cjs：在子进程里用桩 electron 模块 require 真实的 electron/main.cjs
+//   E 真实 main.cjs：在子进程里用桩 electron 模块 require 真实的 旧主进程实现（历史 Electron 版）
 //     （本项目没有 vitest setup 文件，electron 不是浏览器能 require 的东西），注入
 //     fs 探针后驱动 idmap:load / idmap:save 通道，验证「原子写 = tmp + rename」。
 //
@@ -623,7 +623,7 @@ describe('D · 映射表流程绝不触碰用户的 .md（字节级）', () => {
 })
 
 // ===========================================================================
-// E · 真实 electron/main.cjs（子进程 + 桩宿主）
+// E · 真实 旧主进程实现（历史 Electron 版）（子进程 + 桩宿主）
 // ===========================================================================
 
 /**
@@ -752,7 +752,7 @@ const MAIN_HARNESS = [
 ].join('\n')
 
 /**
- * 在子进程里驱动真实的 electron/main.cjs。
+ * 在子进程里驱动真实的 旧主进程实现（历史 Electron 版）。
  *
  * 用**异步** execFile 而不是 spawnSync：Node 在 Windows 上对 synchronize spawn 有
  * EBUSY 限制（libuv 同一时刻只允许一个同步 spawn，vitest 的 worker 线程里必踩），
@@ -773,7 +773,7 @@ async function runMainScenario (scenario, extra, userData) {
     T16_SCENARIO: scenario,
     T16_EXTRA_JSON: JSON.stringify(extra || {}),
     T16_RESULT: resultPath,
-    T16_MAIN: nodePath.join(PROJECT_ROOT, 'electron', 'main.cjs')
+    T16_MAIN: nodePath.join(PROJECT_ROOT, 'tests', 'fixtures', 'legacy-electron', 'main.cjs')
   }
 
   let stderr = ''
@@ -804,7 +804,7 @@ async function runMainScenario (scenario, extra, userData) {
   return { out: result.out, stderr, result }
 }
 
-describe('E · 真实 electron/main.cjs 通道（宿主打桩，业务代码不打桩）', () => {
+describe('E · 真实 旧主进程实现（历史 Electron 版） 通道（宿主打桩，业务代码不打桩）', () => {
   it('E1 idmap:load / idmap:save 两个通道确实注册了', async () => {
     const { out } = await runMainScenario('missing')
     expect(out.channels.sort()).toEqual(['idmap:load', 'idmap:save'])
@@ -921,8 +921,8 @@ describe('E · 真实 electron/main.cjs 通道（宿主打桩，业务代码不�
   })
 
   it('E12 preload 与主进程的通道名逐一对得上（打错字只会静默失效）', () => {
-    const preloadSrc = fs.readFileSync(nodePath.join(PROJECT_ROOT, 'electron', 'preload.cjs'), 'utf-8')
-    const mainSrc = fs.readFileSync(nodePath.join(PROJECT_ROOT, 'electron', 'main.cjs'), 'utf-8')
+    const preloadSrc = fs.readFileSync(nodePath.join(PROJECT_ROOT, 'tests', 'fixtures', 'legacy-electron', 'preload.cjs'), 'utf-8')
+    const mainSrc = fs.readFileSync(nodePath.join(PROJECT_ROOT, 'tests', 'fixtures', 'legacy-electron', 'main.cjs'), 'utf-8')
     const storeSrc = fs.readFileSync(nodePath.join(PROJECT_ROOT, 'src', 'utils', 'idMapStore.js'), 'utf-8')
 
     const invoked = new Set([...preloadSrc.matchAll(/ipcRenderer\.invoke\('([^']+)'/g)].map(m => m[1]))

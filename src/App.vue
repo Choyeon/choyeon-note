@@ -27,7 +27,7 @@
       >
         <div class="flex items-center gap-2">
           <img
-            src="/icon.png"
+            :src="titlebarIcon"
             alt=""
             class="titlebar-icon"
             draggable="false"
@@ -157,6 +157,7 @@
 </template>
 
 <script setup>
+import titlebarIcon from './assets/icon.png?url'
 import { computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAppStore } from './stores/app'

@@ -4,7 +4,7 @@
 use std::{
     io::Write,
     path::PathBuf,
-    sync::{atomic::Ordering, Mutex},
+    sync::{atomic::Ordering, Arc, Mutex},
     thread,
     time::Duration,
 };
@@ -242,7 +242,7 @@ fn version_newer(latest: &str, current: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn check_for_updates(state: State<'_, AppState>, app: tauri::AppHandle) -> Value {
+pub fn check_for_updates(state: State<'_, Arc<AppState>>, app: tauri::AppHandle) -> Value {
     state.emit("updater:checking", ());
     if state.update_in_flight.swap(true, Ordering::SeqCst) {
         return json!({ "ok": true, "skipped": true });
@@ -304,7 +304,7 @@ pub fn check_for_updates(state: State<'_, AppState>, app: tauri::AppHandle) -> V
 }
 
 #[tauri::command]
-pub fn download_update(state: State<'_, AppState>) -> Value {
+pub fn download_update(state: State<'_, Arc<AppState>>) -> Value {
     #[cfg(target_os = "windows")]
     let asset_hint = ".exe";
     #[cfg(target_os = "macos")]
@@ -404,7 +404,7 @@ pub fn download_update(state: State<'_, AppState>) -> Value {
 }
 
 #[tauri::command]
-pub fn quit_and_install(state: State<'_, AppState>, app: tauri::AppHandle) -> Value {
+pub fn quit_and_install(state: State<'_, Arc<AppState>>, app: tauri::AppHandle) -> Value {
     let file = UPDATE_FILE.lock().unwrap().clone();
     let file = match file {
         Some(f) if f.exists() => f,

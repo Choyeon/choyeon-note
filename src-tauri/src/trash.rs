@@ -4,6 +4,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -339,7 +340,7 @@ pub(crate) fn delete_with_trash(state: &AppState, safe_path: &Path, detail: bool
 }
 
 #[tauri::command]
-pub fn trash_list(state: State<'_, AppState>, payload: Option<Value>) -> Value {
+pub fn trash_list(state: State<'_, Arc<AppState>>, payload: Option<Value>) -> Value {
     let opts = payload.unwrap_or(json!({}));
     let notes = state.notes_path.lock().unwrap().clone();
     if notes.is_none() {
@@ -392,7 +393,7 @@ pub fn trash_list(state: State<'_, AppState>, payload: Option<Value>) -> Value {
 }
 
 #[tauri::command]
-pub fn trash_restore(state: State<'_, AppState>, payload: Option<Value>) -> Value {
+pub fn trash_restore(state: State<'_, Arc<AppState>>, payload: Option<Value>) -> Value {
     let opts = payload.unwrap_or(json!({}));
     if state.notes_path.lock().unwrap().is_none() {
         return json!({ "ok": false, "error": "no-notes-path", "message": "尚未设置笔记目录" });
@@ -522,7 +523,7 @@ fn copy_dir_recursive(from: &Path, to: &Path) -> std::io::Result<()> {
 }
 
 #[tauri::command]
-pub fn trash_purge(state: State<'_, AppState>, payload: Option<Value>) -> Value {
+pub fn trash_purge(state: State<'_, Arc<AppState>>, payload: Option<Value>) -> Value {
     let opts = payload.unwrap_or(json!({}));
     if state.notes_path.lock().unwrap().is_none() {
         return json!({ "ok": false, "error": "no-notes-path", "purged": [], "failed": [], "message": "尚未设置笔记目录" });

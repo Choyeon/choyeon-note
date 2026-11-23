@@ -2,7 +2,7 @@
 //! All files live under the same userData directory Electron used, so existing
 //! installations keep their settings across the migration.
 
-use std::path::PathBuf;
+use std::{path::PathBuf, sync::Arc};
 
 use serde_json::{json, Value};
 use tauri::State;
@@ -14,7 +14,7 @@ use crate::{
 };
 
 #[tauri::command]
-pub fn spell_load(state: State<'_, AppState>) -> Value {
+pub fn spell_load(state: State<'_, Arc<AppState>>) -> Value {
     let value = read_json(&state.spell_file(), json!({}));
     json!({
         "ignoredWords": value.get("ignoredWords").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
@@ -23,7 +23,7 @@ pub fn spell_load(state: State<'_, AppState>) -> Value {
 }
 
 #[tauri::command]
-pub fn spell_save(state: State<'_, AppState>, payload: Value) -> bool {
+pub fn spell_save(state: State<'_, Arc<AppState>>, payload: Value) -> bool {
     let value = json!({
         "ignoredWords": payload.get("ignoredWords").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
         "customDictionary": payload.get("customDictionary").and_then(|v| v.as_array()).cloned().unwrap_or_default(),
@@ -32,7 +32,7 @@ pub fn spell_save(state: State<'_, AppState>, payload: Value) -> bool {
 }
 
 #[tauri::command]
-pub fn idmap_load(state: State<'_, AppState>) -> Value {
+pub fn idmap_load(state: State<'_, Arc<AppState>>) -> Value {
     let file = state.id_map_file();
     if !file.exists() {
         return json!({ "ok": true, "data": null });
@@ -53,7 +53,7 @@ pub fn idmap_load(state: State<'_, AppState>) -> Value {
 }
 
 #[tauri::command]
-pub fn idmap_save(state: State<'_, AppState>, payload: Option<Value>) -> Value {
+pub fn idmap_save(state: State<'_, Arc<AppState>>, payload: Option<Value>) -> Value {
     let payload = match payload {
         Some(p) if p.is_object() && p.get("byPath").and_then(|v| v.as_object()).is_some() => p,
         _ => {
@@ -79,12 +79,12 @@ pub fn idmap_save(state: State<'_, AppState>, payload: Option<Value>) -> Value {
 }
 
 #[tauri::command]
-pub fn workspace_list(state: State<'_, AppState>) -> Value {
+pub fn workspace_list(state: State<'_, Arc<AppState>>) -> Value {
     read_json(&state.workspaces_file(), json!([]))
 }
 
 #[tauri::command]
-pub fn workspace_save(state: State<'_, AppState>, workspaces: Option<Value>) -> bool {
+pub fn workspace_save(state: State<'_, Arc<AppState>>, workspaces: Option<Value>) -> bool {
     let list = workspaces
         .and_then(|v| v.as_array().cloned())
         .unwrap_or_default();
@@ -92,14 +92,14 @@ pub fn workspace_save(state: State<'_, AppState>, workspaces: Option<Value>) -> 
 }
 
 #[tauri::command]
-pub fn workspace_set_active(state: State<'_, AppState>, id: Option<String>) -> bool {
+pub fn workspace_set_active(state: State<'_, Arc<AppState>>, id: Option<String>) -> bool {
     *state.active_workspace.lock().unwrap() = id;
     state.save_settings();
     true
 }
 
 #[tauri::command]
-pub fn workspace_get_active(state: State<'_, AppState>) -> Option<String> {
+pub fn workspace_get_active(state: State<'_, Arc<AppState>>) -> Option<String> {
     state.active_workspace.lock().unwrap().clone()
 }
 
@@ -109,7 +109,7 @@ fn vault_file_for(state: &AppState, workspace_id: Option<&str>) -> PathBuf {
 }
 
 #[tauri::command]
-pub fn vault_load(state: State<'_, AppState>, workspace_id: Option<String>) -> Value {
+pub fn vault_load(state: State<'_, Arc<AppState>>, workspace_id: Option<String>) -> Value {
     let id = workspace_id.as_deref();
     if let Some(value) = id {
         if !value.is_empty() && !safe_id(value) {
@@ -126,7 +126,7 @@ pub fn vault_load(state: State<'_, AppState>, workspace_id: Option<String>) -> V
 
 #[tauri::command]
 pub fn vault_save(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     workspace_id: Option<String>,
     entries: Option<Value>,
 ) -> bool {
@@ -264,6 +264,6 @@ fn dpapi_decrypt(cipher: &[u8]) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn flush_complete(state: State<'_, AppState>) {
+pub fn flush_complete(state: State<'_, Arc<AppState>>) {
     crate::system::resolve_flush(&state);
 }

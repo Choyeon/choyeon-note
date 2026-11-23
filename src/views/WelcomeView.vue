@@ -168,26 +168,44 @@ onMounted(async () => {
 
 async function selectNotesFolder() {
   if (!window.electronAPI) {
-    alert('请在 Electron 环境中使用此功能')
+    alert('请在桌面环境中使用此功能')
     return
   }
-  
-  const path = await window.electronAPI.selectNotesPath()
-  if (path) {
-    selectedPath.value = path
+
+  log.info('选择笔记文件夹：打开目录选择器')
+  try {
+    const path = await window.electronAPI.selectNotesPath()
+    log.info('选择笔记文件夹：结果', { path: path || null })
+    if (path) selectedPath.value = path
+  } catch (error) {
+    log.error('选择笔记文件夹失败', error)
+    alert(`打开目录选择器失败：${error?.message || error}`)
   }
 }
 
 async function createNewNotesFolder() {
   if (!window.electronAPI) {
-    alert('请在 Electron 环境中使用此功能')
+    alert('请在桌面环境中使用此功能')
     return
   }
-  
-  const path = await window.electronAPI.selectNotesPath()
-  if (path) {
-    await window.electronAPI.createDirectory(path)
+
+  log.info('新建笔记文件夹：打开目录选择器')
+  try {
+    const path = await window.electronAPI.selectNotesPath()
+    if (!path) {
+      log.info('新建笔记文件夹：用户取消')
+      return
+    }
+    const created = await window.electronAPI.createDirectory(path)
+    log.info('新建笔记文件夹：结果', { path, created })
+    if (created === false) {
+      alert('创建文件夹失败，请检查目录权限')
+      return
+    }
     selectedPath.value = path
+  } catch (error) {
+    log.error('新建笔记文件夹失败', error)
+    alert(`创建文件夹失败：${error?.message || error}`)
   }
 }
 

@@ -4,6 +4,7 @@
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::Arc,
 };
 
 use serde_json::{json, Value};
@@ -42,8 +43,13 @@ pub(crate) fn apply_notes_path(state: &AppState, candidate: &str) -> bool {
 }
 
 #[tauri::command]
-pub fn app_select_notes_path(state: State<'_, AppState>, app: tauri::AppHandle) -> Option<String> {
+pub fn app_select_notes_path(state: State<'_, Arc<AppState>>, app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
+    // TEMP-PROBE
+    let _ = std::fs::write(
+        r"C:\Users\Choyeon\Projects\choyeon-note\tmp\dialog-probe.txt",
+        "reached-rust",
+    );
     let home = dirs::home_dir().unwrap_or_default().join("Documents");
     let folder = app
         .dialog()
@@ -65,7 +71,7 @@ pub fn app_select_notes_path(state: State<'_, AppState>, app: tauri::AppHandle) 
 }
 
 #[tauri::command]
-pub fn app_get_notes_path(state: State<'_, AppState>) -> Option<String> {
+pub fn app_get_notes_path(state: State<'_, Arc<AppState>>) -> Option<String> {
     state
         .notes_path
         .lock()
@@ -74,12 +80,12 @@ pub fn app_get_notes_path(state: State<'_, AppState>) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn app_set_notes_path(state: State<'_, AppState>, candidate: String) -> bool {
+pub fn app_set_notes_path(state: State<'_, Arc<AppState>>, candidate: String) -> bool {
     apply_notes_path(&state, &candidate)
 }
 
 #[tauri::command]
-pub fn fs_read_directory(state: State<'_, AppState>, dir_path: String) -> Value {
+pub fn fs_read_directory(state: State<'_, Arc<AppState>>, dir_path: String) -> Value {
     let safe = match validate_path_async(&state.notes_path.lock().unwrap(), &dir_path) {
         Ok(p) => p,
         Err(e) => {
@@ -140,7 +146,7 @@ pub fn fs_read_directory(state: State<'_, AppState>, dir_path: String) -> Value 
 }
 
 #[tauri::command]
-pub fn fs_read_directory_recursive(state: State<'_, AppState>, dir_path: String) -> Value {
+pub fn fs_read_directory_recursive(state: State<'_, Arc<AppState>>, dir_path: String) -> Value {
     let safe = match validate_path_async(&state.notes_path.lock().unwrap(), &dir_path) {
         Ok(p) => p,
         Err(_) => return json!([]),
@@ -203,7 +209,7 @@ pub fn fs_read_directory_recursive(state: State<'_, AppState>, dir_path: String)
 }
 
 #[tauri::command]
-pub fn fs_read_file(state: State<'_, AppState>, file_path: String) -> Option<String> {
+pub fn fs_read_file(state: State<'_, Arc<AppState>>, file_path: String) -> Option<String> {
     let safe = validate_path_async(&state.notes_path.lock().unwrap(), &file_path).ok()?;
     match fs::read_to_string(safe) {
         Ok(s) => Some(s),
@@ -215,7 +221,7 @@ pub fn fs_read_file(state: State<'_, AppState>, file_path: String) -> Option<Str
 }
 
 #[tauri::command]
-pub fn fs_read_files(state: State<'_, AppState>, payload: Value) -> Value {
+pub fn fs_read_files(state: State<'_, Arc<AppState>>, payload: Value) -> Value {
     let requested: Vec<String> = payload
         .get("paths")
         .and_then(|v| v.as_array())
@@ -243,7 +249,7 @@ pub fn fs_read_files(state: State<'_, AppState>, payload: Value) -> Value {
 
 #[tauri::command]
 pub fn fs_write_file(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     file_path: String,
     content: Value,
     options: Option<Value>,
@@ -291,7 +297,7 @@ pub fn fs_write_file(
 }
 
 #[tauri::command]
-pub fn fs_create_directory(state: State<'_, AppState>, dir_path: String) -> bool {
+pub fn fs_create_directory(state: State<'_, Arc<AppState>>, dir_path: String) -> bool {
     let safe = match validate_path_async(&state.notes_path.lock().unwrap(), &dir_path) {
         Ok(p) => p,
         Err(_) => return false,
@@ -301,7 +307,7 @@ pub fn fs_create_directory(state: State<'_, AppState>, dir_path: String) -> bool
 }
 
 #[tauri::command]
-pub fn fs_file_exists(state: State<'_, AppState>, file_path: String) -> bool {
+pub fn fs_file_exists(state: State<'_, Arc<AppState>>, file_path: String) -> bool {
     validate_path_async(&state.notes_path.lock().unwrap(), &file_path)
         .map(|p| p.exists())
         .unwrap_or(false)
@@ -309,7 +315,7 @@ pub fn fs_file_exists(state: State<'_, AppState>, file_path: String) -> bool {
 
 #[tauri::command]
 pub fn fs_move_file(
-    state: State<'_, AppState>,
+    state: State<'_, Arc<AppState>>,
     old_path: String,
     new_path: String,
     options: Option<Value>,
@@ -359,7 +365,7 @@ pub fn fs_move_file(
 }
 
 #[tauri::command]
-pub fn fs_delete_file(state: State<'_, AppState>, file_path: String, options: Option<Value>) -> Value {
+pub fn fs_delete_file(state: State<'_, Arc<AppState>>, file_path: String, options: Option<Value>) -> Value {
     let detail = options
         .as_ref()
         .and_then(|o| o.get("detail"))
@@ -377,7 +383,7 @@ pub fn fs_delete_file(state: State<'_, AppState>, file_path: String, options: Op
 }
 
 #[tauri::command]
-pub fn fs_remove_dir(state: State<'_, AppState>, dir_path: String, options: Option<Value>) -> Value {
+pub fn fs_remove_dir(state: State<'_, Arc<AppState>>, dir_path: String, options: Option<Value>) -> Value {
     let detail = options
         .as_ref()
         .and_then(|o| o.get("detail"))
@@ -403,18 +409,18 @@ pub fn fs_remove_dir(state: State<'_, AppState>, dir_path: String, options: Opti
 }
 
 #[tauri::command]
-pub fn fs_watch_notes(state: State<'_, AppState>, dir_path: Option<String>) -> bool {
+pub fn fs_watch_notes(state: State<'_, Arc<AppState>>, dir_path: Option<String>) -> bool {
     crate::watch::start_watching(&state, dir_path)
 }
 
 #[tauri::command]
-pub fn fs_unwatch_notes(state: State<'_, AppState>) -> bool {
+pub fn fs_unwatch_notes(state: State<'_, Arc<AppState>>) -> bool {
     crate::watch::stop_watching(&state);
     true
 }
 
 #[tauri::command]
-pub fn workspace_probe(_state: State<'_, AppState>, dir_path: String) -> Value {
+pub fn workspace_probe(_state: State<'_, Arc<AppState>>, dir_path: String) -> Value {
     let path = PathBuf::from(&dir_path);
     if !path.is_dir() {
         return json!({ "exists": false, "count": 0, "folders": 0, "writable": false });

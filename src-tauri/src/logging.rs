@@ -6,7 +6,7 @@ use std::{
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
-    sync::atomic::Ordering,
+    sync::{atomic::Ordering, Arc},
     time::{SystemTime, UNIX_EPOCH},
 };
 
@@ -367,7 +367,7 @@ fn redact_value(value: &Value) -> Value {
 }
 
 #[tauri::command]
-pub fn log_append(state: State<'_, AppState>, entry: Value) -> Value {
+pub fn log_append(state: State<'_, Arc<AppState>>, entry: Value) -> Value {
     let list: Vec<Value> = if entry.is_array() {
         entry.as_array().unwrap().clone()
     } else {
@@ -391,7 +391,7 @@ pub fn log_append(state: State<'_, AppState>, entry: Value) -> Value {
 }
 
 #[tauri::command]
-pub fn log_read(state: State<'_, AppState>, limit: Option<usize>) -> Value {
+pub fn log_read(state: State<'_, Arc<AppState>>, limit: Option<usize>) -> Value {
     let file = state.log.file.clone();
     let text = match std::fs::read_to_string(&file) {
         Ok(t) => t,
@@ -427,7 +427,7 @@ fn path_string(path: &Path) -> String {
 }
 
 #[tauri::command]
-pub fn log_path(state: State<'_, AppState>) -> Option<String> {
+pub fn log_path(state: State<'_, Arc<AppState>>) -> Option<String> {
     if state.log.file.as_os_str().is_empty() {
         None
     } else {
@@ -436,7 +436,7 @@ pub fn log_path(state: State<'_, AppState>) -> Option<String> {
 }
 
 #[tauri::command]
-pub fn log_export(state: State<'_, AppState>, app: tauri::AppHandle) -> Value {
+pub fn log_export(state: State<'_, Arc<AppState>>, app: tauri::AppHandle) -> Value {
     use tauri_plugin_dialog::DialogExt;
     let stamp = now_iso().replace([':', '.'], "-");
     let home = dirs::home_dir().unwrap_or_default();
@@ -475,7 +475,7 @@ pub fn log_export(state: State<'_, AppState>, app: tauri::AppHandle) -> Value {
 }
 
 #[tauri::command]
-pub fn log_clear(state: State<'_, AppState>) -> Value {
+pub fn log_clear(state: State<'_, Arc<AppState>>) -> Value {
     let entries = match std::fs::read_dir(&state.log.dir) {
         Ok(e) => e,
         Err(_) => return json!({ "ok": false, "error": "no-user-data" }),
@@ -492,7 +492,7 @@ pub fn log_clear(state: State<'_, AppState>) -> Value {
 }
 
 #[tauri::command]
-pub fn log_set_level(state: State<'_, AppState>, level: Option<String>) -> Value {
+pub fn log_set_level(state: State<'_, Arc<AppState>>, level: Option<String>) -> Value {
     let requested = match level {
         Some(l) => l,
         None => {

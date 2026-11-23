@@ -264,4 +264,4 @@ fn state_arc_from_handle(_state: &AppState) -> Arc<AppState> {
 }
 
 #[tauri::command]
-pub fn watch_noop(_state: State<'_, AppState>) {}
+pub fn watch_noop(_state: State<'_, Arc<AppState>>) {}

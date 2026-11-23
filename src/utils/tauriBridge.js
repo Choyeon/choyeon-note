@@ -139,10 +139,6 @@ if (internals && typeof internals.invoke === 'function') {
     logSetLevel: (level) => call('log_set_level', { level }),
     onLogCleared: (callback) => subscribe('log:cleared', callback),
 
-    // ===== Bing 壁纸 =====
-    fetchBingWallpaper: (market) =>
-      call('bing_fetch_wallpaper', { market: market || 'zh-CN' }),
-
     // ===== 菜单事件 =====
     onMenuAction: (callback) => {
       const unsubscribes = menuEvents.map((event) =>

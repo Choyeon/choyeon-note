@@ -473,7 +473,7 @@ onUnmounted(() => {
   pointer-events: none;
 }
 
-/* 阅读区用实心底色：长文阅读时不受壁纸/毛玻璃干扰，对比度更稳。
+/* 阅读区用实心底色：长文阅读时不受毛玻璃干扰，对比度更稳。
    关键：必须去掉 backdrop-filter —— Electron 透明窗口（.electron-mode）下，
    半透明 + backdrop 的层会被系统亚克力"穿透采样"糊化，正文看起来像蒙了雾。
    实底 + 无模糊 + 提层（z-index 压过 ::before 雾化层）后文字直接画在纸面上。 */

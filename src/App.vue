@@ -180,7 +180,6 @@ import { EXT_PATTERN } from './constants/noteFile'
 // 东西保证 —— 改一处漏两处就是「路由守卫读不到库位置 → 进不去应用」。
 import { LS_KEYS } from './constants/storage'
 import { setCodeTheme as setHljsTheme } from './utils/markdown'
-import { fetchBingWallpaper, todayStamp } from './utils/bingWallpaper'
 // normalizeBinding：绑定串比较的唯一口径。注册表 default 与用户存的 hotkeys 可能
 // 是两种写法（如 `Shift-Mod-d` vs `Mod-Shift-d`），两边都过一遍才能匹配上。
 import { SHORTCUTS, eventToBinding, normalizeBinding } from './constants/shortcuts'
@@ -234,11 +233,7 @@ const currentTheme = computed(() => appStore.effectiveTheme)
 // 编辑器缩放：百分比 → 倍数，写到根变量上，编辑器三种模式与阅读视图都读它
 const editorZoomScale = computed(() => (Number(appStore.editorZoom) || 100) / 100)
 
-// Electron 与非 Electron 对 Bing 壁纸的处理完全相同，合并成一次判断，只有兜底不同。
 const appBgStyle = computed(() => {
-  if (appStore.bingWallpaper && appStore.bingWallpaperUrl) {
-    return `url('${appStore.bingWallpaperUrl}') center/cover no-repeat`
-  }
   // Electron：窗口自身（亚克力 / Vibrancy）负责底色，这里保持透明以透出系统材质。
   // 非 Electron：原先兜底是一张写死的 Unsplash 外链，离线 / 内网环境必然加载失败
   // 并打出网络错误，还把应用外观绑死在第三方服务上。改为纯本地 CSS 渐变兜底，
@@ -247,74 +242,6 @@ const appBgStyle = computed(() => {
     ? 'transparent'
     : 'linear-gradient(145deg, var(--color-bg) 0%, var(--color-bg-secondary) 55%, var(--color-bg-tertiary) 100%)'
 })
-
-/**
- * 拉取 Bing 每日壁纸。
- * 同一天已有结果就直接用缓存，避免每次启动/每次开开关都打一次网络请求。
- * 失败时保留上一张图（setBingWallpaper 内部会这么处理），只记录错误。
- */
-/**
- * 取源失败后的自动重试间隔（ms）。
- * 退避而不是固定间隔：断网 / 接口抽风时，固定 15s 打一次只会把失败日志刷满，
- * 而用户真正需要的是「过一会儿网络好了它能自己好起来」。次数封顶 3 次，
- * 免得整天挂在后台反复请求一个已经彻底不可用的源。
- */
-const WALLPAPER_RETRY_DELAYS = [15000, 60000, 180000]
-let wallpaperRetryTimer = null
-let wallpaperRetryCount = 0
-
-function clearWallpaperRetry() {
-  if (wallpaperRetryTimer) {
-    clearTimeout(wallpaperRetryTimer)
-    wallpaperRetryTimer = null
-  }
-}
-
-/** 失败后安排一次退避重试；超出上限就不再打扰（保留上一张图，等下次启动） */
-function scheduleWallpaperRetry() {
-  if (!appStore.bingWallpaper) return
-  if (wallpaperRetryTimer) return
-  if (wallpaperRetryCount >= WALLPAPER_RETRY_DELAYS.length) return
-  const delay = WALLPAPER_RETRY_DELAYS[wallpaperRetryCount]
-  wallpaperRetryCount += 1
-  wallpaperRetryTimer = setTimeout(() => {
-    wallpaperRetryTimer = null
-    refreshBingWallpaper({ force: true })
-  }, delay)
-}
-
-async function refreshBingWallpaper({ force = false } = {}) {
-  if (!appStore.bingWallpaper) return
-  if (!force && appStore.bingWallpaperUrl && appStore.bingWallpaperDate === todayStamp()) return
-
-  try {
-    const result = await fetchBingWallpaper({
-      market: appStore.bingWallpaperMarket,
-      pref: appStore.bingWallpaperPref
-    })
-    appStore.setBingWallpaper(result)
-    if (result && result.error) {
-      scheduleWallpaperRetry()
-    } else {
-      // 成功了就把退避清零：下次再失败还能从最短间隔开始，而不是一路走到 3 分钟
-      clearWallpaperRetry()
-      wallpaperRetryCount = 0
-    }
-  } catch (e) {
-    // 取源模块内部已经逐源兜住异常，这里只防「兜不住」的那部分变成 unhandled rejection
-    appStore.setBingWallpaper({ error: (e && e.message) || '壁纸获取异常' })
-    scheduleWallpaperRetry()
-  }
-}
-
-/** 网络恢复（离线 → 在线）时立刻重试一次，不必等退避计时器 */
-function onWallpaperOnline() {
-  if (!appStore.bingWallpaper) return
-  if (!appStore.bingWallpaperError) return
-  clearWallpaperRetry()
-  wallpaperRetryCount = 0
-  refreshBingWallpaper({ force: true })
-}
 
 // ---------------------------------------------------------------------------
 // 外部磁盘变更：定向 reconcile（R-F5 / R-F6）
@@ -617,21 +544,6 @@ watch(() => appStore.codeTheme, (newTheme) => {
   setHljsTheme(newTheme)
 })
 
-watch(() => appStore.bingWallpaper, (enabled) => {
-  if (enabled) {
-    refreshBingWallpaper()
-  } else {
-    // 关掉就不该再有任何后台请求：退避计时器一并收掉
-    clearWallpaperRetry()
-    wallpaperRetryCount = 0
-  }
-})
-
-// 换源：地区 / 数据源偏好一改就重拉。只改参数不重拉 = 用户换了个源却还看着旧图。
-watch([() => appStore.bingWallpaperMarket, () => appStore.bingWallpaperPref], () => {
-  refreshBingWallpaper({ force: true })
-})
-
 // 自动同步开关 / 笔记目录变化时重建监听
 watch([() => appStore.autoSync, () => noteStore.notesPath], () => {
   syncNotesWatch()
@@ -731,9 +643,7 @@ onMounted(() => {
   // .app-container 上的，选不中 html/body）
   document.documentElement.classList.toggle('electron-app', !!isElectron)
   setHljsTheme(appStore.codeTheme)
-  
-  refreshBingWallpaper()
-  
+
   // key 来自 LS_KEYS（与 router 守卫、WelcomeView 同一个来源）：这里不写字面量，
   // 否则「改了 key 名但漏改这一处」= 启动时不加载用户的库。
   const savedLocation = localStorage.getItem(LS_KEYS.notesLocation)
@@ -752,7 +662,6 @@ onMounted(() => {
   setupBeforeUnload()
 
   window.addEventListener('keydown', onGlobalKeydown, true)
-  window.addEventListener('online', onWallpaperOnline)
 
   // dev 期漂移守卫：不 await，不阻塞首屏；日志走 logger 的 app 模块，
   // dev 下默认级别是 info，通过/未通过两条都会出现在控制台（不再直接 console.*）。
@@ -782,9 +691,7 @@ onUnmounted(() => {
     beforeUnloadHandler = null
   }
   stopNotesWatch()
-  clearWallpaperRetry()
   window.removeEventListener('keydown', onGlobalKeydown, true)
-  window.removeEventListener('online', onWallpaperOnline)
 })
 
 function detectPlatform() {
@@ -833,8 +740,8 @@ function detectPlatform() {
 .sidebar-rail {
   background: var(--sidebar-bg);
   border-right: 1px solid var(--color-border);
-  /* 与 .acrylic-sidebar 同款模糊：不补这一条，开了壁纸时窄栏会露出**没模糊**的
-     墙纸，而展开态是模糊的 —— 同一块面板两种质感，收起反而更脏。
+  /* 与 .acrylic-sidebar 同款模糊：不补这一条，收起态窄栏就没有模糊而展开态有
+     —— 同一块面板两种质感，收起反而更脏。
      --sidebar-blur / --sidebar-saturate 在 [data-glass='false'] 下是 0px / 100%，
      实色模式不受影响。 */
   backdrop-filter: blur(var(--sidebar-blur)) saturate(var(--sidebar-saturate));

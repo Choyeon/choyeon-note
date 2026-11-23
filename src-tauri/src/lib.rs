@@ -24,7 +24,6 @@ pub fn invoke_handler() -> impl Fn(tauri::ipc::Invoke<tauri::Wry>) -> bool + Sen
         system::window_close,
         system::window_is_maximized,
         system::app_get_version,
-        system::bing_fetch_wallpaper,
         system::check_for_updates,
         system::download_update,
         system::quit_and_install,

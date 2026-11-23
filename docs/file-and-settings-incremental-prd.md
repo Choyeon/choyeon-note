@@ -339,7 +339,6 @@ const searchFiltered = computed(() => {
 | 2 | 强调色（6 色，57-74） | `setAccentColor` → `applyAccentColor`（`app.js:696-699`）写 `--cho-primary` + `--color-primary` | ✅ 能用 |
 | 3 | 正文字号（小/中/大，77-102） | `setFontSize` → `applyFontSize`（`app.js:705-725`）写 `data-font-size` + 15 个 `--font-size-*` 内联样式 | ⚠️ 能用，但与 `style.css:183-219` 的两套选择器**重复定义**，见 S-5 |
 | 4 | 毛玻璃（104-120） | `toggleGlassEffect` → `applyGlassEffect` 写 `data-glass` | ✅ 能用 |
-| 5 | Bing 每日壁纸（122-154） | `toggleBingWallpaper` / `refreshBingWallpaper` → `App.vue:190-201` `appBgStyle` | ✅ 能用 |
 
 #### 编辑器（`SettingsView.vue:164-368`）
 
@@ -875,5 +874,5 @@ const searchFiltered = computed(() => {
 > 说明：
 > - **「现状是好的」清单共 30 项**：模块一 7 项 + 模块二 5 项 + 模块三判定为「✅ 能用」的 18 个设置项。均未计入问题数，本轮也不改动。
 > - 模块五的 P0 计数为 0，是因为它最严重的问题（笔记随改名/移动「跳到今天」）根因在 `noteIndex.js:171`，已计入模块二的 D-1，避免重复计数。
-> - **设置项枚举共覆盖 22 项**（含 1 个只读信息项）：❌ 不可用 1 项、⚠️ 有瑕疵 3 项、✅ 正常 18 项。
+> - **设置项枚举共覆盖 21 项**（含 1 个只读信息项）：❌ 不可用 1 项、⚠️ 有瑕疵 3 项、✅ 正常 17 项。
 > - 问题条数与需求条目数不完全一一对应：一个问题的修复可能拆成多条需求（如 L-2 落盘拆出 R-L2 与 R-L3），也可能多条问题合并为一条需求（如 C-1/C-2/C-3 同属日历渲染，但分别对应 R-C2/R-C3/R-C4）。

@@ -12,7 +12,6 @@ use std::{
 
 use notify::{Event, RecursiveMode, Watcher};
 use serde_json::json;
-use tauri::State;
 
 use crate::{
     state::{AppState, WatchKind},
@@ -256,12 +255,9 @@ pub(crate) fn start_watching(state: &AppState, dir_path: Option<String>) -> bool
     true
 }
 
-/// `start_watching` receives `State<AppState>` from Tauri, which is an `Arc`
-/// under the hood but not publicly convertible. `commands.rs` stores the same
-/// `Arc` in `AppState.app_handle`; this helper retrieves it from the registry.
+/// `start_watching` receives `&AppState` from a `State<Arc<AppState>>` command,
+/// but the watcher callbacks need an owned `Arc`. `commands.rs` stores that same
+/// `Arc` in its shared-state registry; this helper retrieves it from there.
 fn state_arc_from_handle(_state: &AppState) -> Arc<AppState> {
     crate::commands::shared_state().expect("AppState must be initialised before watcher")
 }
-
-#[tauri::command]
-pub fn watch_noop(_state: State<'_, Arc<AppState>>) {}

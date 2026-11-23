@@ -85,7 +85,7 @@
           <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">{{ category.items.length }}</span>
         </div>
       </div>
-      <div class="divide-y" :style="{ borderColor: 'var(--color-border-light)' }">
+      <div class="shortcut-rows">
         <div
           v-for="item in category.items"
           :key="item.id"
@@ -528,6 +528,12 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+/* 分组内的行分隔线必须走主题变量。Tailwind divide-y 的默认边框色是 #e5e7eb，
+   父级 borderColor 不会继承到子元素，暗色下就会变成刺眼的白线。 */
+.shortcut-rows > :not(:first-child) {
+  border-top: 1px solid var(--color-border-light);
+}
+
 /* 搜索框 - 毛玻璃效果，聚焦时使用主色光环 */
 .shortcut-search {
   border: 1px solid var(--color-border-light);

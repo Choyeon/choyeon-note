@@ -936,7 +936,7 @@ export function buildLinkEdges ({ notes, resolveTarget, idOfTitle, extractTags, 
 | `fs:watch-notes` | invoke | **行为变更**：不再只认 `.md/.markdown/.txt`，改为整目录监听 |
 | `onNotesExternalChange` | event | **签名变更**：回调参数从 `()` 改为 `(changes: Array<{path, kind}>)`，`kind ∈ 'add' \| 'change' \| 'unlink'` |
 
-> 现有 `fs:*` / `app:*` / `workspace:*` / `vault:*` / `spell:*` / `updater:*` / `bing:*` 一律不动。
+> 现有 `fs:*` / `app:*` / `workspace:*` / `vault:*` / `spell:*` / `updater:*` 一律不动。
 
 ### 4.3 localStorage 键名（全部登记进 `src/constants/storage.js` 的 `LS_KEYS`）
 

@@ -54,7 +54,7 @@
 
   /* 阅读/预览正文：比 secondary 更深，长文阅读时不发灰；比 primary 略柔，避免纯黑刺眼 */
   --color-text-body: #23272e;
-  /* 阅读区背景：独立于 content-bg，保证长文阅读时底色实、不受壁纸干扰 */
+  /* 阅读区背景：独立于 content-bg，保证长文阅读时底色实、不透明 */
   --reading-bg: #fdfdfd;
 
   /* 编辑器缩放倍数（由 App.vue 按设置写入 .app-container），1 = 100% */
@@ -1564,8 +1564,8 @@ html.electron-app #app {
   --color-surface-hover: rgba(60, 64, 67, 0.68);
   --sidebar-bg: rgba(28, 29, 32, 0.88);
   /* T39：emDark 必须比 [data-theme='dark']（0.88）更不透明（0.93 > 0.88），
-     否则亮色壁纸会透上来冲淡正文；且与 dark 取值不同以满足 E9 守卫。
-     浏览器暗色基底已降到 0.88，electron 这里保持 0.93 更挡壁纸。 */
+     否则系统亚克力材质会透上来冲淡正文；且与 dark 取值不同以满足 E9 守卫。
+     浏览器暗色基底已降到 0.88，electron 这里保持 0.93 更挡材质透光。 */
   --content-bg: rgba(32, 33, 36, 0.93);
   --titlebar-bg: rgba(28, 29, 32, 0.85);
   --card-bg: rgba(41, 42, 45, 0.72);

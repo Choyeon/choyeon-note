@@ -22,14 +22,6 @@ import { NOTE_EXTENSIONS } from '@/constants/noteFile'
 // 日志级别的 key 出自日志模块（主进程也要读，那边不能 import 本文件），这里直接
 // 引用而不是再抄一份字符串 —— 抄两份迟早漂移，而漂移的后果是「设置页写 A、主进程读 B」。
 import { LS_LOG_LEVEL } from '@/constants/logging'
-// 壁纸「地区 / 数据源」的白名单来自取源模块本身：设置页下拉、store 归一化、
-// 启动时读回三处必须是同一份，抄一份迟早漂移成「下拉里有、取源时不认」。
-import {
-  WALLPAPER_MARKETS,
-  WALLPAPER_SOURCE_PREFS,
-  DEFAULT_WALLPAPER_MARKET,
-  DEFAULT_WALLPAPER_SOURCE_PREF
-} from '@/utils/bingWallpaper'
 
 /** parse 的返回值哨兵：跳过赋值，保留默认值 */
 export const SKIP = Symbol('choyeon-storage-skip')
@@ -55,15 +47,6 @@ export const LS_KEYS = Object.freeze({
   /** 历史遗留的「工作模式」开关：早已不再读取，重置时仍要清掉 */
   mode: 'choyeon-mode',
   codeTheme: 'choyeon-code-theme',
-  bingWallpaper: 'choyeon-bing-wallpaper',
-  bingWallpaperUrl: 'choyeon-bing-wallpaper-url',
-  bingWallpaperTitle: 'choyeon-bing-wallpaper-title',
-  bingWallpaperDate: 'choyeon-bing-wallpaper-date',
-  bingWallpaperSource: 'choyeon-bing-wallpaper-source',
-  /** 壁纸地区（mkt）：换源的一部分，白名单见 utils/bingWallpaper */
-  bingWallpaperMarket: 'choyeon-bing-wallpaper-market',
-  /** 壁纸数据源偏好：auto / official / biturl */
-  bingWallpaperPref: 'choyeon-bing-wallpaper-pref',
   editorZoom: 'choyeon-editor-zoom',
   autoCheckUpdates: 'choyeon-auto-check-updates',
   hotkeys: 'choyeon-hotkeys',
@@ -163,17 +146,6 @@ function asStringSet (raw) {
   }
 }
 
-/**
- * 枚举白名单解析器：mkt / 数据源偏好这类值最终会被拼进 URL，
- * 白名单外的脏值一律 SKIP（保留默认），绝不原样信任。
- *
- * @param {Array<{id:string}>} list 合法值清单
- * @returns {(raw:string) => string|symbol}
- */
-function asEnum (list) {
-  return (raw) => list.some((item) => item.id === raw) ? raw : SKIP
-}
-
 /** 缩放百分比：NaN / 越界 / 小数都夹紧到 50~200 的整数 */
 function asZoom (raw) {
   const z = Number(raw)
@@ -244,13 +216,6 @@ export const CONFIG_SCHEMA = Object.freeze([
   { key: LS_KEYS.noteExtension, ref: 'noteExtension', parse: asNoteExtension, fallback: () => 'md' },
   { key: LS_KEYS.sidebar, ref: 'sidebar', parse: asBoolean, fallback: () => true },
   { key: LS_KEYS.codeTheme, ref: 'codeTheme', parse: asString, fallback: () => 'github' },
-  { key: LS_KEYS.bingWallpaper, ref: 'bingWallpaper', parse: asBoolean, fallback: () => false },
-  { key: LS_KEYS.bingWallpaperUrl, ref: 'bingWallpaperUrl', parse: asString, fallback: () => '' },
-  { key: LS_KEYS.bingWallpaperTitle, ref: 'bingWallpaperTitle', parse: asString, fallback: () => '' },
-  { key: LS_KEYS.bingWallpaperDate, ref: 'bingWallpaperDate', parse: asString, fallback: () => '' },
-  { key: LS_KEYS.bingWallpaperSource, ref: 'bingWallpaperSource', parse: asString, fallback: () => '' },
-  { key: LS_KEYS.bingWallpaperMarket, ref: 'bingWallpaperMarket', parse: asEnum(WALLPAPER_MARKETS), fallback: () => DEFAULT_WALLPAPER_MARKET },
-  { key: LS_KEYS.bingWallpaperPref, ref: 'bingWallpaperPref', parse: asEnum(WALLPAPER_SOURCE_PREFS), fallback: () => DEFAULT_WALLPAPER_SOURCE_PREF },
   { key: LS_KEYS.editorZoom, ref: 'editorZoom', parse: asZoom, fallback: () => 100 },
   { key: LS_KEYS.autoCheckUpdates, ref: 'autoCheckUpdates', parse: asBoolean, fallback: () => true },
   { key: LS_KEYS.hotkeys, ref: 'hotkeys', skipLoad: true, fallback: () => createDefaultBindings() },

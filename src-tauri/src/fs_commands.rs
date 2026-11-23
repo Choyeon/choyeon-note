@@ -14,8 +14,8 @@ use crate::{
     state::AppState,
     util::backend_log,
     util::{
-        canonicalize_clean, errno_to_code, extension_of, io_failure, is_note_extension,
-        path_failure, path_string, read_json, symlink_failure, validate_path_async, write_json,
+        canonicalize_clean, extension_of, io_failure, is_note_extension, path_failure,
+        path_string, read_json, symlink_failure, validate_path_async,
     },
 };
 
@@ -544,17 +544,3 @@ pub fn workspace_probe(state: State<'_, Arc<AppState>>, dir_path: String) -> Val
     json!({ "exists": true, "count": count, "folders": folders, "writable": writable })
 }
 
-#[allow(dead_code)]
-pub(crate) fn read_json_file(path: &Path) -> Value {
-    read_json(path, json!({}))
-}
-
-#[allow(dead_code)]
-pub(crate) fn write_json_file(path: &Path, value: &Value) -> bool {
-    write_json(path, value)
-}
-
-#[allow(dead_code)]
-pub(crate) fn errno_code(errno: &str) -> &'static str {
-    errno_to_code(errno)
-}

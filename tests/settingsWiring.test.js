@@ -312,7 +312,7 @@ afterEach(() => {
 // A · 外观分区
 // ---------------------------------------------------------------------------
 
-describe('T25 · A 外观：theme / accentColor / fontSize / glassEffect / bingWallpaper', () => {
+describe('T25 · A 外观：theme / accentColor / fontSize / glassEffect', () => {
   it('A1 主题模式：切成 dark → <html data-theme> 真的变 dark，并写进 localStorage', () => {
     const appStore = useAppStore()
     appStore.initTheme()
@@ -381,24 +381,6 @@ describe('T25 · A 外观：theme / accentColor / fontSize / glassEffect / bingW
     expect(container.getAttribute('data-glass')).toBe(String(appStore.glassEffect))
   })
 
-  it('A7 Bing 每日壁纸：开关打开并拿到图 → App.vue 的根容器背景真的换成这张图', async () => {
-    const { host } = await mountApp()
-    const appStore = useAppStore()
-    const frame = () => host.querySelector('.window-frame')
-    expect(frame().getAttribute('style')).not.toContain('http')
-
-    appStore.toggleBingWallpaper()
-    expect(appStore.bingWallpaper).toBe(true)
-    appStore.setBingWallpaper({
-      url: 'https://bing.example.com/today.jpg',
-      title: '今日',
-      date: '20260101',
-      source: 'official'
-    })
-    await settle()
-    expect(frame().getAttribute('style')).toContain('https://bing.example.com/today.jpg')
-    expect(localStorage.getItem(LS_KEYS.bingWallpaperUrl)).toBe('https://bing.example.com/today.jpg')
-  })
 })
 
 // ---------------------------------------------------------------------------
@@ -939,7 +921,7 @@ describe('T25 · F SettingsView 自身', () => {
     expect(localStorage.getItem(LS_KEYS.fontSize)).toBeNull()
   })
 
-  it('F9 八个拨动开关逐个点：store 翻转 + localStorage 落盘 + aria-checked 跟着变（断掉任何一个 @click 都会红）', async () => {
+  it('F9 七个拨动开关逐个点：store 翻转 + localStorage 落盘 + aria-checked 跟着变（断掉任何一个 @click 都会红）', async () => {
     const { host } = await mountReal(SettingsView)
     const appStore = useAppStore()
     appStore.initTheme()
@@ -947,7 +929,6 @@ describe('T25 · F SettingsView 自身', () => {
     /** aria-label → { store 字段, localStorage key }，与 app.js 的 toggleXxx 一一对应 */
     const TOGGLES = [
       { label: '毛玻璃效果', field: 'glassEffect', key: LS_KEYS.glassEffect },
-      { label: 'Bing 每日壁纸', field: 'bingWallpaper', key: LS_KEYS.bingWallpaper },
       { label: '拼写检查', field: 'spellCheck', key: LS_KEYS.spellCheck },
       { label: '自动保存', field: 'autoSave', key: LS_KEYS.autoSave },
       { label: '行号显示', field: 'showLineNumbers', key: LS_KEYS.lineNumbers },
@@ -969,7 +950,7 @@ describe('T25 · F SettingsView 自身', () => {
       const after = Boolean(appStore[toggle.field])
 
       expect(after).toBe(!before)
-      // 落盘必须是 String(布尔)：app.js 的 8 个 toggle 都直接 setItem(LS_KEYS.x, 布尔)
+      // 落盘必须是 String(布尔)：app.js 的 7 个 toggle 都直接 setItem(LS_KEYS.x, 布尔)
       expect(localStorage.getItem(toggle.key)).toBe(String(after))
       expect(findSwitch().getAttribute('aria-checked')).toBe(String(after))
 

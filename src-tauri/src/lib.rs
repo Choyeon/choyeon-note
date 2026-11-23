@@ -96,6 +96,11 @@ pub fn setup(app: &mut tauri::App<tauri::Wry>) -> Result<(), Box<dyn std::error:
         let handle = app.handle().clone();
         window.on_window_event(move |event| {
             if let WindowEvent::CloseRequested { api, .. } = event {
+                // 前端 closeWindow() 在调用 window_close 之前已 await flushEverything()，
+                // 数据已经落盘。旧的 prevent_close + app:flush-all 回执握手在 Tauri 下
+                // 从未收到前端回执，导致每次关闭都要等满 3 秒超时强杀。
+                // 这里改为：短暂宽限期让系统级关闭（Alt+F4/任务栏）也有机会触发
+                // 前端 beforeunload 落盘，然后主动退出。
                 api.prevent_close();
                 commands::request_flush(&handle);
             }

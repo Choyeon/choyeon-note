@@ -424,8 +424,11 @@ pub fn quit_and_install(state: State<'_, AppState>, app: tauri::AppHandle) -> Va
     }
 }
 
-/// Called from the Tauri close-request handler: give the renderer three
-/// seconds to flush debounced saves before actually exiting.
+/// Called from the Tauri close-request handler.
+/// Frontend flushes synchronously in closeWindow() before invoking window_close;
+/// this grace period only covers system-level closes (Alt+F4 / taskbar).
+const FLUSH_GRACE_MS: u64 = 300;
+
 pub fn request_flush(state: &AppState) {
     if state.flush.waiting.swap(true, Ordering::SeqCst) {
         return;
@@ -433,10 +436,16 @@ pub fn request_flush(state: &AppState) {
     state.emit("app:flush-all", ());
     let state_ref = crate::commands::shared_state();
     thread::spawn(move || {
-        thread::sleep(Duration::from_millis(3000));
+        thread::sleep(Duration::from_millis(FLUSH_GRACE_MS));
         if let Some(state) = state_ref {
             if state.flush.waiting.swap(false, Ordering::SeqCst) {
-                backend_log(&state, "ipc", "warn", "退出前刷盘超时，强制退出", Some(json!({ "timeoutMs": 3000 })));
+                backend_log(
+                    &state,
+                    "ipc",
+                    "info",
+                    "关闭宽限期结束，退出",
+                    Some(json!({ "graceMs": FLUSH_GRACE_MS })),
+                );
                 finish_exit(&state);
             }
         }

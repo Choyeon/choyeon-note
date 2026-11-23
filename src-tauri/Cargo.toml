@@ -1,6 +1,6 @@
 [package]
 name = "choyeon-note"
-version = "2.0.2"
+version = "2.0.3"
 description = "Choyeon Note - Tauri desktop Markdown notebook"
 authors = ["Choyeon"]
 license = "MIT"

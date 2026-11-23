@@ -104,7 +104,8 @@
 前往 [GitHub Releases](https://github.com/Choyeon/choyeon-note/releases) 页面，下载对应平台的最新安装包：
 
 - **Windows**：Tauri 生成的 `.msi` / `.exe` 安装包（由 `npm run tauri:build:win` 产出）。
-- **macOS**：`.dmg` / `.app`；**Linux**：`.deb` / `.AppImage`。
+- **macOS / Linux**：当前官方 Release 仅提供 Windows 安装包；其它平台需从源码构建。
+- 安装包未做代码签名，Windows SmartScreen 首次运行可能提示“未知发布者”，请核对发布者 `Choyeon` 与仓库地址后继续。
 - 应用内检测到新版本时会通过 GitHub Releases 自动提示更新。
 
 ### 方式二：从源码构建
@@ -160,11 +161,11 @@ npm install
 | 编辑器 | CodeMirror 6 |
 | Markdown | marked `^11.1.0` + DOMPurify `^3.4.13` |
 | 语法高亮 | Highlight.js `^11.11.1`（常用语言精简集） |
-| 图表 | Mermaid `^11.16.1` |
+| 图表 | Mermaid（版本以 `package.json` 为准） |
 | 拼写检查 | 自研 `src/utils/spellcheck.js` + `src/utils/dictionary.js` 英文词库 |
 | 样式 | Tailwind CSS `^3.4.0` + PostCSS + Autoprefixer |
 | 构建 | Vite `^8.2.0` |
-| 测试 | Vitest `^3.2.7` + jsdom |
+| 测试 | Vitest（版本以 `package.json` 为准）+ jsdom |
 | 打包与更新 | Tauri Bundler + GitHub Releases（Rust 侧检查与下载） |
 | 图标处理 | sharp `^0.35.3` + ICO 容器生成脚本 |
 

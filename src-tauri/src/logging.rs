@@ -298,6 +298,27 @@ fn normalize_incoming(state: &AppState, raw: &Value) -> Option<Value> {
     Some(out)
 }
 
+/// Redact one log string. Matches the renderer's WHOLE_PATH_RE: only a string
+/// that *is* a path is masked as a whole, so URLs and ordinary prose keep their
+/// shape. Values already masked by the renderer are left alone — the backend is
+/// a backstop, not a source of double masking such as `…/…/a.md`.
+fn redact_log_string(input: &str) -> String {
+    if input.starts_with("…/") || input == "…" || input == "[REDACTED]" {
+        return redact_content(input, 120);
+    }
+    let whole_path = (input.starts_with('/')
+        || input.starts_with('~')
+        || (input.len() >= 2
+            && input.as_bytes()[1] == b':'
+            && input.as_bytes()[0].is_ascii_alphabetic()))
+        && !input.contains("://");
+    if whole_path {
+        redact_content(&redact_path(input), 120)
+    } else {
+        redact_content(input, 120)
+    }
+}
+
 /// Backend-owned log record. Main-process data is redacted before writing.
 pub fn write_main_record(
     state: &AppState,
@@ -309,19 +330,7 @@ pub fn write_main_record(
     if !enabled(state, level) {
         return;
     }
-    // Match the renderer's WHOLE_PATH_RE: only a string that *is* a path is
-    // masked as a whole; URLs and ordinary prose keep their shape.
-    let whole_path = (msg.starts_with('/')
-        || msg.starts_with('~')
-        || (msg.len() >= 2
-            && msg.as_bytes()[1] == b':'
-            && msg.as_bytes()[0].is_ascii_alphabetic()))
-        && !msg.contains("://");
-    let message = if whole_path {
-        redact_content(&redact_path(msg), 120)
-    } else {
-        redact_content(msg, 120)
-    };
+    let message = redact_log_string(msg);
     let safe_data = data.map(|v| redact_value(&v));
     let mut entry = json!({
         "t": now_iso(),
@@ -337,19 +346,22 @@ pub fn write_main_record(
 
 fn redact_value(value: &Value) -> Value {
     match value {
-        Value::String(s) => Value::String(redact_content(&redact_path(s), 120)),
+        Value::String(s) => Value::String(redact_log_string(s)),
         Value::Array(items) => Value::Array(items.iter().map(redact_value).collect()),
         Value::Object(map) => {
             let mut out = serde_json::Map::new();
             for (k, v) in map {
                 let lower = k.to_lowercase();
                 if lower.ends_with("pass")
+                    || lower.ends_with("passwd")
                     || lower.ends_with("password")
                     || lower.ends_with("secret")
+                    || lower.ends_with("secretkey")
                     || lower.ends_with("token")
                     || lower.ends_with("credential")
                     || lower.ends_with("apikey")
                     || lower.ends_with("api_key")
+                    || lower.ends_with("private")
                     || lower.ends_with("privatekey")
                     || lower.ends_with("accesskey")
                     || lower.ends_with("value")
@@ -376,6 +388,21 @@ pub fn log_append(state: State<'_, Arc<AppState>>, entry: Value) -> Value {
     let mut entries: Vec<Value> = list
         .iter()
         .filter_map(|raw| normalize_incoming(&state, raw))
+        .map(|mut entry| {
+            // Backend backstop: the renderer normally sanitises before sending,
+            // but raw absolute paths and secret-bearing keys must never reach
+            // disk even when that layer is bypassed or misconfigured.
+            if let Some(msg) = entry.get_mut("msg") {
+                let text = msg.as_str().unwrap_or("").to_string();
+                *msg = Value::String(redact_log_string(&text));
+            }
+            if let Some(data) = entry.get_mut("data") {
+                if !data.is_null() {
+                    *data = redact_value(data);
+                }
+            }
+            entry
+        })
         .collect();
     if entries.is_empty() {
         return json!({ "ok": true, "written": 0 });

@@ -394,6 +394,23 @@ function notifyInfo (message) {
 }
 
 /**
+ * 落盘相关失败的显式告知（与 notifyInfo 对称的 error 版本）。
+ * setNotesPath / 删除回滚这类只在 catch 里记日志的失败，用户完全无从感知：
+ * 前者会让后续所有读写失败，后者会在磁盘留下孤儿文件。两者都必须让用户知道。
+ * 与 notifyInfo 一样只做展示，不改变调用方的成功路径与返回结构。
+ * @param {string} message 提示文案
+ * @returns {void}
+ */
+function notifyError (message) {
+  try {
+    const app = appSettings()
+    if (app && typeof app.pushToast === 'function') {
+      app.pushToast({ type: 'error', message })
+    }
+  } catch (e) { /* toast 不可用不影响主流程 */ }
+}
+
+/**
  * 探测磁盘上是否真的存在这个路径。
  *
  * 返回值的语义刻意不对称：
@@ -2374,8 +2391,10 @@ export const useNoteStore = defineStore('note', () => {
       try {
         await window.electronAPI.setNotesPath(path)
       } catch (error) {
-        // 主进程没记住库路径时后续所有读写都会失败，这条是唯一的线索
+        // 主进程没记住库路径时后续所有读写都会失败：日志是给诊断的，
+        // toast 是给用户的，两者不可互相替代，缺一不可。
         noteLog.error('setNotesPath 失败', { path, err: error })
+        notifyError('记住笔记库路径失败，后续读写可能异常')
       }
     }
 
@@ -2518,9 +2537,15 @@ export const useNoteStore = defineStore('note', () => {
     }
 
     const success = await safeWriteFile(filePath, note.content)
-    // 写入期间若笔记已被删除，回滚刚写出的文件，避免磁盘孤儿
+    // 写入期间若笔记已被删除，回滚刚写出的文件，避免磁盘孤儿。
+    // 回滚失败会在磁盘留下孤儿文件，必须显式告知用户（返回值 false 与抛异常两种情况）。
     if (success && !notes.value.some(n => n.id === note.id)) {
-      try { await window.electronAPI.deleteFile(filePath) } catch (e) { /* ignore */ }
+      try {
+        const removed = await window.electronAPI.deleteFile(filePath)
+        if (removed === false) notifyError('回滚临时文件失败，请手动检查笔记目录')
+      } catch (e) {
+        notifyError('回滚临时文件失败，请手动检查笔记目录')
+      }
       return false
     }
     if (success) {

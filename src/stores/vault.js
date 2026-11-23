@@ -304,6 +304,9 @@ export const useVaultStore = defineStore('vault', () => {
         tags: Array.isArray(e.tags) ? e.tags.filter(Boolean).map(String) : [],
         secret: !!e.secret,
         favorite: !!e.favorite,
+        // 解密失败是「有条目但读不出值」的语义，不能在这里被丢成空串，
+        // 否则界面只剩一条空白记录，用户无从知道需要重输密钥。
+        decryptFailed: !!e.decryptFailed,
         createdAt: e.createdAt || Date.now(),
         updatedAt: e.updatedAt || e.createdAt || Date.now()
       }))

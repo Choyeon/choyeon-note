@@ -156,11 +156,10 @@ export function preprocessObsidian (md, opts = {}) {
       }
       const inner = innerLines.join('\n')
       // 正文直接就地把 markdown 渲染成 HTML 塞进 callout-body。
-      // 之前这里塞的是 `<template data-callout-inner>` 占位，靠 DOM 渲染后调用
-      // hydrateCalloutsInContainer 回填——但那个函数从来没有被调用过，
-      // 结果所有 callout 在阅读视图里只剩标题、正文消失。
-      // 占位符必须先还原：inner 里的代码块在此之前已被换成 \u0000FnF\u0000，
-      // 就地还原后再交给 marked 才能拿到高亮过的 <pre><code>。
+      // 不再使用「template 占位 + 渲染后回填」：那条路径曾在阅读视图里只剩标题、
+      // 正文消失，而且 unescape→innerHTML 会给净化后的内容留一条回头路。
+      // 占位符必须先还原：inner 里的代码块在此之前已被换成
+      // \u0000FnF\u0000，就地还原后再交给 marked 才能拿到高亮过的 <pre><code>。
       const innerHtml = renderMarkdownInner(restoreFences(inner))
       outLines.push(
         `<div class="obsidian-callout callout-${type}" data-callout="${type}">` +
@@ -247,34 +246,7 @@ export function preprocessObsidian (md, opts = {}) {
   return { htmlReady: processed, links, embeds, callouts, frontmatter }
 }
 
-/**
- * 把 callout inner 的占位 template 内容经 marked 解析后替换进 callout-body
- * 在 DOM 渲染后调用（v-html 完成后，EditorView updateLiveEditor / afterMermaid）
- */
-export function hydrateCalloutsInContainer (container) {
-  if (!container) return
-  const templates = container.querySelectorAll('template[data-callout-inner]')
-  for (const tpl of templates) {
-    const id = tpl.dataset.calloutInner
-    const body = container.querySelector(`#${id}`)
-    if (!body) continue
-    try {
-      const md = unescapeHtml(tpl.innerHTML || tpl.textContent || '')
-      body.innerHTML = renderMarkdownInner(md)
-    } catch (e) {
-      body.innerHTML = `<div class="muted">callout render fail: ${escapeHtml(e.message)}</div>`
-    }
-    tpl.remove()
-  }
-}
-
-function unescapeHtml (s) {
-  const e = document.createElement('textarea')
-  e.innerHTML = s
-  return e.value
-}
-
-// marked wrapper (内部用，不要 DOMPurify，因为 hydrateCallouts 前已经净化过)
+// marked wrapper (内部用，入口已净化；不要在这里二次 unescape 后回填 innerHTML)
 function renderMarkdownInner (md) {
   try {
     return marked.parse(md || '', { breaks: true, gfm: true })
@@ -347,10 +319,9 @@ function renderMarkdown (content, opts = {}) {
     ADD_ATTR: [
       'data-mermaid-id', 'data-mermaid-code', 'data-lang', 'data-highlight-theme',
       'data-wiki-target', 'data-wiki-hash', 'data-note-id',
-      'data-callout', 'data-callout-inner',
+      'data-callout',
       'data-embed-target', 'data-embed-hash', 'data-resolved'
-    ],
-    ADD_TAGS: ['template']
+    ]
   })
 }
 
@@ -414,7 +385,7 @@ async function renderMermaidInContainer (container) {
         }
       }
     } catch (e) {
-      chart.innerHTML = `<div class="mermaid-error">图表渲染失败: ${e.message}</div>`
+      chart.innerHTML = `<div class="mermaid-error">图表渲染失败: ${escapeHtml(e.message)}</div>`
     }
   }
 }

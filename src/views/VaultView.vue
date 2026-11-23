@@ -176,11 +176,13 @@
               class="flex-1 text-[13px] font-mono truncate px-2 py-1 rounded-md"
               :style="{
                 background: 'var(--color-bg-tertiary)',
-                color: entry.secret && !vault.isRevealed(entry.id) ? 'var(--color-text-secondary)' : 'var(--color-text-primary)',
+                color: entry.decryptFailed ? 'var(--state-error)'
+                  : (entry.secret && !vault.isRevealed(entry.id) ? 'var(--color-text-secondary)' : 'var(--color-text-primary)'),
                 letterSpacing: entry.secret && !vault.isRevealed(entry.id) ? '0.05em' : 'normal'
               }"
-              :title="vault.displayValue(entry)"
-            >{{ vault.displayValue(entry) || '—' }}</code>
+              :title="entry.decryptFailed ? '该条敏感值解密失败（密钥或系统凭据不可用），请重新输入该值' : vault.displayValue(entry)"
+              :aria-label="entry.decryptFailed ? '敏感值解密失败，请重新输入' : undefined"
+            >{{ entry.decryptFailed ? '解密失败（无法读取）' : (vault.displayValue(entry) || '—') }}</code>
             <button
               v-if="entry.secret"
               class="w-7 h-7 rounded-md flex items-center justify-center cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)] shrink-0"

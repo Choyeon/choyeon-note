@@ -48,6 +48,9 @@
   --color-text-tertiary: #80868b;
   --color-text-inverse: #ffffff;
   --color-text-on-primary: #ffffff;
+  /* 主按钮文本 token（前景色，不是背景 token；背景见 --color-primary）。
+     默认跟随 --color-text-on-primary，避免欢迎页主按钮与其他 .btn-primary 漂移。 */
+  --btn-primary-text: var(--color-text-on-primary);
 
   /* 阅读/预览正文：比 secondary 更深，长文阅读时不发灰；比 primary 略柔，避免纯黑刺眼 */
   --color-text-body: #23272e;
@@ -264,6 +267,10 @@
   --color-text-tertiary: #8b929b;
   --color-text-inverse: #202124;
   --color-text-on-primary: #202124;
+  /* 主按钮文本 token（前景色，不是背景 token）。深色下主按钮背景是浅蓝
+     --color-primary (#8ab4f8)，所以前景沿用已存在的深色主题前景 token，
+     与 .btn-primary 保持一致；切莫改成浅色，否则白字压浅蓝不可读。 */
+  --btn-primary-text: var(--color-text-on-primary);
   --color-text-body: #dfe3e8;
   --reading-bg: #1c1d20;
 
@@ -1524,6 +1531,8 @@ html.electron-app #app {
   --color-text-tertiary: rgba(128, 134, 139, 0.85);
   --color-text-inverse: rgba(255, 255, 255, 0.95);
   --color-text-on-primary: rgba(255, 255, 255, 0.95);
+  /* 主按钮文本 token（前景色，不是背景 token）；与亮色 --color-text-on-primary 同口径的半透明值 */
+  --btn-primary-text: rgba(255, 255, 255, 0.95);
   --color-text-body: rgba(35, 39, 46, 0.9);
 
   /* glass */
@@ -1583,6 +1592,9 @@ html.electron-app #app {
   --color-text-tertiary: rgba(139, 146, 155, 0.85);
   --color-text-inverse: rgba(32, 33, 36, 0.95);
   --color-text-on-primary: rgba(32, 33, 36, 0.95);
+  /* 主按钮文本 token（前景色，不是背景 token）；与 .electron-mode[data-theme='dark']
+     的 --color-text-on-primary 逐字一致，避免浏览器/亚克力两套 dark 漂移。 */
+  --btn-primary-text: rgba(32, 33, 36, 0.95);
   --color-text-body: rgba(223, 227, 232, 0.92);
 
   /* glass */

@@ -213,6 +213,18 @@ pub fn path_failure(error: &PathError, fallback: &str) -> serde_json::Value {
     })
 }
 
+/// Standard failure response when a target is a symbolic link and the operation
+/// refuses to follow it. Pure function: builds a value, performs no filesystem I/O.
+pub fn symlink_failure() -> serde_json::Value {
+    io_failure(
+        &std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "access denied: symbolic link target is not allowed",
+        ),
+        Some("permission"),
+    )
+}
+
 pub fn is_note_extension(name: &str) -> bool {
     let lower = name.to_lowercase();
     crate::state::NOTE_EXTENSIONS

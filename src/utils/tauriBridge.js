@@ -22,8 +22,12 @@ if (internals && typeof internals.invoke === 'function') {
   const subscribe = (event, callback, transform) => {
     let unlisten = null
     let cancelled = false
-    listen(event, (payload) => {
+    listen(event, (evt) => {
       if (cancelled) return
+      // @tauri-apps/api/event 的回调参数是 { event, id, payload } 事件对象，
+      // preload.cjs 则直接回调 payload。这里必须解包，否则外部变更同步与
+      // 更新提示收到的是整个事件包装对象，所有事件消费者都会静默失效。
+      const payload = evt && typeof evt === 'object' && 'payload' in evt ? evt.payload : evt
       callback(transform ? transform(payload) : payload)
     })
       .then((fn) => {

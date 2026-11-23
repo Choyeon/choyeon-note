@@ -10,6 +10,7 @@ use std::{
 };
 
 use serde_json::{json, Value};
+use sha2::{Digest, Sha256};
 use tauri::{Emitter, Manager, State};
 
 use crate::state::AppState;
@@ -147,6 +148,31 @@ pub fn build_menu(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Erro
 
 const BING_MARKETS: [&str; 2] = ["zh-CN", "en-US"];
 
+/// Only `^[A-Za-z0-9-]+$` market codes may be interpolated into the API URL.
+fn valid_market(mkt: &str) -> bool {
+    !mkt.is_empty()
+        && mkt.len() <= 32
+        && mkt.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// The image URL comes from a remote JSON response; never let it point at an
+/// arbitrary host even if it is a syntactically valid absolute URL.
+fn allowed_image_host(url: &str) -> bool {
+    match reqwest::Url::parse(url) {
+        Ok(parsed) => match parsed.host_str() {
+            Some(host) => {
+                let host = host.to_ascii_lowercase();
+                host == "www.bing.com"
+                    || host == "th.bing.com"
+                    || host == "bing.com"
+                    || host.ends_with(".bing.com")
+            }
+            None => false,
+        },
+        Err(_) => false,
+    }
+}
+
 #[tauri::command]
 pub fn bing_fetch_wallpaper(market: Option<String>) -> Value {
     let requested = market.filter(|m| !m.is_empty()).unwrap_or_else(|| "zh-CN".to_string());
@@ -165,6 +191,10 @@ pub fn bing_fetch_wallpaper(market: Option<String>) -> Value {
     };
     let mut last_error = String::new();
     for mkt in markets {
+        if !valid_market(&mkt) {
+            last_error = format!("非法的市场代码: {}", mkt);
+            continue;
+        }
         let url = format!(
             "https://www.bing.com/HPImageArchive.aspx?format=js&idx=0&n=1&mkt={}",
             mkt
@@ -198,6 +228,10 @@ pub fn bing_fetch_wallpaper(market: Option<String>) -> Value {
         } else {
             format!("https://www.bing.com{}", image_url)
         };
+        if !allowed_image_host(&full_url) {
+            last_error = format!("非法的图片地址: {}", full_url);
+            continue;
+        }
         return json!({
             "url": full_url,
             "title": image.and_then(|i| i.get("title")).and_then(|v| v.as_str()).unwrap_or(""),
@@ -303,6 +337,38 @@ pub fn check_for_updates(state: State<'_, Arc<AppState>>, app: tauri::AppHandle)
     }
 }
 
+/// A release asset name is attacker-controlled metadata. Reduce it to a plain
+/// filename before joining it to any directory.
+fn safe_asset_name(raw: &str) -> String {
+    let name = raw.trim();
+    if name.is_empty()
+        || name == "."
+        || name == ".."
+        || name.contains('/')
+        || name.contains('\\')
+        || name.contains(':')
+        || name.chars().any(|c| c.is_control())
+    {
+        "update.exe".to_string()
+    } else {
+        name.to_string()
+    }
+}
+
+/// GitHub release assets carry `digest: "sha256:<hex>"`.
+/// NOTE: this is only a transport-integrity fallback against a corrupted or
+/// truncated download. It is NOT a tamper-proof supply-chain guarantee, since
+/// the digest comes from the same release metadata as the binary. Long term
+/// this should be replaced by tauri-plugin-updater with signature verification.
+fn parse_sha256_digest(raw: Option<&str>) -> Option<String> {
+    let hex = raw?.strip_prefix("sha256:")?;
+    if hex.len() == 64 && hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        Some(hex.to_ascii_lowercase())
+    } else {
+        None
+    }
+}
+
 #[tauri::command]
 pub fn download_update(state: State<'_, Arc<AppState>>) -> Value {
     #[cfg(target_os = "windows")]
@@ -347,20 +413,46 @@ pub fn download_update(state: State<'_, Arc<AppState>>) -> Value {
                 })
                 .or_else(|| assets.first())
         });
-    let (url, name) = match asset
-        .and_then(|a| a.get("browser_download_url"))
-        .and_then(|v| v.as_str())
-    {
-        Some(u) => (
-            u.to_string(),
-            asset
-                .and_then(|a| a.get("name"))
-                .and_then(|v| v.as_str())
-                .unwrap_or("update")
-                .to_string(),
-        ),
+    let (url, name, expected_hex) = match asset {
+        Some(a) => {
+            let url = match a.get("browser_download_url").and_then(|v| v.as_str()) {
+                Some(u) => u.to_string(),
+                None => return json!({ "ok": false, "error": "没有可用的安装包", "code": "not-found" }),
+            };
+            let raw_name = a.get("name").and_then(|v| v.as_str()).unwrap_or("update");
+            let expected_hex = match parse_sha256_digest(a.get("digest").and_then(|v| v.as_str())) {
+                Some(hex) => hex,
+                None => {
+                    let detail = json!({
+                        "message": "更新包缺少校验信息",
+                        "code": "digest-missing",
+                        "name": "Error",
+                    });
+                    state.emit("updater:error", detail);
+                    return json!({ "ok": false, "error": "更新包缺少校验信息", "code": "digest-missing" });
+                }
+            };
+            (url, safe_asset_name(raw_name), expected_hex)
+        }
         None => return json!({ "ok": false, "error": "没有可用的安装包", "code": "not-found" }),
     };
+
+    let updates_dir = std::env::temp_dir().join("choyeon-note-updates");
+    if let Err(e) = std::fs::create_dir_all(&updates_dir) {
+        state.emit("updater:error", json!({
+            "message": e.to_string(), "code": "", "name": "Error",
+        }));
+        return json!({ "ok": false, "error": e.to_string(), "code": "" });
+    }
+    let updates_dir = std::fs::canonicalize(&updates_dir).unwrap_or(updates_dir);
+    let target = updates_dir.join(&name);
+    if !target.starts_with(&updates_dir) {
+        state.emit("updater:error", json!({
+            "message": "非法更新文件名", "code": "", "name": "Error",
+        }));
+        return json!({ "ok": false, "error": "非法更新文件名", "code": "" });
+    }
+
     let response = match client.get(&url).send().and_then(|r| r.error_for_status()) {
         Ok(r) => r,
         Err(e) => {
@@ -370,11 +462,16 @@ pub fn download_update(state: State<'_, Arc<AppState>>) -> Value {
         }
     };
     let total = response.content_length().unwrap_or(0);
-    let target = std::env::temp_dir().join(name);
     let mut file = match std::fs::File::create(&target) {
         Ok(f) => f,
-        Err(e) => return json!({ "ok": false, "error": e.to_string(), "code": "" }),
+        Err(e) => {
+            state.emit("updater:error", json!({
+                "message": e.to_string(), "code": "", "name": "Error",
+            }));
+            return json!({ "ok": false, "error": e.to_string(), "code": "" });
+        }
     };
+    let mut hasher = Sha256::new();
     let mut transferred = 0u64;
     let mut reader = response;
     let mut buffer = [0u8; 64 * 1024];
@@ -382,9 +479,21 @@ pub fn download_update(state: State<'_, Arc<AppState>>) -> Value {
         let read = match std::io::Read::read(&mut reader, &mut buffer) {
             Ok(0) => break,
             Ok(n) => n,
-            Err(e) => return json!({ "ok": false, "error": e.to_string(), "code": "" }),
+            Err(e) => {
+                let _ = std::fs::remove_file(&target);
+                state.emit("updater:error", json!({
+                    "message": e.to_string(), "code": "", "name": "Error",
+                }));
+                return json!({ "ok": false, "error": e.to_string(), "code": "" });
+            }
         };
-        if file.write_all(&buffer[..read]).is_err() {
+        let chunk = &buffer[..read];
+        hasher.update(chunk);
+        if file.write_all(chunk).is_err() {
+            let _ = std::fs::remove_file(&target);
+            state.emit("updater:error", json!({
+                "message": "写入更新文件失败", "code": "", "name": "Error",
+            }));
             return json!({ "ok": false, "error": "写入更新文件失败", "code": "" });
         }
         transferred += read as u64;
@@ -398,6 +507,24 @@ pub fn download_update(state: State<'_, Arc<AppState>>) -> Value {
             json!({ "percent": percent, "transferred": transferred, "total": total }),
         );
     }
+    if let Err(e) = file.flush() {
+        let _ = std::fs::remove_file(&target);
+        state.emit("updater:error", json!({
+            "message": e.to_string(), "code": "", "name": "Error",
+        }));
+        return json!({ "ok": false, "error": e.to_string(), "code": "" });
+    }
+    drop(file);
+
+    let actual_hex = format!("{:x}", hasher.finalize());
+    if actual_hex != expected_hex {
+        let _ = std::fs::remove_file(&target);
+        state.emit("updater:error", json!({
+            "message": "更新包校验失败", "code": "digest-mismatch", "name": "Error",
+        }));
+        return json!({ "ok": false, "error": "更新包校验失败", "code": "digest-mismatch" });
+    }
+
     *UPDATE_FILE.lock().unwrap() = Some(target.clone());
     state.emit("updater:update-downloaded", release);
     json!({ "ok": true })
@@ -425,9 +552,10 @@ pub fn quit_and_install(state: State<'_, Arc<AppState>>, app: tauri::AppHandle) 
 }
 
 /// Called from the Tauri close-request handler.
-/// Frontend flushes synchronously in closeWindow() before invoking window_close;
-/// this grace period only covers system-level closes (Alt+F4 / taskbar).
-const FLUSH_GRACE_MS: u64 = 300;
+/// Normally the renderer flushes synchronously and calls `flush_complete`
+/// before exiting, so this grace period is only a fallback for system-level
+/// closes (Alt+F4 / taskbar) where the renderer cannot acknowledge in time.
+const FLUSH_GRACE_MS: u64 = 2000;
 
 pub fn request_flush(state: &AppState) {
     if state.flush.waiting.swap(true, Ordering::SeqCst) {

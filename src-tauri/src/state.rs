@@ -8,7 +8,7 @@ use std::{
         atomic::{AtomicBool, AtomicU64},
         Mutex,
     },
-    time::Instant,
+    time::{Duration, Instant},
 };
 
 use notify::RecommendedWatcher;
@@ -119,7 +119,9 @@ impl AppState {
             Ok(m) => m,
             Err(_) => return,
         };
-        map.insert(path.clone(), Instant::now());
+        // Keep the marker alive for a short window so notify's duplicate
+        // events for a single self-write are all suppressed.
+        map.insert(path.clone(), Instant::now() + Duration::from_secs(2));
         if map.len() > 500 {
             let now = Instant::now();
             map.retain(|_, until| *until > now);
@@ -131,6 +133,8 @@ impl AppState {
             Ok(m) => m,
             Err(_) => return false,
         };
+        // Keep the marker for the whole silence window: notify can emit several
+        // events for one self-write, and every one of them must be suppressed.
         match map.get(path) {
             Some(until) if *until > Instant::now() => true,
             Some(_) => {
@@ -196,4 +200,55 @@ pub fn electron_user_data(app: &tauri::App<Wry>) -> PathBuf {
     let dir = root.join("choyeon-note");
     let _ = std::fs::create_dir_all(&dir);
     dir
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_state() -> AppState {
+        AppState {
+            user_data: PathBuf::from("test-user-data"),
+            app_handle: Mutex::new(None),
+            notes_path: Mutex::new(None),
+            active_workspace: Mutex::new(None),
+            self_writes: Mutex::new(HashMap::new()),
+            log: LogState {
+                dir: PathBuf::from("test-user-data/logs"),
+                file: PathBuf::from("test-user-data/logs/main.log"),
+                level: Mutex::new("info".to_string()),
+                write_lock: Mutex::new(()),
+                session_written: AtomicBool::new(false),
+                rotation_seq: AtomicU64::new(0),
+            },
+            watch: WatchState {
+                watcher: Mutex::new(None),
+                root: Mutex::new(None),
+                known: Mutex::new(HashSet::new()),
+                pending: Mutex::new(HashMap::new()),
+                generation: AtomicU64::new(0),
+            },
+            flush: FlushState {
+                waiting: AtomicBool::new(false),
+                generation: AtomicU64::new(0),
+            },
+            update_in_flight: AtomicBool::new(false),
+        }
+    }
+
+    #[test]
+    fn self_write_marker_survives_duplicate_events_until_expiry() {
+        let state = test_state();
+        let path = PathBuf::from("note.md");
+        state.mark_self_write(&path);
+        assert!(state.is_self_write(&path), "first event must be suppressed");
+        assert!(state.is_self_write(&path), "duplicate event in the same window must be suppressed");
+
+        state
+            .self_writes
+            .lock()
+            .unwrap()
+            .insert(path.clone(), Instant::now() - Duration::from_secs(1));
+        assert!(!state.is_self_write(&path), "expired marker must not suppress external edits");
+    }
 }

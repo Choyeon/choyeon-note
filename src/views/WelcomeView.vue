@@ -100,8 +100,8 @@
 
           <!-- 主按钮：填充样式 -->
           <button 
-            class="w-full py-3 rounded-[var(--radius-md)] cursor-pointer transition-opacity hover:opacity-90 active:opacity-95 text-[14px] font-medium text-white"
-            :style="{ background: 'var(--color-primary)', boxShadow: 'var(--shadow-xs)', transition: 'opacity var(--transition-micro)' }"
+            class="w-full py-3 rounded-[var(--radius-md)] cursor-pointer transition-opacity hover:opacity-90 active:opacity-95 text-[14px] font-medium"
+            :style="{ background: 'var(--color-primary)', color: 'var(--btn-primary-text)', boxShadow: 'var(--shadow-xs)', transition: 'opacity var(--transition-micro)' }"
             :disabled="isLoading"
             @click="confirmPath"
           >

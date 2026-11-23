@@ -32,7 +32,7 @@
       }
     ],
     "security": {
-      "csp": null,
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https://www.bing.com https://th.bing.com https://bing.biturl.top; font-src 'self' data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:5176 ws://localhost:5176 https://api.github.com https://www.bing.com https://bing.biturl.top; object-src 'none'; base-uri 'self'",
       "capabilities": [
         "default"
       ]

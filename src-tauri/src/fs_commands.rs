@@ -15,11 +15,18 @@ use crate::{
     util::backend_log,
     util::{
         canonicalize_clean, errno_to_code, extension_of, io_failure, is_note_extension,
-        path_failure, path_string, read_json, validate_path_async, write_json,
+        path_failure, path_string, read_json, symlink_failure, validate_path_async, write_json,
     },
 };
 
 const MAX_SCAN_DEPTH: usize = 32;
+
+/// `symlink_metadata` inspects the link itself instead of following it.
+fn is_symlink(path: &Path) -> bool {
+    fs::symlink_metadata(path)
+        .map(|meta| meta.file_type().is_symlink())
+        .unwrap_or(false)
+}
 
 pub(crate) fn apply_notes_path(state: &AppState, candidate: &str) -> bool {
     if candidate.trim().is_empty() {
@@ -45,11 +52,6 @@ pub(crate) fn apply_notes_path(state: &AppState, candidate: &str) -> bool {
 #[tauri::command]
 pub fn app_select_notes_path(state: State<'_, Arc<AppState>>, app: tauri::AppHandle) -> Option<String> {
     use tauri_plugin_dialog::DialogExt;
-    // TEMP-PROBE
-    let _ = std::fs::write(
-        r"C:\Users\Choyeon\Projects\choyeon-note\tmp\dialog-probe.txt",
-        "reached-rust",
-    );
     let home = dirs::home_dir().unwrap_or_default().join("Documents");
     let folder = app
         .dialog()
@@ -280,6 +282,18 @@ pub fn fs_write_file(
             };
         }
     };
+    // Realpath validation happens before this point; a link swapped in since
+    // then must not be followed by the final write.
+    if is_symlink(&safe) {
+        backend_log(
+            &state,
+            "ipc",
+            "error",
+            "写入文件失败：拒绝跟随符号链接",
+            Some(json!({ "op": "fs:write-file", "errno": "EPERM" })),
+        );
+        return if detail { symlink_failure() } else { json!(false) };
+    }
     let result = (|| -> std::io::Result<()> {
         if let Some(parent) = safe.parent() {
             fs::create_dir_all(parent)?;
@@ -348,6 +362,11 @@ pub fn fs_move_file(
             return json!({ "ok": false, "error": "write-failed", "errno": "EIO", "message": "无法创建目标目录" });
         }
     }
+    // Neither end may be a symlink: rename would move the link itself, and the
+    // copy fallback would read through it.
+    if is_symlink(&old) || is_symlink(&new) {
+        return symlink_failure();
+    }
     state.mark_self_write(&old);
     state.mark_self_write(&new);
     match fs::rename(&old, &new) {
@@ -378,6 +397,9 @@ pub fn fs_delete_file(state: State<'_, Arc<AppState>>, file_path: String, option
             return if detail { path_failure(&e, "invalid-path") } else { json!(false) };
         }
     };
+    if is_symlink(&safe) {
+        return if detail { symlink_failure() } else { json!(false) };
+    }
     state.mark_self_write(&safe);
     crate::trash::delete_with_trash(&state, &safe, detail, false)
 }
@@ -404,6 +426,9 @@ pub fn fs_remove_dir(state: State<'_, Arc<AppState>>, dir_path: String, options:
     {
         return json!(false);
     }
+    if is_symlink(&safe) {
+        return if detail { symlink_failure() } else { json!(false) };
+    }
     state.mark_self_write(&safe);
     crate::trash::delete_with_trash(&state, &safe, detail, true)
 }
@@ -420,10 +445,52 @@ pub fn fs_unwatch_notes(state: State<'_, Arc<AppState>>) -> bool {
 }
 
 #[tauri::command]
-pub fn workspace_probe(_state: State<'_, Arc<AppState>>, dir_path: String) -> Value {
-    let path = PathBuf::from(&dir_path);
+pub fn workspace_probe(state: State<'_, Arc<AppState>>, dir_path: String) -> Value {
+    let miss = json!({ "exists": false, "count": 0, "folders": 0, "writable": false });
+    let target = match canonicalize_clean(Path::new(&dir_path)) {
+        Ok(p) => p,
+        Err(_) => return miss,
+    };
+
+    // A workspace other than the active one lives outside `notes_path`, so the
+    // boundary check must use whichever registered root this path actually is.
+    // Only the active notes path and workspaces persisted by `workspace_save`
+    // may be probed — arbitrary directories stay out of reach.
+    let mut allowed: Vec<PathBuf> = Vec::new();
+    if let Some(root) = state.notes_path.lock().unwrap().as_ref() {
+        allowed.push(root.clone());
+    }
+    let workspaces = read_json(&state.workspaces_file(), json!([]));
+    if let Some(list) = workspaces.as_array() {
+        for item in list {
+            let raw = item
+                .get("path")
+                .and_then(|v| v.as_str())
+                .or_else(|| item.get("notesPath").and_then(|v| v.as_str()));
+            if let Some(raw) = raw.filter(|s| !s.trim().is_empty()) {
+                allowed.push(PathBuf::from(raw));
+            }
+        }
+    }
+    let base = allowed.into_iter().find(|root| {
+        canonicalize_clean(root)
+            .map(|real| real == target)
+            .unwrap_or(false)
+    });
+    let base = match base {
+        Some(b) => Some(b),
+        None => return miss,
+    };
+    let safe = match validate_path_async(&base, &dir_path) {
+        Ok(p) => p,
+        Err(_) => return miss,
+    };
+    let path = match canonicalize_clean(&safe) {
+        Ok(p) => p,
+        Err(_) => return miss,
+    };
     if !path.is_dir() {
-        return json!({ "exists": false, "count": 0, "folders": 0, "writable": false });
+        return miss;
     }
     let mut count = 0usize;
     let mut folders = 0usize;
@@ -438,10 +505,16 @@ pub fn workspace_probe(_state: State<'_, Arc<AppState>>, dir_path: String) -> Va
             if name.starts_with('.') {
                 continue;
             }
-            let file_type = match entry.file_type() {
-                Ok(t) => t,
+            // symlink_metadata never follows the link, so a link placed inside
+            // the workspace cannot make the scan escape the validated root.
+            let meta = match fs::symlink_metadata(entry.path()) {
+                Ok(m) => m,
                 Err(_) => continue,
             };
+            let file_type = meta.file_type();
+            if file_type.is_symlink() {
+                continue;
+            }
             if file_type.is_dir() {
                 folders += 1;
                 stack.push(entry.path());

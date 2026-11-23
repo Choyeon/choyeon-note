@@ -543,4 +543,3 @@ pub fn workspace_probe(state: State<'_, Arc<AppState>>, dir_path: String) -> Val
     }
     json!({ "exists": true, "count": count, "folders": folders, "writable": writable })
 }
-

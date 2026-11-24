@@ -20,7 +20,7 @@ const forbidden = [
 
 function collectFiles (dir, out = []) {
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (['node_modules', 'target', 'dist', '.git', 'tmp', 'release-assets'].includes(entry.name)) continue
+    if (['node_modules', 'target', 'dist', '.git', '.workbuddy', 'tmp', 'release-assets'].includes(entry.name)) continue
     if (entry.name === 'noBingWallpaper.test.js') continue
     const full = path.join(dir, entry.name)
     if (entry.isDirectory()) collectFiles(full, out)

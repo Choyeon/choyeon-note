@@ -1,7 +1,7 @@
 <template>
   <div class="h-full flex flex-col overflow-hidden">
     <div 
-      class="min-h-[52px] px-6 py-2.5 flex items-center border-b acrylic-content"
+      class="note-list-header min-h-[52px] px-6 py-2.5 flex items-center border-b"
       :style="{ borderColor: 'var(--color-border-light)' }"
     >
       <span class="text-[20px] font-semibold tracking-tight" :style="{ color: 'var(--color-text-primary)' }">全部笔记</span>
@@ -15,18 +15,18 @@
       >
         <button 
           class="flex items-center gap-1 px-3 py-1 rounded-[var(--radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-          :style="viewMode === 'list' ? { background: 'var(--color-surface)', boxShadow: 'var(--shadow-xs)' } : {}"
+          :style="viewMode === 'list' ? { background: 'var(--color-surface)' } : {}"
           @click="setViewMode('list')"
         >
-          <List class="w-3.5 h-3.5" :style="{ color: viewMode === 'list' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
-          <span class="text-[13px] font-medium" :style="{ color: viewMode === 'list' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">列表</span>
+          <List class="w-3.5 h-3.5" :style="{ color: viewMode === 'list' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }" />
+          <span class="text-[14px] font-medium" :style="{ color: viewMode === 'list' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }">列表</span>
         </button>
         <button 
           class="flex items-center gap-1 px-3 py-1 rounded-[var(--radius-sm)] cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
           @click="setViewMode('card')"
         >
-          <LayoutGrid class="w-3.5 h-3.5" :style="{ color: viewMode === 'card' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }" />
-          <span class="text-[13px] font-medium" :style="{ color: viewMode === 'card' ? 'var(--color-primary)' : 'var(--color-text-tertiary)' }">卡片</span>
+          <LayoutGrid class="w-3.5 h-3.5" :style="{ color: viewMode === 'card' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }" />
+          <span class="text-[14px] font-medium" :style="{ color: viewMode === 'card' ? 'var(--color-text-primary)' : 'var(--color-text-tertiary)' }">卡片</span>
         </button>
       </div>
 
@@ -40,7 +40,7 @@
           @click="sortMenuOpen = !sortMenuOpen"
           @keydown.esc="sortMenuOpen = false"
         >
-          <span class="text-[13px] whitespace-nowrap" :style="{ color: 'var(--color-text-secondary)' }">
+          <span class="text-[14px] whitespace-nowrap" :style="{ color: 'var(--color-text-secondary)' }">
             {{ sortLabel }}
           </span>
           <ChevronDown class="w-3.5 h-3.5" :style="{ color: 'var(--color-text-tertiary)' }" />
@@ -60,8 +60,8 @@
             :aria-selected="noteStore.sortBy === opt.value"
             @click="applySort(opt.value)"
           >
-            <span class="text-[13px]" :style="{ color: 'var(--color-text-primary)' }">{{ opt.label }}</span>
-            <Check v-if="noteStore.sortBy === opt.value" class="w-3.5 h-3.5" :style="{ color: 'var(--color-primary)' }" />
+            <span class="text-[14px]" :style="{ color: 'var(--color-text-primary)' }">{{ opt.label }}</span>
+            <Check v-if="noteStore.sortBy === opt.value" class="w-3.5 h-3.5" :style="{ color: 'var(--color-text-secondary)' }" />
           </button>
         </div>
       </div>
@@ -82,8 +82,8 @@
         </p>
         <button
           v-if="noteStore.searchQuery || noteStore.selectedFolder"
-          class="mt-1 h-8 px-3 rounded-[var(--radius-md)] text-[12px] cursor-pointer"
-          :style="{ color: 'var(--color-primary)', border: '1px solid var(--color-border)' }"
+          class="mt-1 h-8 px-3 rounded-[var(--radius-md)] text-[14px] cursor-pointer"
+          :style="{ background: 'var(--color-primary)', color: 'var(--btn-primary-text)' }"
           @click="clearFilters"
         >
           清除筛选
@@ -140,8 +140,8 @@
             <span 
               v-for="tag in note.tags.slice(0, 2)" 
               :key="tag"
-              class="rounded-full px-2 py-px text-[11px]"
-              :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
+              class="rounded-full px-2 py-px text-[12px]"
+              :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
             >#{{ tag }}</span>
           </div>
           <div class="w-[120px] flex items-center justify-center">
@@ -164,15 +164,15 @@
           <div 
             v-for="note in filteredNotes" 
             :key="note.id"
-            class="acrylic-card p-4 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
-            :style="{ boxShadow: 'var(--shadow-xs)', transitionProperty: 'background-color' }"
+            class="note-card p-4 cursor-pointer transition-colors hover:bg-[var(--color-surface-hover)]"
+            :style="{ transitionProperty: 'background-color' }"
             @click="openNote(note.id)"
           >
             <div class="flex items-start gap-3 mb-2">
-              <FileText class="w-5 h-5 flex-shrink-0 mt-0.5" :style="{ color: 'var(--color-primary)' }" />
+              <FileText class="w-5 h-5 flex-shrink-0 mt-0.5" :style="{ color: 'var(--color-text-secondary)' }" />
               <div class="flex-1 min-w-0">
                 <h3 
-                  class="text-[15px] font-semibold truncate"
+                  class="text-[14px] font-semibold truncate"
                   :style="{ color: 'var(--color-text-primary)' }"
                 >{{ note.title }}</h3>
                 <p class="text-[12px] mt-1" :style="{ color: 'var(--color-text-tertiary)' }">
@@ -181,7 +181,7 @@
               </div>
             </div>
             <p 
-              class="text-[13px] line-clamp-2 mt-2 leading-relaxed"
+              class="text-[12px] line-clamp-2 mt-2 leading-relaxed"
               :style="{ color: 'var(--color-text-secondary)' }"
             >{{ getPreview(note.content) }}</p>
             <div class="flex items-center justify-between mt-3 pt-3 border-t" :style="{ borderColor: 'var(--color-border-light)' }">
@@ -189,11 +189,11 @@
                 <span 
                   v-for="tag in note.tags.slice(0, 2)" 
                   :key="tag"
-                  class="rounded-full px-2 py-px text-[11px]"
-                  :style="{ background: 'var(--color-primary-surface)', color: 'var(--color-primary)' }"
+                  class="rounded-full px-2 py-px text-[12px]"
+                  :style="{ background: 'var(--color-bg-tertiary)', color: 'var(--color-text-secondary)' }"
                 >#{{ tag }}</span>
               </div>
-              <span class="text-[11px]" :style="{ color: 'var(--color-text-tertiary)' }">
+              <span class="text-[12px]" :style="{ color: 'var(--color-text-tertiary)' }">
                 {{ formatDate(note.updatedAt) }}
               </span>
             </div>
@@ -295,3 +295,25 @@ function getPreview(content) {
   return text.length > 100 ? text.substring(0, 100) + '...' : text
 }
 </script>
+
+<style scoped>
+/* 视觉层级收敛：强调色只留给空态主操作「清除筛选」，其余一律暖灰中性 */
+.note-list-header {
+  background: var(--color-bg);
+}
+
+/* 标题/正文/辅助三级；大数字在本页不存在，不占用字号档位 */
+.note-list-header :deep(.cho-pill) {
+  font-size: 12px;
+}
+
+/* 笔记卡片：单层表面，去掉毛玻璃与叠加阴影，只留边界区分 */
+.note-card {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-light);
+  border-radius: var(--radius-lg);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
+}
+</style>
